@@ -1,0 +1,13 @@
+// Adds air-factory plan and Tier 2 / Tier 3 reconstructor upgrades without replacing vanilla recipes.
+name: Oxidise to Corrode to Dissociate
+block.air-factory.plans.+: {
+  unit: dp-oxidise-unit
+  time: 900
+  requirements: [silicon/15]
+}
+block.additive-reconstructor.upgrades.+: [
+  [dp-oxidise-unit, dp-corrode-unit]
+]
+block.multiplicative-reconstructor.upgrades.+: [
+  [dp-corrode-unit, dp-dissociate-unit]
+]

@@ -1,0 +1,14 @@
+// Private weapon fluid: the only status it applies is vanilla corroded.
+name: Corrofluid
+color: e4ffd6
+lightColor: "00000000"
+hidden: true
+effect: corroded
+// Neutral temperature avoids both creating and extinguishing fires.
+temperature: 0.6
+flammability: 0
+explosiveness: 0
+heatCapacity: 0
+viscosity: 0.9
+coolant: false
+blockReactive: false

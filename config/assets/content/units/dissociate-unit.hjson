@@ -1,0 +1,884 @@
+//dissociate-unit (Tier 3 upgrade of corrode-unit)
+type: flying
+controller: FlyingAI
+name: Dissociate
+localizedName: Dissociate
+credit: alphy
+description: "Fires sequential 3-round bursts of long white bolts from four small mounts while leaking corrosive droplets of fluctuating size. Explodes on death into a large corrosive puddle."
+alwaysUnlocked: true
+shownPlanets: [serpulo, erekir]
+canAttack: true
+targetAir: true
+targetGround: true
+playerControllable: true
+logicControllable: true
+useUnitCap: true
+outlines: false
+outlineColor: 565666
+drawCell: true
+itemCapacity: 60
+flying: true
+lowAltitude: false
+drag: 0.05
+speed: 1.0
+accel: 0.08
+rotateSpeed: 4.2
+health: 750
+armor: 7
+hitSize: 27
+engineSize: 0
+engines: [
+  {
+    x: 6.8
+    y: -15.5
+    radius: 3.2
+    rotation: -90
+  }
+  {
+    x: -6.8
+    y: -15.5
+    radius: 3.2
+    rotation: -90
+  }
+]
+fogRadius: 30
+circleTarget: false
+immunities: [
+  corroded
+]
+parts: [
+  {
+    type: RegionPart
+    name: dp-dissociate-glow
+    outline: false
+    blending: additive
+    layerOffset: 0.004
+    color: "ffffff00"
+    colorTo: "ffffff78"
+    progress: {
+      type: time
+      ops: [
+        {
+          op: mul
+          amount: 0
+        }
+        {
+          op: absin
+          scl: 7.5
+          mag: 1
+        }
+      ]
+    }
+  }
+  {
+    type: RegionPart
+    name: dp-dissociate-glow
+    outline: false
+    blending: additive
+    layer: 109
+    xScl: 1.04
+    yScl: 1.04
+    color: "ff9ce600"
+    colorTo: "ff8fd670"
+    progress: {
+      type: time
+      ops: [
+        {
+          op: mul
+          amount: 0
+        }
+        {
+          op: absin
+          scl: 7.5
+          mag: 1
+        }
+      ]
+    }
+  }
+]
+abilities: [
+  {
+    type: LiquidExplodeAbility
+    liquid: dp-corrofluid-liquid
+    amount: 180
+    radScale: 1.9
+    radAmountScale: 5
+  }
+]
+weapons: [
+  // Weapon 1 of 4 (Front-Right): fires burst of 3 at t = 0, 3, 6
+  {
+    name: dissociate-mount
+    x: 4.5
+    y: 9
+    shootY: 4
+    mirror: false
+    rotate: true
+    rotateSpeed: 36
+    shootCone: 45
+    top: true
+    layerOffset: 0.01
+    reload: 64
+    shoot: {
+      shots: 3
+      shotDelay: 3
+      firstShotDelay: 0
+    }
+    recoil: 1.5
+    ejectEffect: casing1
+    shootSound: shootMissileLong
+    soundPitchMin: 1.2
+    soundPitchMax: 1.2
+    bullet: {
+      type: BasicBulletType
+      sprite: bullet
+      layer: 116
+      speed: 4.2
+      lifetime: 28
+      damage: 10
+      splashDamage: 6
+      splashDamageRadius: 10
+      width: 5.5
+      height: 19
+      shrinkX: 0
+      shrinkY: 0
+      frontColor: ffffff
+      backColor: e8f0ff
+      hitColor: ffffff
+      trailColor: ffffff
+      trailWidth: 1.25
+      trailLength: 5
+      ammoMultiplier: 2
+      shootEffect: {
+        type: ParticleEffect
+        layer: 116
+        particles: 1
+        lifetime: 8
+        length: 0
+        sizeFrom: 3
+        sizeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff00
+      }
+      smokeEffect: none
+      hitEffect: {
+        type: MultiEffect
+        effects: [
+          {
+            type: WaveEffect
+            layer: 116
+            sides: 0
+            lifetime: 15
+            sizeFrom: 0
+            sizeTo: 10
+            strokeFrom: 2.2
+            strokeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff
+          }
+          {
+            type: ParticleEffect
+            layer: 116
+            particles: 1
+            lifetime: 10
+            length: 0
+            sizeFrom: 4
+            sizeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff00
+          }
+        ]
+      }
+      despawnEffect: {
+        type: WaveEffect
+        layer: 116
+        sides: 0
+        lifetime: 15
+        sizeFrom: 0
+        sizeTo: 10
+        strokeFrom: 2.2
+        strokeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff
+      }
+    }
+  }
+  // Weapon 2 of 4 (Front-Left): fires burst of 3 at t = 16, 19, 22
+  {
+    name: dissociate-mount-l
+    x: -4.5
+    y: 9
+    shootY: 4
+    mirror: false
+    display: false
+    rotate: true
+    rotateSpeed: 36
+    shootCone: 45
+    top: true
+    layerOffset: 0.01
+    reload: 64
+    shoot: {
+      shots: 3
+      shotDelay: 3
+      firstShotDelay: 16
+    }
+    recoil: 1.5
+    ejectEffect: casing1
+    shootSound: shootMissileLong
+    soundPitchMin: 1.2
+    soundPitchMax: 1.2
+    bullet: {
+      type: BasicBulletType
+      sprite: bullet
+      layer: 116
+      speed: 4.2
+      lifetime: 28
+      damage: 10
+      splashDamage: 6
+      splashDamageRadius: 10
+      width: 5.5
+      height: 19
+      shrinkX: 0
+      shrinkY: 0
+      frontColor: ffffff
+      backColor: e8f0ff
+      hitColor: ffffff
+      trailColor: ffffff
+      trailWidth: 1.25
+      trailLength: 5
+      ammoMultiplier: 2
+      shootEffect: {
+        type: ParticleEffect
+        layer: 116
+        particles: 1
+        lifetime: 8
+        length: 0
+        sizeFrom: 3
+        sizeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff00
+      }
+      smokeEffect: none
+      hitEffect: {
+        type: MultiEffect
+        effects: [
+          {
+            type: WaveEffect
+            layer: 116
+            sides: 0
+            lifetime: 15
+            sizeFrom: 0
+            sizeTo: 10
+            strokeFrom: 2.2
+            strokeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff
+          }
+          {
+            type: ParticleEffect
+            layer: 116
+            particles: 1
+            lifetime: 10
+            length: 0
+            sizeFrom: 4
+            sizeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff00
+          }
+        ]
+      }
+      despawnEffect: {
+        type: WaveEffect
+        layer: 116
+        sides: 0
+        lifetime: 15
+        sizeFrom: 0
+        sizeTo: 10
+        strokeFrom: 2.2
+        strokeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff
+      }
+    }
+  }
+  // Weapon 3 of 4 (Rear-Right): fires burst of 3 at t = 32, 35, 38
+  {
+    name: dissociate-mount
+    x: 5
+    y: -5.75
+    shootY: 4
+    mirror: false
+    display: false
+    rotate: true
+    rotateSpeed: 36
+    shootCone: 45
+    top: true
+    layerOffset: 0.01
+    reload: 64
+    shoot: {
+      shots: 3
+      shotDelay: 3
+      firstShotDelay: 32
+    }
+    recoil: 1.5
+    ejectEffect: casing1
+    shootSound: shootMissileLong
+    soundPitchMin: 1.2
+    soundPitchMax: 1.2
+    bullet: {
+      type: BasicBulletType
+      sprite: bullet
+      layer: 116
+      speed: 4.2
+      lifetime: 28
+      damage: 10
+      splashDamage: 6
+      splashDamageRadius: 10
+      width: 5.5
+      height: 19
+      shrinkX: 0
+      shrinkY: 0
+      frontColor: ffffff
+      backColor: e8f0ff
+      hitColor: ffffff
+      trailColor: ffffff
+      trailWidth: 1.25
+      trailLength: 5
+      ammoMultiplier: 2
+      shootEffect: {
+        type: ParticleEffect
+        layer: 116
+        particles: 1
+        lifetime: 8
+        length: 0
+        sizeFrom: 3
+        sizeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff00
+      }
+      smokeEffect: none
+      hitEffect: {
+        type: MultiEffect
+        effects: [
+          {
+            type: WaveEffect
+            layer: 116
+            sides: 0
+            lifetime: 15
+            sizeFrom: 0
+            sizeTo: 10
+            strokeFrom: 2.2
+            strokeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff
+          }
+          {
+            type: ParticleEffect
+            layer: 116
+            particles: 1
+            lifetime: 10
+            length: 0
+            sizeFrom: 4
+            sizeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff00
+          }
+        ]
+      }
+      despawnEffect: {
+        type: WaveEffect
+        layer: 116
+        sides: 0
+        lifetime: 15
+        sizeFrom: 0
+        sizeTo: 10
+        strokeFrom: 2.2
+        strokeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff
+      }
+    }
+  }
+  // Weapon 4 of 4 (Rear-Left): fires burst of 3 at t = 48, 51, 54
+  {
+    name: dissociate-mount-l
+    x: -5
+    y: -5.75
+    shootY: 4
+    mirror: false
+    display: false
+    rotate: true
+    rotateSpeed: 36
+    shootCone: 45
+    top: true
+    layerOffset: 0.01
+    reload: 64
+    shoot: {
+      shots: 3
+      shotDelay: 3
+      firstShotDelay: 48
+    }
+    recoil: 1.5
+    ejectEffect: casing1
+    shootSound: shootMissileLong
+    soundPitchMin: 1.2
+    soundPitchMax: 1.2
+    bullet: {
+      type: BasicBulletType
+      sprite: bullet
+      layer: 116
+      speed: 4.2
+      lifetime: 28
+      damage: 10
+      splashDamage: 6
+      splashDamageRadius: 10
+      width: 5.5
+      height: 19
+      shrinkX: 0
+      shrinkY: 0
+      frontColor: ffffff
+      backColor: e8f0ff
+      hitColor: ffffff
+      trailColor: ffffff
+      trailWidth: 1.25
+      trailLength: 5
+      ammoMultiplier: 2
+      shootEffect: {
+        type: ParticleEffect
+        layer: 116
+        particles: 1
+        lifetime: 8
+        length: 0
+        sizeFrom: 3
+        sizeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff00
+      }
+      smokeEffect: none
+      hitEffect: {
+        type: MultiEffect
+        effects: [
+          {
+            type: WaveEffect
+            layer: 116
+            sides: 0
+            lifetime: 15
+            sizeFrom: 0
+            sizeTo: 10
+            strokeFrom: 2.2
+            strokeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff
+          }
+          {
+            type: ParticleEffect
+            layer: 116
+            particles: 1
+            lifetime: 10
+            length: 0
+            sizeFrom: 4
+            sizeTo: 0
+            colorFrom: ffffff
+            colorTo: ffffff00
+          }
+        ]
+      }
+      despawnEffect: {
+        type: WaveEffect
+        layer: 116
+        sides: 0
+        lifetime: 15
+        sizeFrom: 0
+        sizeTo: 10
+        strokeFrom: 2.2
+        strokeTo: 0
+        colorFrom: ffffff
+        colorTo: ffffff
+      }
+    }
+  }
+  // Weapon 5 (index 4): Non-moving 180-deg reversed oxidise-weapon in center, drawn below the 4 guns!
+  // Plus coprime fluctuating-size Corrofluid drop emitters moving slightly in random 360-deg directions.
+  {
+    name: oxidise-weapon
+    x: 0
+    y: 0
+    shootY: 4.5
+    mirror: false
+    rotate: false
+    baseRotation: 180
+    top: true
+    layerOffset: 0.002
+    display: false
+    showStatSprite: false
+    alwaysShooting: true
+    controllable: false
+    aiControllable: false
+    autoTarget: false
+    useAttackRange: false
+    shootCone: 360
+    inaccuracy: 180
+    velocityRnd: 0.55
+    reload: 31
+    recoil: 0
+    ejectEffect: none
+    shootSound: none
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 0.65
+      lifetime: 18
+      drag: 0.04
+      keepVelocity: false
+      orbSize: 1.7
+      puddleSize: 18
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      collides: true
+      collidesTiles: true
+      collidesAir: false
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      smokeEffect: none
+      despawnEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 3
+        lifetime: 14
+        cone: 60
+        length: 10
+        baseLength: 1
+        sizeFrom: 1.4
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+    }
+  }
+  {
+    name: dissociate-leak-b
+    x: 0
+    y: -4.5
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: false
+    showStatSprite: false
+    alwaysShooting: true
+    controllable: false
+    aiControllable: false
+    autoTarget: false
+    useAttackRange: false
+    shootCone: 360
+    inaccuracy: 180
+    velocityRnd: 0.55
+    reload: 37
+    recoil: 0
+    ejectEffect: none
+    shootSound: none
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 0.65
+      lifetime: 18
+      drag: 0.04
+      keepVelocity: false
+      orbSize: 2.4
+      puddleSize: 23
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      collides: true
+      collidesTiles: true
+      collidesAir: false
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      smokeEffect: none
+      despawnEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 4
+        lifetime: 14
+        cone: 60
+        length: 12
+        baseLength: 1
+        sizeFrom: 1.8
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+    }
+  }
+  {
+    name: dissociate-leak-c
+    x: 0
+    y: -4.5
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: false
+    showStatSprite: false
+    alwaysShooting: true
+    controllable: false
+    aiControllable: false
+    autoTarget: false
+    useAttackRange: false
+    shootCone: 360
+    inaccuracy: 180
+    velocityRnd: 0.55
+    reload: 41
+    recoil: 0
+    ejectEffect: none
+    shootSound: none
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 0.65
+      lifetime: 18
+      drag: 0.04
+      keepVelocity: false
+      orbSize: 3.1
+      puddleSize: 28
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      collides: true
+      collidesTiles: true
+      collidesAir: false
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      smokeEffect: none
+      despawnEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 4
+        lifetime: 14
+        cone: 60
+        length: 13
+        baseLength: 1
+        sizeFrom: 2.1
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+    }
+  }
+  {
+    name: dissociate-leak-d
+    x: 0
+    y: -4.5
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: false
+    showStatSprite: false
+    alwaysShooting: true
+    controllable: false
+    aiControllable: false
+    autoTarget: false
+    useAttackRange: false
+    shootCone: 360
+    inaccuracy: 180
+    velocityRnd: 0.55
+    reload: 43
+    recoil: 0
+    ejectEffect: none
+    shootSound: none
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 0.65
+      lifetime: 18
+      drag: 0.04
+      keepVelocity: false
+      orbSize: 3.8
+      puddleSize: 33
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      collides: true
+      collidesTiles: true
+      collidesAir: false
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      smokeEffect: none
+      despawnEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 5
+        lifetime: 15
+        cone: 60
+        length: 15
+        baseLength: 1
+        sizeFrom: 2.4
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+    }
+  }
+  {
+    name: dissociate-leak-e
+    x: 0
+    y: -4.5
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: false
+    showStatSprite: false
+    alwaysShooting: true
+    controllable: false
+    aiControllable: false
+    autoTarget: false
+    useAttackRange: false
+    shootCone: 360
+    inaccuracy: 180
+    velocityRnd: 0.55
+    reload: 47
+    recoil: 0
+    ejectEffect: none
+    shootSound: none
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 0.65
+      lifetime: 18
+      drag: 0.04
+      keepVelocity: false
+      orbSize: 4.5
+      puddleSize: 38
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      collides: true
+      collidesTiles: true
+      collidesAir: false
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      smokeEffect: none
+      despawnEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 5
+        lifetime: 16
+        cone: 60
+        length: 16
+        baseLength: 1
+        sizeFrom: 2.8
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+    }
+  }
+  // Death explosion leaving a large corrosive puddle
+  {
+    name: dissociate-death
+    x: 0
+    y: 0
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: true
+    showStatSprite: false
+    controllable: false
+    aiControllable: false
+    autoTarget: false
+    useAttackRange: false
+    shootOnDeath: true
+    shootCone: 360
+    reload: 24
+    recoil: 0
+    ejectEffect: none
+    shootSound: explosionCrawler
+    shootSoundVolume: 0.85
+    bullet: {
+      type: BulletType
+      collides: false
+      collidesTiles: false
+      collidesAir: true
+      collidesGround: true
+      hittable: false
+      instantDisappear: true
+      despawnHit: true
+      killShooter: false
+      speed: 0
+      rangeOverride: 32
+      splashDamage: 180
+      splashDamageRadius: 64
+      scaledSplashDamage: true
+      buildingDamageMultiplier: 1.25
+      status: corroded
+      statusDuration: 300
+      puddles: 24
+      puddleRange: 52
+      puddleAmount: 60
+      puddleLiquid: dp-corrofluid-liquid
+      hitEffect: massiveExplosion
+      despawnEffect: pulverize
+      shootEffect: none
+      smokeEffect: none
+    }
+  }
+]

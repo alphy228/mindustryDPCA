@@ -1,0 +1,43 @@
+unit.dp-oxidise-unit: {
+  localizedName: Oxidise
+  description: Covers enemy targets in tar, then ignites them.
+  region: dp-oxidise-unit
+  cellRegion: dp-oxidise-unit-cell
+  previewRegion: dp-oxidise-unit-full
+  fullIcon: dp-oxidise-unit-full
+  uiIcon: dp-oxidise-unit-ui
+  shadowRegion: dp-oxidise-unit-full
+  weapons.1.region: dp-oxidise-weapon
+  weapons.1.outlineRegion: dp-oxidise-weapon-outline
+  weapons.1.heatRegion: dp-oxidise-weapon-heat
+}
+unit.dp-corrode-unit: {
+  localizedName: Corrode
+  description: Shoots highly corrosive fluid of fluctuating droplet sizes at enemy targets.
+  region: dp-corrode-unit
+  cellRegion: dp-corrode-unit-cell
+  previewRegion: dp-corrode-unit-full
+  fullIcon: dp-corrode-unit-full
+  uiIcon: dp-corrode-unit-ui
+  shadowRegion: dp-corrode-unit-full
+}
+unit.dp-dissociate-unit: {
+  localizedName: Dissociate
+  description: Fires sequential 3-round bursts of long white bolts from four small mounts while leaking corrosive droplets of fluctuating size. Explodes on death into a large corrosive puddle.
+  region: dp-dissociate-unit
+  cellRegion: dp-dissociate-unit-cell
+  previewRegion: dp-dissociate-unit-full
+  fullIcon: dp-dissociate-unit-full
+  uiIcon: dp-dissociate-unit-ui
+  shadowRegion: dp-dissociate-unit-full
+  weapons.0.region: dp-dissociate-mount
+  weapons.0.outlineRegion: dp-dissociate-mount-outline
+  weapons.1.region: dp-dissociate-mount-l
+  weapons.1.outlineRegion: dp-dissociate-mount-l-outline
+  weapons.2.region: dp-dissociate-mount
+  weapons.2.outlineRegion: dp-dissociate-mount-outline
+  weapons.3.region: dp-dissociate-mount-l
+  weapons.3.outlineRegion: dp-dissociate-mount-l-outline
+  weapons.4.region: dp-oxidise-weapon
+  weapons.4.outlineRegion: dp-oxidise-weapon-outline
+}

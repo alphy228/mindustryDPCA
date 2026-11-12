@@ -1,0 +1,251 @@
+//corrode-unit by alphy
+type: flying
+controller: FlyingAI
+name: Corrode
+localizedName: Corrode
+credit: alphy
+description: "Shoots highly corrosive fluid of fluctuating droplet sizes at enemy targets."
+alwaysUnlocked: true
+shownPlanets: [serpulo, erekir]
+canAttack: true
+targetAir: true
+targetGround: true
+playerControllable: true
+logicControllable: true
+useUnitCap: true
+outlines: false
+outlineColor: 565666
+drawCell: true
+itemCapacity: 30
+flying: true
+lowAltitude: false
+drag: 0.07
+speed: 0.516
+accel: 0.1
+rotateSpeed: 6
+health: 280
+armor: 4
+hitSize: 17
+engineOffset: 12
+engineSize: 3
+fogRadius: 24
+circleTarget: false
+weapons: [
+  {
+    name: corrode-mouth-a
+    x: 0
+    y: 1
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: true
+    showStatSprite: false
+    reload: 57
+    shoot: {
+      shots: 1
+      firstShotDelay: 0
+    }
+    shootCone: 25
+    inaccuracy: 0
+    recoil: 0
+    ejectEffect: none
+    shootSound: shootAtrax
+    shootSoundVolume: 1
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 2.5
+      lifetime: 27.486142
+      drag: 0
+      scaleLife: true
+      keepVelocity: false
+      orbSize: 2.0
+      puddleSize: 16
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      knockback: 0.55
+      collides: true
+      collidesTiles: true
+      collidesAir: true
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: {
+        type: ParticleEffect
+        layer: 99
+        lifetime: 36
+        clip: 40
+        particles: 3
+        cone: 25
+        length: 12
+        sizeFrom: 1.8
+        sizeTo: 3.4
+        colorFrom: "e4ffd680"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+        followParent: false
+        useRotation: true
+      }
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 5
+        lifetime: 16
+        cone: 60
+        length: 15
+        baseLength: 1
+        sizeFrom: 1.8
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+      despawnEffect: none
+      smokeEffect: none
+    }
+  }
+  {
+    name: corrode-mouth-b
+    x: 0
+    y: 1
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: false
+    showStatSprite: false
+    reload: 60
+    shoot: {
+      shots: 1
+      firstShotDelay: 5
+    }
+    shootCone: 25
+    inaccuracy: 0
+    recoil: 0
+    ejectEffect: none
+    shootSound: shootAtrax
+    shootSoundVolume: 1
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 2.5
+      lifetime: 27.486142
+      drag: 0
+      scaleLife: true
+      keepVelocity: false
+      orbSize: 3.1
+      puddleSize: 22
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      knockback: 0.55
+      collides: true
+      collidesTiles: true
+      collidesAir: true
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 5
+        lifetime: 16
+        cone: 60
+        length: 15
+        baseLength: 1
+        sizeFrom: 2.2
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+      despawnEffect: none
+      smokeEffect: none
+    }
+  }
+  {
+    name: corrode-mouth-c
+    x: 0
+    y: 1
+    shootY: 0
+    mirror: false
+    rotate: false
+    top: false
+    display: false
+    showStatSprite: false
+    reload: 63
+    shoot: {
+      shots: 1
+      firstShotDelay: 10
+    }
+    shootCone: 25
+    inaccuracy: 0
+    recoil: 0
+    ejectEffect: none
+    shootSound: shootAtrax
+    shootSoundVolume: 1
+    bullet: {
+      type: LiquidBulletType
+      liquid: dp-corrofluid-liquid
+      layer: 99
+      damage: 4
+      buildingDamageMultiplier: 5.25
+      speed: 2.5
+      lifetime: 27.486142
+      drag: 0
+      scaleLife: true
+      keepVelocity: false
+      orbSize: 4.3
+      puddleSize: 30
+      despawnHit: true
+      lightOpacity: 0
+      lightRadius: 0
+      lightColor: "00000000"
+      hitColor: e4ffd6
+      knockback: 0.55
+      collides: true
+      collidesTiles: true
+      collidesAir: true
+      collidesGround: true
+      makeFire: false
+      status: corroded
+      statusDuration: 120
+      shootEffect: none
+      hitEffect: {
+        type: ParticleEffect
+        layer: 99
+        particles: 6
+        lifetime: 16
+        cone: 60
+        length: 17
+        baseLength: 1
+        sizeFrom: 2.6
+        sizeTo: 0
+        colorFrom: "e4ffd6"
+        colorTo: "e4ffd600"
+        lightScl: 0
+        lightOpacity: 0
+      }
+      despawnEffect: none
+      smokeEffect: none
+    }
+  }
+]

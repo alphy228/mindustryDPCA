@@ -1,0 +1,1159 @@
+# Server Tech Tree Configuration (config/alphystuff/techtree.hjson)
+# - Starts with vanilla Serpulo Tier 1 units unlocked at the root.
+# - Contains vanilla pre-Thorium / pre-Plastanium units & buildings with vanilla research costs.
+# - Optional per-node `conditions: [ { type: flag, flag: "...", description: "..." } ]` supported.
+
+root: {
+  id: serpulo-tier1-root
+  type: virtual
+  virtual: true
+  displayName: "Serpulo Tier 1 Fleet"
+  description: "Starting Tier 1 Serpulo units. Branch outward to research units, factories, logistics, production, power, and defenses."
+  icon: units
+  alwaysUnlocked: true
+  costs: {}
+  conditions: []
+  children: [
+    {
+      id: dagger
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: mace
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: fortress
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: duo
+          type: block
+          costs: {
+            copper: 50
+          }
+          conditions: []
+          children: [
+            {
+              id: copper-wall
+              type: block
+              costs: {
+                copper: 20
+              }
+              conditions: []
+              children: [
+                {
+                  id: copper-wall-large
+                  type: block
+                  costs: {
+                    copper: 700
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: scrap-wall
+                      type: block
+                      costs: {
+                        scrap: 200
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: scrap-wall-large
+                          type: block
+                          costs: {
+                            scrap: 700
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: scrap-wall-huge
+                              type: block
+                              costs: {
+                                scrap: 1700
+                              }
+                              conditions: []
+                              children: [
+                                {
+                                  id: scrap-wall-gigantic
+                                  type: block
+                                  costs: {
+                                    scrap: 3200
+                                  }
+                                  conditions: []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    {
+                      id: titanium-wall
+                      type: block
+                      costs: {
+                        titanium: 200
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: titanium-wall-large
+                          type: block
+                          costs: {
+                            titanium: 700
+                          }
+                          conditions: []
+                        }
+                        {
+                          id: door
+                          type: block
+                          costs: {
+                            titanium: 200
+                            silicon: 100
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: door-large
+                              type: block
+                              costs: {
+                                titanium: 700
+                                silicon: 400
+                              }
+                              conditions: []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+            {
+              id: scatter
+              type: block
+              costs: {
+                copper: 100
+                lead: 70
+              }
+              conditions: []
+              children: [
+                {
+                  id: hail
+                  type: block
+                  costs: {
+                    copper: 1200
+                    graphite: 500
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: salvo
+                      type: block
+                      costs: {
+                        copper: 3300
+                        graphite: 2600
+                        titanium: 1500
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: ripple
+                          type: block
+                          costs: {
+                            copper: 5200
+                            graphite: 4600
+                            titanium: 1900
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+            {
+              id: arc
+              type: block
+              costs: {
+                copper: 500
+                lead: 500
+              }
+              conditions: []
+              children: [
+                {
+                  id: scorch
+                  type: block
+                  costs: {
+                    copper: 700
+                    graphite: 600
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: wave
+                      type: block
+                      costs: {
+                        copper: 700
+                        lead: 2400
+                        metaglass: 1400
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: parallax
+                          type: block
+                          costs: {
+                            graphite: 1500
+                            titanium: 3700
+                            silicon: 5600
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                    {
+                      id: lancer
+                      type: block
+                      costs: {
+                        copper: 1900
+                        lead: 2200
+                        titanium: 900
+                        silicon: 1900
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: shock-mine
+                          type: block
+                          costs: {
+                            lead: 700
+                            silicon: 300
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+    {
+      id: crawler
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: atrax
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: spiroct
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: ground-factory
+          type: block
+          costs: {
+            copper: 700
+            lead: 2000
+            silicon: 1300
+          }
+          conditions: []
+          children: [
+            {
+              id: additive-reconstructor
+              type: block
+              costs: {
+                copper: 7200
+                lead: 4100
+                silicon: 3000
+              }
+              conditions: []
+            }
+          ]
+        }
+      ]
+    }
+    {
+      id: nova
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: pulsar
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: quasar
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: combustion-generator
+          type: block
+          costs: {
+            copper: 700
+            lead: 400
+          }
+          conditions: []
+          children: [
+            {
+              id: power-node
+              type: block
+              costs: {
+                copper: 100
+                lead: 200
+              }
+              conditions: []
+              children: [
+                {
+                  id: power-node-large
+                  type: block
+                  costs: {
+                    lead: 300
+                    titanium: 100
+                    silicon: 100
+                  }
+                  conditions: []
+                }
+                {
+                  id: battery
+                  type: block
+                  costs: {
+                    copper: 100
+                    lead: 600
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: battery-large
+                      type: block
+                      costs: {
+                        lead: 1500
+                        titanium: 600
+                        silicon: 900
+                      }
+                      conditions: []
+                    }
+                  ]
+                }
+                {
+                  id: mender
+                  type: block
+                  costs: {
+                    copper: 700
+                    lead: 900
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: mend-projector
+                      type: block
+                      costs: {
+                        copper: 1500
+                        lead: 3300
+                        titanium: 700
+                        silicon: 1200
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: force-projector
+                          type: block
+                          costs: {
+                            lead: 3300
+                            titanium: 2400
+                            silicon: 4300
+                          }
+                          conditions: []
+                        }
+                        {
+                          id: repair-point
+                          type: block
+                          costs: {
+                            copper: 900
+                            lead: 900
+                            silicon: 600
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                  ]
+                }
+                {
+                  id: steam-generator
+                  type: block
+                  costs: {
+                    copper: 1000
+                    lead: 1200
+                    graphite: 700
+                    silicon: 900
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: thermal-generator
+                      type: block
+                      costs: {
+                        copper: 1200
+                        lead: 1500
+                        metaglass: 1200
+                        graphite: 1000
+                        silicon: 1000
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: differential-generator
+                          type: block
+                          costs: {
+                            copper: 2200
+                            lead: 3300
+                            metaglass: 1500
+                            titanium: 1500
+                            silicon: 2100
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                  ]
+                }
+                {
+                  id: solar-panel
+                  type: block
+                  costs: {
+                    lead: 300
+                    silicon: 200
+                  }
+                  conditions: []
+                }
+              ]
+            }
+          ]
+        }
+        {
+          id: core-foundation
+          type: block
+          costs: {
+            copper: 10000
+            lead: 10000
+            silicon: 6400
+          }
+          conditions: []
+        }
+      ]
+    }
+    {
+      id: flare
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: horizon
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: zenith
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: air-factory
+          type: block
+          costs: {
+            copper: 900
+            lead: 1100
+            silicon: 900
+          }
+          conditions: []
+        }
+        {
+          id: conveyor
+          type: block
+          costs: {
+            copper: 5
+          }
+          conditions: []
+          children: [
+            {
+              id: junction
+              type: block
+              costs: {
+                copper: 100
+              }
+              conditions: []
+              children: [
+                {
+                  id: router
+                  type: block
+                  costs: {
+                    copper: 100
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: advanced-launch-pad
+                      type: block
+                      costs: {
+                        copper: 13000
+                        lead: 11000
+                        titanium: 7200
+                        silicon: 9200
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: landing-pad
+                          type: block
+                          costs: {
+                            copper: 7200
+                            graphite: 3300
+                            titanium: 3300
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                    {
+                      id: distributor
+                      type: block
+                      costs: {
+                        copper: 100
+                        lead: 100
+                      }
+                      conditions: []
+                    }
+                    {
+                      id: sorter
+                      type: block
+                      costs: {
+                        copper: 100
+                        lead: 100
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: inverted-sorter
+                          type: block
+                          costs: {
+                            copper: 100
+                            lead: 100
+                          }
+                          conditions: []
+                        }
+                        {
+                          id: overflow-gate
+                          type: block
+                          costs: {
+                            copper: 100
+                            lead: 100
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: underflow-gate
+                              type: block
+                              costs: {
+                                copper: 100
+                                lead: 100
+                              }
+                              conditions: []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    {
+                      id: container
+                      type: block
+                      costs: {
+                        titanium: 3300
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: unloader
+                          type: block
+                          costs: {
+                            titanium: 700
+                            silicon: 900
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                    {
+                      id: bridge-conveyor
+                      type: block
+                      costs: {
+                        copper: 200
+                        lead: 200
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: titanium-conveyor
+                          type: block
+                          costs: {
+                            copper: 80
+                            lead: 80
+                            titanium: 80
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: payload-conveyor
+                              type: block
+                              costs: {
+                                copper: 300
+                                graphite: 300
+                              }
+                              conditions: []
+                              children: [
+                                {
+                                  id: payload-router
+                                  type: block
+                                  costs: {
+                                    copper: 300
+                                    graphite: 400
+                                  }
+                                  conditions: []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+    {
+      id: mono
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: poly
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: mega
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: mechanical-drill
+          type: block
+          costs: {
+            copper: 10
+          }
+          conditions: []
+          children: [
+            {
+              id: graphite-press
+              type: block
+              costs: {
+                copper: 2400
+                lead: 900
+              }
+              conditions: []
+              children: [
+                {
+                  id: pneumatic-drill
+                  type: block
+                  costs: {
+                    copper: 500
+                    graphite: 300
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: cultivator
+                      type: block
+                      costs: {
+                        copper: 700
+                        lead: 700
+                        silicon: 300
+                      }
+                      conditions: []
+                    }
+                    {
+                      id: laser-drill
+                      type: block
+                      costs: {
+                        copper: 1000
+                        graphite: 900
+                        titanium: 600
+                        silicon: 900
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: water-extractor
+                          type: block
+                          costs: {
+                            copper: 900
+                            lead: 900
+                            metaglass: 900
+                            graphite: 900
+                          }
+                          conditions: []
+                        }
+                      ]
+                    }
+                  ]
+                }
+                {
+                  id: pyratite-mixer
+                  type: block
+                  costs: {
+                    copper: 1500
+                    lead: 700
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: blast-mixer
+                      type: block
+                      costs: {
+                        lead: 900
+                        titanium: 600
+                      }
+                      conditions: []
+                    }
+                  ]
+                }
+                {
+                  id: silicon-smelter
+                  type: block
+                  costs: {
+                    copper: 900
+                    lead: 700
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: spore-press
+                      type: block
+                      costs: {
+                        lead: 1000
+                        silicon: 900
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: coal-centrifuge
+                          type: block
+                          costs: {
+                            lead: 900
+                            graphite: 1200
+                            titanium: 600
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: multi-press
+                              type: block
+                              costs: {
+                                lead: 3300
+                                graphite: 1500
+                                titanium: 3300
+                                silicon: 700
+                              }
+                              conditions: []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    {
+                      id: kiln
+                      type: block
+                      costs: {
+                        copper: 1900
+                        lead: 900
+                        graphite: 900
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: pulverizer
+                          type: block
+                          costs: {
+                            copper: 900
+                            lead: 700
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: incinerator
+                              type: block
+                              costs: {
+                                lead: 400
+                                graphite: 100
+                              }
+                              conditions: []
+                              children: [
+                                {
+                                  id: melter
+                                  type: block
+                                  costs: {
+                                    copper: 900
+                                    lead: 1000
+                                    graphite: 1400
+                                  }
+                                  conditions: []
+                                  children: [
+                                    {
+                                      id: separator
+                                      type: block
+                                      costs: {
+                                        copper: 900
+                                        titanium: 700
+                                      }
+                                      conditions: []
+                                    }
+                                    {
+                                      id: cryofluid-mixer
+                                      type: block
+                                      costs: {
+                                        lead: 2100
+                                        titanium: 1900
+                                        silicon: 1200
+                                      }
+                                      conditions: []
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    {
+                      id: micro-processor
+                      type: block
+                      costs: {
+                        copper: 3000
+                        lead: 1500
+                        silicon: 1500
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: switch
+                          type: block
+                          costs: {
+                            copper: 100
+                            graphite: 100
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: message
+                              type: block
+                              costs: {
+                                copper: 100
+                                graphite: 100
+                              }
+                              conditions: []
+                              children: [
+                                {
+                                  id: logic-display
+                                  type: block
+                                  costs: {
+                                    lead: 3300
+                                    metaglass: 1500
+                                    silicon: 1500
+                                  }
+                                  conditions: []
+                                }
+                                {
+                                  id: memory-cell
+                                  type: block
+                                  costs: {
+                                    copper: 900
+                                    graphite: 900
+                                    silicon: 900
+                                  }
+                                  conditions: []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    {
+                      id: illuminator
+                      type: block
+                      costs: {
+                        lead: 200
+                        graphite: 300
+                        silicon: 200
+                      }
+                      conditions: []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+    {
+      id: risso
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: minke
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: bryde
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: naval-factory
+          type: block
+          costs: {
+            copper: 5200
+            lead: 4500
+            metaglass: 4100
+          }
+          conditions: []
+        }
+      ]
+    }
+    {
+      id: retusa
+      type: unit
+      alwaysUnlocked: true
+      costs: {}
+      conditions: []
+      children: [
+        {
+          id: oxynoe
+          type: unit
+          costs: {
+            silicon: 2000
+            graphite: 2000
+          }
+          conditions: []
+          children: [
+            {
+              id: cyerce
+              type: unit
+              costs: {
+                silicon: 6500
+                titanium: 4000
+                metaglass: 2000
+              }
+              conditions: []
+            }
+          ]
+        }
+        {
+          id: mechanical-pump
+          type: block
+          costs: {
+            copper: 400
+            metaglass: 300
+          }
+          conditions: []
+          children: [
+            {
+              id: conduit
+              type: block
+              costs: {
+                metaglass: 80
+              }
+              conditions: []
+              children: [
+                {
+                  id: liquid-junction
+                  type: block
+                  costs: {
+                    metaglass: 200
+                    graphite: 100
+                  }
+                  conditions: []
+                  children: [
+                    {
+                      id: liquid-router
+                      type: block
+                      costs: {
+                        metaglass: 100
+                        graphite: 100
+                      }
+                      conditions: []
+                      children: [
+                        {
+                          id: liquid-container
+                          type: block
+                          costs: {
+                            metaglass: 400
+                            titanium: 300
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: liquid-tank
+                              type: block
+                              costs: {
+                                metaglass: 1200
+                                titanium: 900
+                              }
+                              conditions: []
+                            }
+                          ]
+                        }
+                        {
+                          id: bridge-conduit
+                          type: block
+                          costs: {
+                            metaglass: 200
+                            graphite: 100
+                          }
+                          conditions: []
+                        }
+                        {
+                          id: pulse-conduit
+                          type: block
+                          costs: {
+                            metaglass: 80
+                            titanium: 100
+                          }
+                          conditions: []
+                          children: [
+                            {
+                              id: rotary-pump
+                              type: block
+                              costs: {
+                                copper: 2200
+                                metaglass: 1500
+                                titanium: 1000
+                                silicon: 600
+                              }
+                              conditions: []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

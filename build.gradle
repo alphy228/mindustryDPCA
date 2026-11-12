@@ -1,0 +1,52 @@
+plugins {
+    id 'java'
+}
+
+group = 'coolplugin'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src']
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://raw.githubusercontent.com/Zelaux/MindustryRepo/master/repository' }
+    maven { url = 'https://www.jitpack.io' }
+}
+
+ext {
+    mindustryVersion = project.findProperty('mindustryVersion') ?: 'v160.7'
+}
+
+dependencies {
+    def localServerJar = project.findProperty('serverJar')
+    if (localServerJar != null && file(localServerJar).exists()) {
+        compileOnly files(localServerJar)
+    } else {
+        compileOnly "com.github.Anuken.Arc:arc-core:${mindustryVersion}"
+        compileOnly "com.github.Anuken.Mindustry:core:${mindustryVersion}"
+        compileOnly "com.github.Anuken.Mindustry:server:${mindustryVersion}"
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+tasks.named('jar', Jar) {
+    destinationDirectory.set(layout.projectDirectory.dir('config/mods'))
+    archiveFileName.set('coolplugin.jar')
+    from('plugin.json')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

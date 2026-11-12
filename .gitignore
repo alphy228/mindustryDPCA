@@ -1,1 +1,10 @@
 test.sh
+.gradle/
+build/
+config/mods/*.jar
+config/alphystuff/techtree-progress.hjson
+config/logs/
+config/maps/
+config/rules.hjson
+config/settings.bin
+config/settings_backups/

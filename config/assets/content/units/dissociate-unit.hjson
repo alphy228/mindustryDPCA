@@ -1,10 +1,10 @@
-//dissociate-unit (Tier 3 upgrade of corrode-unit)
+//dissociate unit bie alphy
 type: flying
 controller: FlyingAI
 name: Dissociate
 localizedName: Dissociate
 credit: alphy
-description: "Fires sequential 3-round bursts of long white bolts from four small mounts while leaking corrosive droplets of fluctuating size. Explodes on death into a large corrosive puddle."
+description: "Loaded with a large amount of corrosive fluid, leaks it and leaves a large puddle on death."
 alwaysUnlocked: true
 shownPlanets: [serpulo, erekir]
 canAttack: true
@@ -20,12 +20,12 @@ itemCapacity: 60
 flying: true
 lowAltitude: false
 drag: 0.05
-speed: 1.0
+speed: 0.75
 accel: 0.08
 rotateSpeed: 4.2
 health: 750
 armor: 7
-hitSize: 27
+hitSize: 24
 engineSize: 0
 engines: [
   {
@@ -100,8 +100,8 @@ abilities: [
   {
     type: LiquidExplodeAbility
     liquid: dp-corrofluid-liquid
-    amount: 180
-    radScale: 1.9
+    amount: 30
+    radScale: 0.6
     radAmountScale: 5
   }
 ]
@@ -119,6 +119,8 @@ weapons: [
     top: true
     layerOffset: 0.01
     reload: 64
+    shootStatus: slow
+    shootStatusDuration: 78
     shoot: {
       shots: 3
       shotDelay: 3
@@ -127,8 +129,37 @@ weapons: [
     recoil: 1.5
     ejectEffect: casing1
     shootSound: shootMissileLong
+    shootSoundVolume: 0.5
     soundPitchMin: 1.2
     soundPitchMax: 1.2
+    shootEffect: {
+      type: MultiEffect
+      effects: [
+        {
+          type: WaveEffect
+          layer: 116
+          sides: 0
+          lifetime: 15
+          sizeFrom: 0
+          sizeTo: 7
+          strokeFrom: 1.5
+          strokeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff
+        }
+        {
+          type: ParticleEffect
+          layer: 116
+          particles: 1
+          lifetime: 10
+          length: 0
+          sizeFrom: 2.8
+          sizeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff00
+        }
+      ]
+    }
     bullet: {
       type: BasicBulletType
       sprite: bullet
@@ -217,6 +248,8 @@ weapons: [
     top: true
     layerOffset: 0.01
     reload: 64
+    shootStatus: slow
+    shootStatusDuration: 78
     shoot: {
       shots: 3
       shotDelay: 3
@@ -225,8 +258,37 @@ weapons: [
     recoil: 1.5
     ejectEffect: casing1
     shootSound: shootMissileLong
+    shootSoundVolume: 0.5
     soundPitchMin: 1.2
     soundPitchMax: 1.2
+    shootEffect: {
+      type: MultiEffect
+      effects: [
+        {
+          type: WaveEffect
+          layer: 116
+          sides: 0
+          lifetime: 15
+          sizeFrom: 0
+          sizeTo: 7
+          strokeFrom: 1.5
+          strokeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff
+        }
+        {
+          type: ParticleEffect
+          layer: 116
+          particles: 1
+          lifetime: 10
+          length: 0
+          sizeFrom: 2.8
+          sizeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff00
+        }
+      ]
+    }
     bullet: {
       type: BasicBulletType
       sprite: bullet
@@ -315,6 +377,8 @@ weapons: [
     top: true
     layerOffset: 0.01
     reload: 64
+    shootStatus: slow
+    shootStatusDuration: 78
     shoot: {
       shots: 3
       shotDelay: 3
@@ -323,8 +387,37 @@ weapons: [
     recoil: 1.5
     ejectEffect: casing1
     shootSound: shootMissileLong
+    shootSoundVolume: 0.5
     soundPitchMin: 1.2
     soundPitchMax: 1.2
+    shootEffect: {
+      type: MultiEffect
+      effects: [
+        {
+          type: WaveEffect
+          layer: 116
+          sides: 0
+          lifetime: 15
+          sizeFrom: 0
+          sizeTo: 7
+          strokeFrom: 1.5
+          strokeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff
+        }
+        {
+          type: ParticleEffect
+          layer: 116
+          particles: 1
+          lifetime: 10
+          length: 0
+          sizeFrom: 2.8
+          sizeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff00
+        }
+      ]
+    }
     bullet: {
       type: BasicBulletType
       sprite: bullet
@@ -413,6 +506,8 @@ weapons: [
     top: true
     layerOffset: 0.01
     reload: 64
+    shootStatus: slow
+    shootStatusDuration: 78
     shoot: {
       shots: 3
       shotDelay: 3
@@ -421,8 +516,37 @@ weapons: [
     recoil: 1.5
     ejectEffect: casing1
     shootSound: shootMissileLong
+    shootSoundVolume: 0.5
     soundPitchMin: 1.2
     soundPitchMax: 1.2
+    shootEffect: {
+      type: MultiEffect
+      effects: [
+        {
+          type: WaveEffect
+          layer: 116
+          sides: 0
+          lifetime: 15
+          sizeFrom: 0
+          sizeTo: 7
+          strokeFrom: 1.5
+          strokeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff
+        }
+        {
+          type: ParticleEffect
+          layer: 116
+          particles: 1
+          lifetime: 10
+          length: 0
+          sizeFrom: 2.8
+          sizeTo: 0
+          colorFrom: ffffff
+          colorTo: ffffff00
+        }
+      ]
+    }
     bullet: {
       type: BasicBulletType
       sprite: bullet
@@ -497,8 +621,6 @@ weapons: [
       }
     }
   }
-  // Weapon 5 (index 4): Non-moving 180-deg reversed oxidise-weapon in center, drawn below the 4 guns!
-  // Plus coprime fluctuating-size Corrofluid drop emitters moving slightly in random 360-deg directions.
   {
     name: oxidise-weapon
     x: 0
@@ -519,7 +641,7 @@ weapons: [
     shootCone: 360
     inaccuracy: 180
     velocityRnd: 0.55
-    reload: 31
+    reload: 160
     recoil: 0
     ejectEffect: none
     shootSound: none
@@ -585,7 +707,10 @@ weapons: [
     shootCone: 360
     inaccuracy: 180
     velocityRnd: 0.55
-    reload: 37
+    reload: 842
+    shoot: {
+      firstShotDelay: 631
+    }
     recoil: 0
     ejectEffect: none
     shootSound: none
@@ -651,7 +776,10 @@ weapons: [
     shootCone: 360
     inaccuracy: 180
     velocityRnd: 0.55
-    reload: 41
+    reload: 976
+    shoot: {
+      firstShotDelay: 742
+    }
     recoil: 0
     ejectEffect: none
     shootSound: none
@@ -717,7 +845,10 @@ weapons: [
     shootCone: 360
     inaccuracy: 180
     velocityRnd: 0.55
-    reload: 43
+    reload: 1053
+    shoot: {
+      firstShotDelay: 884
+    }
     recoil: 0
     ejectEffect: none
     shootSound: none
@@ -783,7 +914,10 @@ weapons: [
     shootCone: 360
     inaccuracy: 180
     velocityRnd: 0.55
-    reload: 47
+    reload: 718
+    shoot: {
+      firstShotDelay: 957
+    }
     recoil: 0
     ejectEffect: none
     shootSound: none

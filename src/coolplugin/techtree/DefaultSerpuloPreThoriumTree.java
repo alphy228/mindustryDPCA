@@ -2,7 +2,6 @@ package coolplugin.techtree;
 
 import arc.struct.ObjectSet;
 import arc.struct.Seq;
-import mindustry.Vars;
 import mindustry.content.*;
 import mindustry.content.TechTree.TechNode;
 import mindustry.ctype.ContentType;
@@ -11,12 +10,13 @@ import mindustry.type.*;
 import mindustry.world.Block;
 
 /**
- * Generates the default placeholder {@code config/alphystuff/techtree.hjson} on first run:
+ * Generates the default single-canvas Serpulo pre-Thorium/Plastanium tech tree at {@code config/alphystuff/techtree.hjson}:
  * <ul>
- *   <li>Starts unlocked with all 7 vanilla Serpulo Tier 1 units (`dagger`, `crawler`, `nova`, `flare`, `mono`, `risso`, `retusa`).</li>
- *   <li>Includes ONLY vanilla Serpulo content before Thorium &amp; Plastanium (never touches custom DPCA units).</li>
- *   <li>Steals exact research item costs directly from vanilla {@link SerpuloTechTree} (`TechNode.requirements`).</li>
- *   <li>Emits an empty {@code conditions: []} array on nodes so special conditions can be added later in HJSON.</li>
+ *   <li>Starts with ONLY {@code dagger} researched at the center.</li>
+ *   <li>Other Serpulo T1 units sit to the left (`flare`, `mono`, `risso`) and right (`crawler`, `nova`, `retusa`) of {@code dagger}.</li>
+ *   <li>Unit upgrades, unit factories, and {@code additive-reconstructor} go down, left, and right of {@code dagger}.</li>
+ *   <li>All other buildings branch UP above {@code dagger} just like vanilla {@code ResearchDialog}.</li>
+ *   <li>Strictly vanilla Serpulo pre-Thorium/Plastanium content with vanilla campaign costs (never touches custom {@code dp-*} units).</li>
  * </ul>
  */
 public final class DefaultSerpuloPreThoriumTree {
@@ -28,117 +28,83 @@ public final class DefaultSerpuloPreThoriumTree {
             Items.thorium, Items.plastanium, Items.phaseFabric, Items.surgeAlloy
         );
 
-        TechNodeDef root = new TechNodeDef();
-        root.id = "serpulo-tier1-root";
-        root.contentType = "virtual";
-        root.contentName = "serpulo-tier1-root";
-        root.displayName = "Serpulo Tier 1 Fleet";
-        root.description = "Starting Tier 1 Serpulo units. Branch outward to research units, factories, logistics, production, power, and defenses.";
-        root.icon = "units";
-        root.virtual = true;
-        root.alwaysUnlocked = true;
+        // Center root: ONLY Dagger starts researched
+        TechNodeDef dagger = unitNode(UnitTypes.dagger, true, TechNodeDef.DIR_DOWN);
 
-        // 1. DAGGER (T1 Assault) -> Mace -> Fortress + Turrets/Walls (Duo -> Copper/Scrap/Titanium walls, Scatter/Hail/Salvo/Ripple, Arc/Scorch/Wave/Parallax/Lancer)
-        TechNodeDef dagger = unitNode(UnitTypes.dagger, true);
-        TechNodeDef mace = unitNode(UnitTypes.mace, false);
-        mace.children.add(unitNode(UnitTypes.fortress, false));
-        dagger.children.add(mace);
-        TechNodeDef duoBranch = copySerpuloSubtree(Blocks.duo, lateItems);
-        if (duoBranch != null) dagger.children.add(duoBranch);
-        root.children.add(dagger);
+        // === UP FROM DAGGER: All non-unit buildings (like vanilla ResearchDialog) ===
+        TechNodeDef duoUp = copySerpuloSubtree(Blocks.duo, lateItems, TechNodeDef.DIR_UP);
+        if (duoUp != null) dagger.children.add(duoUp);
 
-        // 2. CRAWLER (T1 Specialist) -> Atrax -> Spiroct + Ground Factory -> Additive Reconstructor
-        TechNodeDef crawler = unitNode(UnitTypes.crawler, true);
-        TechNodeDef atrax = unitNode(UnitTypes.atrax, false);
-        atrax.children.add(unitNode(UnitTypes.spiroct, false));
-        crawler.children.add(atrax);
+        TechNodeDef drillUp = copySerpuloSubtree(Blocks.mechanicalDrill, lateItems, TechNodeDef.DIR_UP);
+        if (drillUp != null) dagger.children.add(drillUp);
 
-        TechNodeDef groundFac = singleBlockNode(Blocks.groundFactory);
-        groundFac.children.add(singleBlockNode(Blocks.additiveReconstructor));
-        crawler.children.add(groundFac);
-        root.children.add(crawler);
+        dagger.children.add(singleBlockNode(Blocks.coreFoundation, TechNodeDef.DIR_UP));
 
-        // 3. NOVA (T1 Support Ground) -> Pulsar -> Quasar + Power/Support (Combustion Gen -> Power Nodes, Batteries, Menders/Force Projector, Steam/Thermal/Differential, Solar) + Core: Foundation
-        TechNodeDef nova = unitNode(UnitTypes.nova, true);
-        TechNodeDef pulsar = unitNode(UnitTypes.pulsar, false);
-        pulsar.children.add(unitNode(UnitTypes.quasar, false));
-        nova.children.add(pulsar);
+        TechNodeDef conveyorUp = copySerpuloSubtree(Blocks.conveyor, lateItems, TechNodeDef.DIR_UP);
+        if (conveyorUp != null) dagger.children.add(conveyorUp);
 
-        TechNodeDef combGen = copySerpuloSubtree(Blocks.combustionGenerator, lateItems);
-        if (combGen != null) nova.children.add(combGen);
-        nova.children.add(singleBlockNode(Blocks.coreFoundation));
-        root.children.add(nova);
-
-        // 4. FLARE (T1 Air Fighter) -> Horizon -> Zenith + Air Factory + Item Logistics (Conveyor -> Junction -> Router -> Sorters/Gates/Container/Unloader/Bridge/Titanium Conveyor/Payload Conveyor)
-        TechNodeDef flare = unitNode(UnitTypes.flare, true);
-        TechNodeDef horizon = unitNode(UnitTypes.horizon, false);
-        horizon.children.add(unitNode(UnitTypes.zenith, false));
+        // === LEFT OF DAGGER: Flare, Mono, Risso (with T2/T3 & Air/Naval factories going DOWN) ===
+        TechNodeDef flare = unitNode(UnitTypes.flare, false, TechNodeDef.DIR_LEFT);
+        flare.children.add(singleBlockNode(Blocks.airFactory, TechNodeDef.DIR_DOWN));
+        TechNodeDef horizon = unitNode(UnitTypes.horizon, false, TechNodeDef.DIR_DOWN);
+        horizon.children.add(unitNode(UnitTypes.zenith, false, TechNodeDef.DIR_DOWN));
         flare.children.add(horizon);
-        flare.children.add(singleBlockNode(Blocks.airFactory));
+        dagger.children.add(flare);
 
-        TechNodeDef conveyorBranch = copySerpuloSubtree(Blocks.conveyor, lateItems);
-        if (conveyorBranch != null) flare.children.add(conveyorBranch);
-        root.children.add(flare);
-
-        // 5. MONO (T1 Mining Drone) -> Poly -> Mega + Drills & Crafting (Mechanical Drill -> Graphite Press -> Pneumatic/Cultivator/Laser/WaterExtractor, Pyratite/Blast Mixer, Silicon Smelter -> Spore/Coal/MultiPress, Kiln -> Pulverizer/Incinerator/Melter/Separator/Cryofluid, MicroProcessor -> Logic)
-        TechNodeDef mono = unitNode(UnitTypes.mono, true);
-        TechNodeDef poly = unitNode(UnitTypes.poly, false);
-        poly.children.add(unitNode(UnitTypes.mega, false));
+        TechNodeDef mono = unitNode(UnitTypes.mono, false, TechNodeDef.DIR_LEFT);
+        TechNodeDef poly = unitNode(UnitTypes.poly, false, TechNodeDef.DIR_DOWN);
+        poly.children.add(unitNode(UnitTypes.mega, false, TechNodeDef.DIR_DOWN));
         mono.children.add(poly);
+        dagger.children.add(mono);
 
-        TechNodeDef drillBranch = buildDrillAndCraftingBranch(lateItems);
-        if (drillBranch != null) mono.children.add(drillBranch);
-        root.children.add(mono);
-
-        // 6. RISSO (T1 Naval Assault) -> Minke -> Bryde + Naval Factory
-        TechNodeDef risso = unitNode(UnitTypes.risso, true);
-        TechNodeDef minke = unitNode(UnitTypes.minke, false);
-        minke.children.add(unitNode(UnitTypes.bryde, false));
+        TechNodeDef risso = unitNode(UnitTypes.risso, false, TechNodeDef.DIR_LEFT);
+        risso.children.add(singleBlockNode(Blocks.navalFactory, TechNodeDef.DIR_DOWN));
+        TechNodeDef minke = unitNode(UnitTypes.minke, false, TechNodeDef.DIR_DOWN);
+        minke.children.add(unitNode(UnitTypes.bryde, false, TechNodeDef.DIR_DOWN));
         risso.children.add(minke);
-        risso.children.add(singleBlockNode(Blocks.navalFactory));
-        root.children.add(risso);
+        dagger.children.add(risso);
 
-        // 7. RETUSA (T1 Naval Support) -> Oxynoe -> Cyerce + Liquid Handling (Mechanical Pump -> Conduit -> Liquid Junction/Router/Container/Tank/Bridge/Pulse Conduit/Rotary Pump)
-        TechNodeDef retusa = unitNode(UnitTypes.retusa, true);
-        TechNodeDef oxynoe = unitNode(UnitTypes.oxynoe, false);
-        oxynoe.children.add(unitNode(UnitTypes.cyerce, false));
+        // === DOWN FROM DAGGER: Mace -> Fortress & Ground Factory -> Additive Reconstructor ===
+        TechNodeDef mace = unitNode(UnitTypes.mace, false, TechNodeDef.DIR_DOWN);
+        mace.children.add(unitNode(UnitTypes.fortress, false, TechNodeDef.DIR_DOWN));
+        dagger.children.add(mace);
+
+        TechNodeDef groundFac = singleBlockNode(Blocks.groundFactory, TechNodeDef.DIR_DOWN);
+        groundFac.children.add(singleBlockNode(Blocks.additiveReconstructor, TechNodeDef.DIR_DOWN));
+        dagger.children.add(groundFac);
+
+        // === RIGHT OF DAGGER: Crawler, Nova, Retusa (with T2/T3 going DOWN) ===
+        TechNodeDef crawler = unitNode(UnitTypes.crawler, false, TechNodeDef.DIR_RIGHT);
+        TechNodeDef atrax = unitNode(UnitTypes.atrax, false, TechNodeDef.DIR_DOWN);
+        atrax.children.add(unitNode(UnitTypes.spiroct, false, TechNodeDef.DIR_DOWN));
+        crawler.children.add(atrax);
+        dagger.children.add(crawler);
+
+        TechNodeDef nova = unitNode(UnitTypes.nova, false, TechNodeDef.DIR_RIGHT);
+        TechNodeDef pulsar = unitNode(UnitTypes.pulsar, false, TechNodeDef.DIR_DOWN);
+        pulsar.children.add(unitNode(UnitTypes.quasar, false, TechNodeDef.DIR_DOWN));
+        nova.children.add(pulsar);
+        dagger.children.add(nova);
+
+        TechNodeDef retusa = unitNode(UnitTypes.retusa, false, TechNodeDef.DIR_RIGHT);
+        TechNodeDef oxynoe = unitNode(UnitTypes.oxynoe, false, TechNodeDef.DIR_DOWN);
+        oxynoe.children.add(unitNode(UnitTypes.cyerce, false, TechNodeDef.DIR_DOWN));
         retusa.children.add(oxynoe);
+        dagger.children.add(retusa);
 
-        TechNodeDef pumpBranch = copySerpuloSubtree(Blocks.mechanicalPump, lateItems);
-        if (pumpBranch != null) retusa.children.add(pumpBranch);
-        root.children.add(retusa);
-
-        assignParents(root, null);
-        return root;
+        assignParents(dagger, null);
+        return dagger;
     }
 
-    private static TechNodeDef buildDrillAndCraftingBranch(ObjectSet<Item> lateItems) {
-        // Copy mechanicalDrill subtree EXCEPT mechanicalPump (moved onto Retusa) and combustionGenerator (moved onto Nova)
-        TechNodeDef drill = singleBlockNode(Blocks.mechanicalDrill);
-        TechNode src = findSerpuloNode(Planets.serpulo.techTree, Blocks.mechanicalDrill);
-        if (src != null) {
-            for (TechNode ch : src.children) {
-                if (ch.content == Blocks.mechanicalPump || ch.content == Blocks.combustionGenerator) {
-                    continue;
-                }
-                TechNodeDef copied = copyFiltered(ch, lateItems);
-                if (copied != null) drill.children.add(copied);
-            }
-        }
-        return drill;
-    }
-
-    private static TechNodeDef copySerpuloSubtree(UnlockableContent target, ObjectSet<Item> lateItems) {
+    private static TechNodeDef copySerpuloSubtree(UnlockableContent target, ObjectSet<Item> lateItems, String dir) {
         TechNode src = findSerpuloNode(Planets.serpulo.techTree, target);
         if (src == null) return null;
-        return copyFiltered(src, lateItems);
+        return copyFiltered(src, lateItems, dir);
     }
 
-    private static TechNodeDef copyFiltered(TechNode src, ObjectSet<Item> lateItems) {
+    private static TechNodeDef copyFiltered(TechNode src, ObjectSet<Item> lateItems, String dir) {
         UnlockableContent c = src.content;
         if (c == null || c instanceof SectorPreset) return null;
-
-        // Exclude anything that IS or PRODUCES or COSTS thorium, plastanium, phase-fabric, or surge-alloy
         if (!isVanillaContent(c)) return null;
         if (c == Blocks.plastaniumCompressor || c == Blocks.phaseWeaver || c == Blocks.surgeSmelter || c == Blocks.thoriumReactor) {
             return null;
@@ -151,11 +117,12 @@ public final class DefaultSerpuloPreThoriumTree {
         def.id = c.name;
         def.contentType = c.getContentType().name();
         def.contentName = c.name;
+        def.direction = dir;
         def.content = c;
         def.costs = cloneStacks(src.requirements);
 
         for (TechNode child : src.children) {
-            TechNodeDef childDef = copyFiltered(child, lateItems);
+            TechNodeDef childDef = copyFiltered(child, lateItems, dir);
             if (childDef != null) {
                 def.children.add(childDef);
             }
@@ -164,7 +131,6 @@ public final class DefaultSerpuloPreThoriumTree {
     }
 
     private static boolean isVanillaContent(UnlockableContent c) {
-        // Strictly vanilla content only — never include DataPatch (`dp-*`) or mod content
         return c.minfo == null || c.minfo.mod == null;
     }
 
@@ -176,11 +142,12 @@ public final class DefaultSerpuloPreThoriumTree {
         return false;
     }
 
-    private static TechNodeDef unitNode(UnitType u, boolean rootUnlocked) {
+    private static TechNodeDef unitNode(UnitType u, boolean rootUnlocked, String dir) {
         TechNodeDef def = new TechNodeDef();
         def.id = u.name;
         def.contentType = ContentType.unit.name();
         def.contentName = u.name;
+        def.direction = dir;
         def.content = u;
         def.alwaysUnlocked = rootUnlocked;
         if (rootUnlocked) {
@@ -192,11 +159,12 @@ public final class DefaultSerpuloPreThoriumTree {
         return def;
     }
 
-    private static TechNodeDef singleBlockNode(Block b) {
+    private static TechNodeDef singleBlockNode(Block b, String dir) {
         TechNodeDef def = new TechNodeDef();
         def.id = b.name;
         def.contentType = ContentType.block.name();
         def.contentName = b.name;
+        def.direction = dir;
         def.content = b;
         TechNode src = findSerpuloNode(Planets.serpulo.techTree, b);
         def.costs = src != null ? cloneStacks(src.requirements) : cloneStacks(b.researchRequirements());

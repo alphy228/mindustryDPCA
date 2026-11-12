@@ -251,6 +251,12 @@ public class TechProgressStore {
                     }
                 }
 
+                // Migrate legacy 7-branch placeholder records cleanly so only Dagger starts researched
+                if (rec.unlocked.contains("serpulo-tier1-root")) {
+                    rec.unlocked.clear();
+                    rec.paidItems.clear();
+                }
+
                 seedAlwaysUnlocked(rec, root);
                 records.put(uuid, rec);
             }

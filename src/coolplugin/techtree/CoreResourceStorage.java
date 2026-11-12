@@ -9,7 +9,7 @@ import mindustry.world.modules.ItemModule;
 
 /**
  * Default {@link TechResourceStorage} backed by the player's team Core inventory.
- * Designed as a clean placeholder until the plugin's custom per-player resource storage is added.
+ * Swap out via {@link TechTreeService#setStorage(TechResourceStorage)} when adding custom plugin storage.
  */
 public class CoreResourceStorage implements TechResourceStorage {
 
@@ -41,14 +41,7 @@ public class CoreResourceStorage implements TechResourceStorage {
     }
 
     @Override
-    public String storageName(Player player) {
-        return player != null && player.team().core() != null
-            ? player.team().name + " Core"
-            : "No Core";
-    }
-
-    @Override
     public Seq<Item> displayItems(Player player, Seq<Item> treeReferencedItems) {
-        return treeReferencedItems;
+        return Vars.content != null ? Vars.content.items() : treeReferencedItems;
     }
 }

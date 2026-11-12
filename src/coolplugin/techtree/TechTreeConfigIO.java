@@ -13,8 +13,7 @@ import mindustry.type.Item;
 import mindustry.type.ItemStack;
 
 /**
- * Loads and writes {@code config/alphystuff/techtree.hjson}, keeping all building/unit item costs,
- * tree structure, and special unlock conditions outside the main plugin class.
+ * Loads and writes {@code config/alphystuff/techtree.hjson} in compact, clean HJSON.
  */
 public final class TechTreeConfigIO {
 
@@ -36,17 +35,18 @@ public final class TechTreeConfigIO {
         JsonValue rootVal = new JsonReader().parse(jsonText);
 
         JsonValue treeVal = rootVal.has("root") ? rootVal.get("root") : rootVal;
-        TechNodeDef root = parseNode(treeVal, conditionRegistry);
+        TechNodeDef root = parseNode(treeVal, conditionRegistry, TechNodeDef.DIR_DOWN);
         DefaultSerpuloPreThoriumTree.assignParents(root, null);
         return root;
     }
 
-    private static TechNodeDef parseNode(JsonValue val, UnlockCondition.ConditionRegistry conditionRegistry) {
+    private static TechNodeDef parseNode(JsonValue val, UnlockCondition.ConditionRegistry conditionRegistry, String inheritedDir) {
         TechNodeDef node = new TechNodeDef();
         node.virtual = val.getBoolean("virtual", false);
         node.contentType = val.getString("type", node.virtual ? "virtual" : "block");
         node.contentName = val.getString("content", val.getString("id", ""));
         node.id = val.getString("id", node.contentName);
+        node.direction = val.getString("direction", inheritedDir);
         node.displayName = val.getString("displayName", null);
         node.description = val.getString("description", null);
         node.icon = val.getString("icon", null);
@@ -60,15 +60,9 @@ public final class TechTreeConfigIO {
             }
         }
 
-        // Parse explicit item research costs: supports either object { copper: 100, lead: 50 } or array [ "copper/100" ]
         JsonValue costsVal = val.get("costs");
-        if (costsVal != null) {
-            node.costs = parseCosts(costsVal);
-        } else {
-            node.costs = ItemStack.empty;
-        }
+        node.costs = costsVal != null ? parseCosts(costsVal) : ItemStack.empty;
 
-        // Parse special unlock conditions (empty by default, ready for future rules)
         JsonValue condsVal = val.get("conditions");
         if (condsVal != null) {
             for (JsonValue c = condsVal.child; c != null; c = c.next) {
@@ -77,10 +71,12 @@ public final class TechTreeConfigIO {
             }
         }
 
+        // Children of left/right T1 nodes default to "down" unless explicitly overridden; "up" branches inherit "up"
+        String defaultChildDir = TechNodeDef.DIR_UP.equals(node.direction) ? TechNodeDef.DIR_UP : TechNodeDef.DIR_DOWN;
         JsonValue childrenVal = val.get("children");
         if (childrenVal != null) {
             for (JsonValue ch = childrenVal.child; ch != null; ch = ch.next) {
-                node.children.add(parseNode(ch, conditionRegistry));
+                node.children.add(parseNode(ch, conditionRegistry, defaultChildDir));
             }
         }
 
@@ -127,7 +123,6 @@ public final class TechTreeConfigIO {
             }
         } catch (IllegalArgumentException ignored) {
         }
-        // Fallback lookup across standard unlockable types
         for (ContentType ct : new ContentType[]{ContentType.block, ContentType.unit, ContentType.item, ContentType.liquid}) {
             if (Vars.content.getByName(ct, contentName) instanceof UnlockableContent uc) {
                 return uc;
@@ -138,23 +133,44 @@ public final class TechTreeConfigIO {
 
     public static void save(Fi file, TechNodeDef root) {
         file.parent().mkdirs();
-        StringBuilder sb = new StringBuilder(16384);
-        sb.append("# Server Tech Tree Configuration (config/alphystuff/techtree.hjson)\n");
-        sb.append("# - Starts with vanilla Serpulo Tier 1 units unlocked at the root.\n");
-        sb.append("# - Contains vanilla pre-Thorium / pre-Plastanium units & buildings with vanilla research costs.\n");
-        sb.append("# - Optional per-node `conditions: [ { type: flag, flag: \"...\", description: \"...\" } ]` supported.\n\n");
+        StringBuilder sb = new StringBuilder(8192);
+        sb.append("# Server Tech Tree (config/alphystuff/techtree.hjson)\n");
+        sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n\n");
         sb.append("root: ");
-        writeNodeHjson(sb, root, "");
+        writeNodeHjson(sb, root, "", TechNodeDef.DIR_DOWN);
         file.writeString(sb.toString(), false, "UTF-8");
     }
 
-    private static void writeNodeHjson(StringBuilder sb, TechNodeDef node, String indent) {
+    private static void writeNodeHjson(StringBuilder sb, TechNodeDef node, String indent, String inheritedDir) {
+        boolean isLeafSimple = node.children.isEmpty()
+            && node.conditions.isEmpty()
+            && !node.alwaysUnlocked
+            && !node.virtual
+            && node.displayName == null
+            && node.description == null
+            && node.icon == null
+            && (node.direction == null || node.direction.equals(inheritedDir));
+
+        if (isLeafSimple) {
+            sb.append("{ id: \"").append(escape(node.id)).append("\"");
+            if (!"block".equals(node.contentType)) {
+                sb.append(", type: \"").append(escape(node.contentType)).append("\"");
+            }
+            sb.append(", costs: ").append(formatInlineCosts(node.costs)).append(" }\n");
+            return;
+        }
+
         String inner = indent + "  ";
         sb.append("{\n");
         sb.append(inner).append("id: ").append(quoteIfNeeded(node.id)).append("\n");
-        sb.append(inner).append("type: ").append(quoteIfNeeded(node.contentType)).append("\n");
+        if (!"block".equals(node.contentType)) {
+            sb.append(inner).append("type: ").append(quoteIfNeeded(node.contentType)).append("\n");
+        }
         if (!node.virtual && node.contentName != null && !node.contentName.equals(node.id)) {
             sb.append(inner).append("content: ").append(quoteIfNeeded(node.contentName)).append("\n");
+        }
+        if (node.direction != null && !node.direction.equals(inheritedDir)) {
+            sb.append(inner).append("direction: ").append(quoteIfNeeded(node.direction)).append("\n");
         }
         if (node.virtual) {
             sb.append(inner).append("virtual: true\n");
@@ -172,19 +188,9 @@ public final class TechTreeConfigIO {
             sb.append(inner).append("alwaysUnlocked: true\n");
         }
 
-        if (node.costs == null || node.costs.length == 0) {
-            sb.append(inner).append("costs: {}\n");
-        } else {
-            sb.append(inner).append("costs: {\n");
-            for (ItemStack s : node.costs) {
-                sb.append(inner).append("  ").append(quoteIfNeeded(s.item.name)).append(": ").append(s.amount).append("\n");
-            }
-            sb.append(inner).append("}\n");
-        }
+        sb.append(inner).append("costs: ").append(formatInlineCosts(node.costs)).append("\n");
 
-        if (node.conditions.isEmpty()) {
-            sb.append(inner).append("conditions: []\n");
-        } else {
+        if (!node.conditions.isEmpty()) {
             sb.append(inner).append("conditions: [\n");
             for (UnlockCondition cond : node.conditions) {
                 cond.writeHjson(sb, inner + "  ");
@@ -193,15 +199,27 @@ public final class TechTreeConfigIO {
         }
 
         if (!node.children.isEmpty()) {
+            String childDefaultDir = TechNodeDef.DIR_UP.equals(node.direction) ? TechNodeDef.DIR_UP : TechNodeDef.DIR_DOWN;
             sb.append(inner).append("children: [\n");
             for (TechNodeDef child : node.children) {
                 sb.append(inner).append("  ");
-                writeNodeHjson(sb, child, inner + "  ");
+                writeNodeHjson(sb, child, inner + "  ", childDefaultDir);
             }
             sb.append(inner).append("]\n");
         }
 
         sb.append(indent).append("}\n");
+    }
+
+    private static String formatInlineCosts(ItemStack[] costs) {
+        if (costs == null || costs.length == 0) return "{}";
+        StringBuilder sb = new StringBuilder("{ ");
+        for (int i = 0; i < costs.length; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(quoteIfNeeded(costs[i].item.name)).append(": ").append(costs[i].amount);
+        }
+        sb.append(" }");
+        return sb.toString();
     }
 
     private static String quoteIfNeeded(String s) {

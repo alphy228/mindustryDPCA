@@ -14,27 +14,14 @@ public final class TechTreeCommands {
     private TechTreeCommands() {}
 
     public static void registerClientCommands(CommandHandler handler, TechTreeService service) {
-        handler.<Player>register(
-            "tech",
-            "[node]",
-            "Open the Tech Tree menu (or view quick status for a specific node).",
-            (args, player) -> {
-                if (args.length == 0) {
-                    service.getMenu().open(player);
-                    return;
-                }
-                TechNodeDef node = service.findNode(args[0]);
-                if (node == null) {
-                    player.sendMessage("[scarlet][TechTree][] Unknown node '" + args[0] + "'. Opening Tech Tree...");
-                    service.getMenu().open(player);
-                    return;
-                }
-                boolean unlocked = service.isUnlocked(player, node);
-                player.sendMessage("[accent][TechTree][] " + node.resolvedName() + ": "
-                    + (unlocked ? "[stat]Unlocked[]" : "[scarlet]Locked (" + service.getProgressPercent(player, node) + "%)[]"));
-                service.getMenu().open(player);
-            }
-        );
+        for (String cmd : new String[]{"t", "tree", "tech"}) {
+            handler.<Player>register(
+                cmd,
+                "",
+                "Open the Tech Tree.",
+                (args, player) -> service.getMenu().open(player)
+            );
+        }
 
         handler.<Player>register(
             "techadmin",

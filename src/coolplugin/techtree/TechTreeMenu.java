@@ -19,18 +19,12 @@ import static coolplugin.techtree.TechTreeLayoutEngine.*;
 import static mindustry.ui.builder.UiBuilder.*;
 
 /**
- * Builds and updates the interactive vanilla-like Tech Tree dialog using Mindustry v160.7's
- * {@link MenuBuilder} and {@link mindustry.ui.builder.UiBuilder} APIs.
- *
- * <p>Features:
+ * Minimal, bloat-free vanilla-style Tech Tree UI built on Mindustry v160.7 {@link MenuBuilder}:
  * <ul>
- *   <li>Top resource bar backed by {@link TechResourceStorage} + Serpulo Tier-1 root tabs</li>
- *   <li>2D scrollable visual node canvas (`defaultPane`) with orthogonal `whiteui`
- *       parent-to-child connector lines (`Pal.accent` unlocked, `Pal.gray` locked)</li>
- *   <li>Vanilla `nodei` &amp; `button` / `button-over` / `button-red` node states</li>
- *   <li>Right-hand inspector panel with full item progress (`paid / total`), special condition checklist,
- *       and incremental item spending matching vanilla {@code ResearchDialog}</li>
- *   <li>Serialized payload verification well below ArcNet's packet ceiling even at 100% unlock</li>
+ *   <li>Top bar displays ONLY resources with amount &gt; 0 (nothing shown when 0).</li>
+ *   <li>Single unified 2D scrollable canvas (no branch tabs, no custom close button).</li>
+ *   <li>Clicking any node opens a compact submenu directly below that node containing ONLY:
+ *       {@code icon + name}, {@code costs}, {@code description}, and a {@code "Research"} button.</li>
  * </ul>
  */
 public class TechTreeMenu {
@@ -38,23 +32,21 @@ public class TechTreeMenu {
     public static final String ID_ROOT = "alphystuff-tech-root";
     public static final String ID_HEADER = "alphystuff-tech-header";
     public static final String ID_TREE_CANVAS = "alphystuff-tech-canvas";
-    public static final String ID_INFO_PANEL = "alphystuff-tech-info";
 
-    private static final float NODE_SIZE = 54f;
+    private static final float NODE_SIZE = 50f;
     private static final float COL_GAP = 14f;
-    private static final float ROW_GAP = 22f;
+    private static final float ROW_GAP = 18f;
+    private static final float CANVAS_PAD = 24f;
     private static final float LINE_THICK = 4f;
+    private static final float SUBMENU_WIDTH = 236f;
 
-    private static final String COL_ACCENT = "ffd37fff";
     private static final String COL_UNLOCKED_LINE = "ffd37fff";
     private static final String COL_LOCKED_LINE = "454545ff";
-    private static final String COL_SELECTED_TINT = "a9d8ffff";
+    private static final String COL_SELECTED_TINT = "ffd37fff";
     private static final String COL_DIM_ICON = "7a7a7aff";
 
     private static final class PlayerMenuSession {
-        String activeTabId = "";
         String selectedNodeId = "";
-        String statusMessage = "";
     }
 
     private final TechTreeService service;
@@ -83,7 +75,7 @@ public class TechTreeMenu {
         service.ensurePlayerInitialized(player);
 
         PlayerMenuSession session = getOrInitSession(player);
-        session.statusMessage = "";
+        session.selectedNodeId = "";
 
         TableBuilder rootUi = buildFullDialog(player, session);
         MenuBuilder.of(rootUi)
@@ -99,7 +91,7 @@ public class TechTreeMenu {
         if (player == null || player.con == null || menuId == -1) return;
         PlayerMenuSession session = sessions.get(player.uuid());
         if (session == null) return;
-        pushPartialUpdates(player, session, true, true, true);
+        pushPartialUpdates(player, session, true, true);
     }
 
     private PlayerMenuSession getOrInitSession(Player player) {
@@ -108,62 +100,44 @@ public class TechTreeMenu {
             session = new PlayerMenuSession();
             sessions.put(player.uuid(), session);
         }
-
-        TechNodeDef root = service.getRoot();
-        if (resolveTabBranch(root, session.activeTabId) == null) {
-            if (!root.children.isEmpty()) {
-                session.activeTabId = root.children.first().id;
-            } else {
-                session.activeTabId = root.id;
+        if (!session.selectedNodeId.isEmpty()) {
+            TechNodeDef sel = service.findNode(session.selectedNodeId);
+            if (sel == null || !service.isVisible(player, sel)) {
+                session.selectedNodeId = "";
             }
-        }
-
-        TechNodeDef activeBranch = resolveTabBranch(root, session.activeTabId);
-        TechNodeDef selected = service.findNode(session.selectedNodeId);
-        if (selected == null || !isInSubtree(activeBranch, selected) || !service.isVisible(player, selected)) {
-            session.selectedNodeId = activeBranch != null ? activeBranch.id : root.id;
         }
         return session;
     }
 
     private void handleAction(Player player, String clicked) {
-        if ("close".equals(clicked)) {
-            Call.hideMenuBuilder(player.con, menuId);
-            return;
-        }
-
         PlayerMenuSession session = getOrInitSession(player);
-        session.statusMessage = "";
 
-        if (clicked.startsWith("tab:")) {
-            String tabId = clicked.substring(4);
-            TechNodeDef branch = resolveTabBranch(service.getRoot(), tabId);
-            if (branch != null) {
-                session.activeTabId = branch.id;
-                session.selectedNodeId = branch.id;
-                pushPartialUpdates(player, session, true, true, true);
-            }
-            return;
-        }
-
-        if (clicked.startsWith("node:")) {
-            String nodeId = clicked.substring(5);
+        if (clicked.startsWith("n:")) {
+            String nodeId = clicked.substring(2);
             TechNodeDef node = service.findNode(nodeId);
-            if (node != null && service.isVisible(player, node)) {
+            if (node == null || !service.isVisible(player, node)) return;
+
+            // Toggle submenu directly below the clicked node
+            if (node.id.equals(session.selectedNodeId)) {
+                session.selectedNodeId = "";
+            } else {
                 session.selectedNodeId = node.id;
-                pushPartialUpdates(player, session, false, true, true);
             }
+            pushPartialUpdates(player, session, false, true);
             return;
         }
 
-        if (clicked.startsWith("research:")) {
-            String nodeId = clicked.substring(9);
+        if (clicked.startsWith("r:")) {
+            String nodeId = clicked.substring(2);
             TechNodeDef node = service.findNode(nodeId);
             if (node != null) {
                 TechTreeService.ResearchOutcome outcome = service.attemptResearch(player, node);
-                session.selectedNodeId = node.id;
-                session.statusMessage = outcome.message;
-                pushPartialUpdates(player, session, true, true, true);
+                if (outcome.unlocked) {
+                    session.selectedNodeId = "";
+                } else {
+                    session.selectedNodeId = node.id;
+                }
+                pushPartialUpdates(player, session, true, true);
             }
         }
     }
@@ -172,72 +146,47 @@ public class TechTreeMenu {
             Player player,
             PlayerMenuSession session,
             boolean updateHeader,
-            boolean updateCanvas,
-            boolean updateInfo) {
+            boolean updateCanvas) {
         if (player.con == null) return;
         if (updateHeader) {
-            Call.menuBuilderUpdate(player.con, menuId, ID_HEADER, buildHeaderContents(player, session));
+            Call.menuBuilderUpdate(player.con, menuId, ID_HEADER, buildHeaderContents(player));
         }
         if (updateCanvas) {
             Call.menuBuilderUpdate(player.con, menuId, ID_TREE_CANVAS, buildTreeCanvasContents(player, session));
-        }
-        if (updateInfo) {
-            Call.menuBuilderUpdate(player.con, menuId, ID_INFO_PANEL, buildInfoPanelContents(player, session));
         }
     }
 
     public TableBuilder buildFullDialog(Player player, PlayerMenuSession session) {
         TableBuilder root = table()
             .id(ID_ROOT)
-            .background("pane")
-            .margin(8f)
             .grow();
 
-        // Top header: resource bar + Tier 1 branch tabs + Close button
+        // Top bar: ONLY non-zero resources (empty when all resources are 0)
         TableBuilder headerBox = table()
             .id(ID_HEADER)
-            .colspan(2)
-            .growX()
-            .padBottom(6f);
-        headerBox.add(buildHeaderContents(player, session));
+            .growX();
+        headerBox.add(buildHeaderContents(player));
         root.add(headerBox).row();
 
-        // Center-left: 2D pannable Tech Tree canvas
+        // Unified 2D scrollable canvas (no branch tabs, no side panel, no custom close button)
         TableBuilder treeCanvasHolder = table()
-            .id(ID_TREE_CANVAS)
-            .margin(24f);
+            .id(ID_TREE_CANVAS);
         treeCanvasHolder.add(buildTreeCanvasContents(player, session));
 
         PaneBuilder scrollCanvas = pane()
             .style("defaultPane")
             .grow()
-            .padRight(8f)
             .add(treeCanvasHolder);
 
         root.add(scrollCanvas);
-
-        // Right: Node Inspector & Research Panel
-        TableBuilder infoPanel = table()
-            .id(ID_INFO_PANEL)
-            .background("button")
-            .margin(10f)
-            .align("topLeft")
-            .width(315f)
-            .growY();
-        infoPanel.add(buildInfoPanelContents(player, session));
-
-        root.add(infoPanel);
         return root;
     }
 
-    /** Helper for headless tests to inspect serialized packet size for a given branch tab (or current tab). */
-    public int measureFullDialogBytes(Player player, String tabId) {
+    /** Public helper for headless packet-size verification. */
+    public int measureFullDialogBytes(Player player, String selectedNodeId) {
         PlayerMenuSession session = getOrInitSession(player);
-        if (tabId != null && !tabId.isEmpty()) {
-            session.activeTabId = tabId;
-        }
-        TableBuilder ui = buildFullDialog(player, session);
-        return serializeSize(ui);
+        session.selectedNodeId = selectedNodeId == null ? "" : selectedNodeId;
+        return serializeSize(buildFullDialog(player, session));
     }
 
     public static int serializeSize(NodeBuilder<?> builder) {
@@ -250,403 +199,263 @@ public class TechTreeMenu {
         }
     }
 
-    private TableBuilder buildHeaderContents(Player player, PlayerMenuSession session) {
-        TableBuilder header = table().growX();
-
-        // Row 1: Title + Storage Resource HUD + Unlock Progress + Close button
-        TableBuilder topBar = table().background("button").margin(6f).growX().padBottom(4f);
-        topBar.add(image("tree").size(22f).color(COL_ACCENT).padRight(6f));
-        topBar.add(
-            label("[accent]Tech Tree[] [lightgray](" + service.unlockedCount(player) + "/" + service.totalUnlockableCount() + ")[]")
-                .labelAlign("left")
-                .padRight(14f)
-        );
-
-        TableBuilder resTable = table().align("left").growX();
+    private TableBuilder buildHeaderContents(Player player) {
+        TableBuilder resBar = table().wrap(true).align("center");
         TechResourceStorage storage = service.getStorage();
-        resTable.add(label("[gray]" + storage.storageName(player) + ":[]").padRight(8f));
-        int shown = 0;
+
+        boolean anyShown = false;
         for (Item item : storage.displayItems(player, service.getReferencedItems())) {
             int amt = storage.getAmount(player, item);
-            String iconName = "item-" + item.name + "-ui";
-            resTable.add(image(iconName).scaling(Scaling.fit).size(18f).padRight(3f));
-            String col = amt > 0 ? "[white]" : "[darkgray]";
-            resTable.add(label(col + formatAmount(amt) + "[]").padRight(9f));
-            shown++;
-            if (shown >= 11) break;
-        }
-        topBar.add(resTable);
+            if (amt <= 0) continue; // Do not show resources whose amount is 0
 
-        topBar.add(
-            button("[scarlet]Close[]")
-                .icon("cancel")
-                .style("defaultt")
-                .clicked("close")
-                .width(106f)
-                .height(38f)
-                .align("right")
-        );
-
-        header.add(topBar).row();
-
-        // Row 2: Serpulo Tier-1 Root Branch Tabs
-        TechNodeDef root = service.getRoot();
-        if (root.children.size > 1) {
-            TableBuilder tabs = table().align("left").growX();
-            tabs.add(label("[lightgray]Branches:[]").padRight(8f));
-            for (TechNodeDef branch : root.children) {
-                boolean active = branch.id.equals(session.activeTabId);
-                int branchUnlocked = service.countUnlockedInSubtree(player, branch);
-                int branchTotal = service.countTotalInSubtree(branch);
-                String caption = (active ? "[accent]" : "[white]")
-                    + branch.resolvedName()
-                    + " [lightgray]" + branchUnlocked + "/" + branchTotal + "[]";
-
-                tabs.add(
-                    button(caption)
-                        .icon(branch.resolvedIcon())
-                        .style("togglet")
-                        .checked(active)
-                        .clicked("tab:" + branch.id)
-                        .height(40f)
-                        .padRight(4f)
-                );
-            }
-            header.add(tabs);
+            anyShown = true;
+            resBar.add(image("item-" + item.name + "-ui").scaling(Scaling.fit).size(20f).padRight(3f).padTop(2f).padBottom(2f));
+            resBar.add(label(formatAmount(amt)).padRight(10f).padTop(2f).padBottom(2f));
         }
 
-        return header;
+        if (anyShown) {
+            return table().background("pane").margin(6f).padBottom(4f).add(resBar);
+        }
+        return table();
     }
 
-    private TableBuilder buildTreeCanvasContents(Player player, PlayerMenuSession session) {
+    private StackBuilder buildTreeCanvasContents(Player player, PlayerMenuSession session) {
         TechNodeDef root = service.getRoot();
-        TechNodeDef branchRoot = resolveTabBranch(root, session.activeTabId);
-        if (branchRoot == null) branchRoot = root;
 
         GridCanvas canvas = TechTreeLayoutEngine.buildCanvas(
-            branchRoot,
+            root,
             node -> service.isVisible(player, node),
             node -> service.isUnlocked(player, node)
         );
 
-        TableBuilder grid = table();
+        TableBuilder grid = table().align("topLeft").margin(CANVAS_PAD);
+
+        // Row 0: zero-height column-width definitions so empty runs can be collapsed with colspan()
+        for (int c = 0; c < canvas.cols; c++) {
+            float colW = (c % 2 == 0) ? NODE_SIZE : COL_GAP;
+            grid.add(space().width(colW).height(0f));
+        }
+        grid.row();
+
         for (int r = 0; r < canvas.rows; r++) {
             boolean isNodeRow = (r % 2 == 0);
             float rowH = isNodeRow ? NODE_SIZE : ROW_GAP;
 
-            for (int c = 0; c < canvas.cols; c++) {
-                boolean isNodeCol = (c % 2 == 0);
-                float colW = isNodeCol ? NODE_SIZE : COL_GAP;
-
+            int c = 0;
+            while (c < canvas.cols) {
                 TechNodeDef node = canvas.nodes[r][c];
                 int mask = canvas.lineMask[r][c];
 
+                // Collapse consecutive empty cells into a single colspan space()
+                if (node == null && mask == 0) {
+                    int run = 1;
+                    while (c + run < canvas.cols && canvas.nodes[r][c + run] == null && canvas.lineMask[r][c + run] == 0) {
+                        run++;
+                    }
+                    SpaceBuilder sp = space().height(rowH);
+                    if (run > 1) sp.colspan(run);
+                    grid.add(sp);
+                    c += run;
+                    continue;
+                }
+
+                // Collapse consecutive straight horizontal line cells of the same color into a single colspan image()
+                if (node == null && mask == (DIR_LEFT | DIR_RIGHT)) {
+                    boolean unl = canvas.unlockedMask[r][c];
+                    int run = 1;
+                    float spanW = (c % 2 == 0) ? NODE_SIZE : COL_GAP;
+                    while (c + run < canvas.cols
+                            && canvas.nodes[r][c + run] == null
+                            && canvas.lineMask[r][c + run] == (DIR_LEFT | DIR_RIGHT)
+                            && canvas.unlockedMask[r][c + run] == unl) {
+                        spanW += ((c + run) % 2 == 0) ? NODE_SIZE : COL_GAP;
+                        run++;
+                    }
+                    String lineColor = unl ? COL_UNLOCKED_LINE : COL_LOCKED_LINE;
+                    ImageBuilder bar = image("whiteui").color(lineColor).width(spanW).height(LINE_THICK);
+                    if (run > 1) bar.colspan(run);
+                    grid.add(bar);
+                    c += run;
+                    continue;
+                }
+
+                float colW = (c % 2 == 0) ? NODE_SIZE : COL_GAP;
                 if (node != null) {
                     grid.add(buildNodeButton(player, session, node));
-                } else if (mask != 0) {
+                } else {
                     String lineColor = canvas.unlockedMask[r][c] ? COL_UNLOCKED_LINE : COL_LOCKED_LINE;
                     grid.add(buildConnectorCell(mask, colW, rowH, lineColor));
-                } else {
-                    grid.add(space().width(colW).height(rowH));
                 }
+                c++;
             }
             grid.row();
         }
-        return grid;
+
+        StackBuilder layers = stack().add(grid);
+
+        // If a node is clicked, render its submenu directly below that node
+        if (!session.selectedNodeId.isEmpty()) {
+            TechNodeDef selected = service.findNode(session.selectedNodeId);
+            if (selected != null && service.isVisible(player, selected)) {
+                int nodeCols = (canvas.cols + 1) / 2;
+                float gridPixelW = CANVAS_PAD * 2f + nodeCols * NODE_SIZE + Math.max(0, nodeCols - 1) * COL_GAP;
+                float nodeLeftX = CANVAS_PAD + selected.gridX * (NODE_SIZE + COL_GAP);
+                float nodeCenterX = nodeLeftX + NODE_SIZE / 2f;
+                float nodeBottomY = CANVAS_PAD + selected.gridY * (NODE_SIZE + ROW_GAP) + NODE_SIZE;
+
+                float maxLeft = Math.max(4f, gridPixelW - SUBMENU_WIDTH - 4f);
+                float popupLeftX = Math.max(4f, Math.min(nodeCenterX - SUBMENU_WIDTH / 2f, maxLeft));
+                float popupTopY = nodeBottomY + 4f;
+
+                StackBuilder submenu = buildNodeSubmenu(player, selected)
+                    .width(SUBMENU_WIDTH)
+                    .padLeft(popupLeftX)
+                    .padTop(popupTopY)
+                    .padBottom(12f);
+
+                layers.add(table().align("topLeft").add(submenu));
+            }
+        }
+
+        return layers;
     }
 
-    private ButtonTableBuilder buildNodeButton(Player player, PlayerMenuSession session, TechNodeDef node) {
+    private NodeBuilder<?> buildNodeButton(Player player, PlayerMenuSession session, TechNodeDef node) {
         boolean unlocked = service.isUnlocked(player, node);
         boolean selected = node.id.equals(session.selectedNodeId);
-        boolean canSpend = !unlocked && service.canSpendOrUnlockNow(player, node);
         boolean parentUnlocked = node.parent == null || service.isUnlocked(player, node.parent);
+        boolean canSpend = !unlocked && service.canSpendOrUnlockNow(player, node);
 
-        String bg;
-        String borderTint;
-        String iconTint;
+        ImageButtonBuilder btn = imageButton(node.resolvedIcon())
+            .style(unlocked ? "nodei" : "defaulti")
+            .clicked("n:" + node.id)
+            .size(NODE_SIZE);
 
-        if (unlocked) {
-            bg = "button-over";
-            borderTint = selected ? COL_SELECTED_TINT : "ffffffff";
-            iconTint = "ffffffff";
-        } else if (parentUnlocked && canSpend) {
-            bg = "button";
-            borderTint = selected ? COL_ACCENT : "ffd37faa";
-            iconTint = "ffffffff";
-        } else {
-            bg = "button-red";
-            borderTint = selected ? COL_SELECTED_TINT : "ffffffbb";
-            iconTint = COL_DIM_ICON;
+        if (selected) {
+            btn.color(COL_SELECTED_TINT);
+        } else if (!unlocked && !(parentUnlocked && canSpend)) {
+            btn.color("ff6464cc");
         }
-
-        TableBuilder card = table()
-            .background(bg)
-            .color(borderTint)
-            .margin(4f)
-            .grow();
-
-        int pct = unlocked ? 0 : service.getProgressPercent(player, node);
-        float iconSz = pct > 0 ? 26f : 32f;
-
-        card.add(
-            image(node.resolvedIcon())
-                .scaling(Scaling.fit)
-                .color(iconTint)
-                .size(iconSz)
-        );
-
-        if (pct > 0) {
-            card.row();
-            card.add(label("[accent]" + pct + "%[]").style("outlineLabel"));
-        }
-
-        return buttonTable()
-            .style("emptyi")
-            .clicked("node:" + node.id)
-            .size(NODE_SIZE)
-            .add(card);
+        return btn;
     }
 
     /**
-     * Renders an exact orthogonal connector cell (`│`, `─`, `└`, `┘`, `┌`, `┐`, `┴`, `┬`, `┼`)
-     * using `whiteui` quads so parent-to-child branches meet cleanly with zero gaps.
+     * Submenu rendered directly below the clicked node:
+     * 1) Icon + Name on top
+     * 2) Costs (and any configured special conditions)
+     * 3) Description
+     * 4) "Research" button — nothing else.
      */
-    private TableBuilder buildConnectorCell(int mask, float cellW, float cellH, String color) {
-        if (mask == (DIR_LEFT | DIR_RIGHT)) {
-            return table().width(cellW).height(cellH).add(
-                image("whiteui").color(color).width(cellW).height(LINE_THICK)
-            );
-        }
-        if (mask == (DIR_UP | DIR_DOWN)) {
-            return table().width(cellW).height(cellH).add(
-                image("whiteui").color(color).width(LINE_THICK).height(cellH)
-            );
+    private StackBuilder buildNodeSubmenu(Player player, TechNodeDef node) {
+        boolean unlocked = service.isUnlocked(player, node);
+        boolean parentUnlocked = node.parent == null || service.isUnlocked(player, node.parent);
+        boolean conditionsMet = service.areConditionsMet(player, node);
+        boolean canAct = !unlocked && parentUnlocked && conditionsMet && service.canSpendOrUnlockNow(player, node);
+
+        TableBuilder body = table().margin(10f).align("topLeft");
+
+        // 1. Name + Icon on top
+        TableBuilder topRow = table().align("left").growX().padBottom(6f);
+        topRow.add(image(node.resolvedIcon()).scaling(Scaling.fit).size(26f).padRight(6f));
+        topRow.add(label("[accent]" + node.resolvedName() + "[]").wrap().labelAlign("left").growX());
+        body.add(topRow).row();
+
+        // 2. Costs (only when locked and non-empty; plus any special conditions if configured in HJSON)
+        if (!unlocked && node.costs.length > 0) {
+            TableBuilder costsTable = table().align("left").growX().padBottom(6f);
+            TechResourceStorage storage = service.getStorage();
+            for (ItemStack req : node.costs) {
+                int paid = service.getProgressStore().getPaidAmount(player.uuid(), node.id, req.item.name);
+                int remaining = Math.max(req.amount - paid, 0);
+                int have = storage.getAmount(player, req.item);
+
+                String col = (remaining == 0 || have >= remaining)
+                    ? "[white]"
+                    : (have > 0 ? "[lightgray]" : "[scarlet]");
+                String text = paid > 0
+                    ? (formatAmount(paid) + " / " + formatAmount(req.amount))
+                    : formatAmount(req.amount);
+
+                costsTable.add(image("item-" + req.item.name + "-ui").scaling(Scaling.fit).size(18f).padRight(5f));
+                costsTable.add(label(col + text + "[]").labelAlign("left").growX()).row();
+            }
+            body.add(costsTable).row();
         }
 
-        float sideW = Math.max((cellW - LINE_THICK) / 2f, 1f);
-        float sideH = Math.max((cellH - LINE_THICK) / 2f, 1f);
+        if (!unlocked && !node.conditions.isEmpty()) {
+            for (UnlockCondition cond : node.conditions) {
+                boolean met = cond.isMet(player, service.getProgressStore());
+                body.add(
+                    label((met ? "[stat]" : "[scarlet]") + cond.describe(player, service.getProgressStore()) + "[]")
+                        .wrap()
+                        .labelAlign("left")
+                        .width(SUBMENU_WIDTH - 20f)
+                        .padBottom(4f)
+                ).row();
+            }
+        }
+
+        // 3. Description
+        String desc = node.resolvedDescription();
+        if (desc != null && !desc.isEmpty()) {
+            body.add(
+                label("[lightgray]" + desc + "[]")
+                    .wrap()
+                    .labelAlign("left")
+                    .width(SUBMENU_WIDTH - 20f)
+                    .padBottom(8f)
+            ).row();
+        }
+
+        // 4. "Research" button
+        body.add(
+            button("Research")
+                .style("defaultt")
+                .disabled(!canAct)
+                .clicked("r:" + node.id)
+                .height(38f)
+                .growX()
+        );
+
+        // `image("button")` draws the 9-patch background AND blocks clicks from passing through to nodes underneath
+        return stack()
+            .add(image("button"))
+            .add(body);
+    }
+
+    private NodeBuilder<?> buildConnectorCell(int mask, float cellW, float cellH, String color) {
+        if (mask == (DIR_LEFT | DIR_RIGHT)) {
+            return image("whiteui").color(color).width(cellW).height(LINE_THICK);
+        }
+        if (mask == (DIR_UP | DIR_DOWN)) {
+            return image("whiteui").color(color).width(LINE_THICK).height(cellH);
+        }
 
         boolean up = (mask & DIR_UP) != 0;
         boolean right = (mask & DIR_RIGHT) != 0;
         boolean down = (mask & DIR_DOWN) != 0;
         boolean left = (mask & DIR_LEFT) != 0;
 
-        TableBuilder t = table().width(cellW).height(cellH);
+        float halfW = (cellW + LINE_THICK) / 2f;
+        float halfH = (cellH + LINE_THICK) / 2f;
 
-        // Top row
-        t.add(space().width(sideW).height(sideH));
-        t.add(up
-            ? image("whiteui").color(color).width(LINE_THICK).height(sideH)
-            : space().width(LINE_THICK).height(sideH));
-        t.add(space().width(sideW).height(sideH));
-        t.row();
-
-        // Middle row
-        t.add(left
-            ? image("whiteui").color(color).width(sideW).height(LINE_THICK)
-            : space().width(sideW).height(LINE_THICK));
-        t.add(image("whiteui").color(color).width(LINE_THICK).height(LINE_THICK));
-        t.add(right
-            ? image("whiteui").color(color).width(sideW).height(LINE_THICK)
-            : space().width(sideW).height(LINE_THICK));
-        t.row();
-
-        // Bottom row
-        t.add(space().width(sideW).height(sideH));
-        t.add(down
-            ? image("whiteui").color(color).width(LINE_THICK).height(sideH)
-            : space().width(LINE_THICK).height(sideH));
-        t.add(space().width(sideW).height(sideH));
-
-        return t;
-    }
-
-    private TableBuilder buildInfoPanelContents(Player player, PlayerMenuSession session) {
-        TableBuilder panel = table().align("topLeft").grow();
-
-        TechNodeDef node = service.findNode(session.selectedNodeId);
-        if (node == null) {
-            panel.add(label("[lightgray]Select a node on the left to view details and research costs.[]").wrap().growX());
-            return panel;
+        StackBuilder s = stack().width(cellW).height(cellH);
+        if (left && right) {
+            s.add(table().add(image("whiteui").color(color).width(cellW).height(LINE_THICK)));
+        } else if (left) {
+            s.add(table().align("left").add(image("whiteui").color(color).width(halfW).height(LINE_THICK)));
+        } else if (right) {
+            s.add(table().align("right").add(image("whiteui").color(color).width(halfW).height(LINE_THICK)));
         }
 
-        boolean unlocked = service.isUnlocked(player, node);
-        boolean parentUnlocked = node.parent == null || service.isUnlocked(player, node.parent);
-        boolean conditionsMet = service.areConditionsMet(player, node);
-
-        // Header: icon + localized name + unlock status
-        TableBuilder titleRow = table().align("left").growX().padBottom(8f);
-        titleRow.add(image(node.resolvedIcon()).scaling(Scaling.fit).size(42f).padRight(10f));
-
-        TableBuilder titleText = table().align("left").growX();
-        titleText.add(label("[accent]" + node.resolvedName() + "[]").wrap().labelAlign("left").growX()).row();
-        String statusBadge = unlocked
-            ? "[stat]Unlocked[]"
-            : (parentUnlocked ? "[lightgray]Locked - Researchable[]" : "[scarlet]Locked - Parent Required[]");
-        titleText.add(label(statusBadge).labelAlign("left").growX());
-        titleRow.add(titleText);
-
-        panel.add(titleRow).row();
-        panel.add(image("whiteui").color("454545ff").height(2f).growX().padBottom(8f)).row();
-
-        // Description
-        String desc = node.resolvedDescription();
-        if (desc != null && !desc.isEmpty()) {
-            panel.add(
-                pane()
-                    .style("smallPane")
-                    .maxHeight(130f)
-                    .growX()
-                    .padBottom(10f)
-                    .add(label("[lightgray]" + desc + "[]").wrap().labelAlign("left").width(275f))
-            ).row();
+        if (up && down) {
+            s.add(table().add(image("whiteui").color(color).width(LINE_THICK).height(cellH)));
+        } else if (up) {
+            s.add(table().align("top").add(image("whiteui").color(color).width(LINE_THICK).height(halfH)));
+        } else if (down) {
+            s.add(table().align("bottom").add(image("whiteui").color(color).width(LINE_THICK).height(halfH)));
         }
-
-        // Parent dependency
-        if (node.parent != null && !node.parent.virtual) {
-            boolean pOk = service.isUnlocked(player, node.parent);
-            panel.add(
-                label((pOk ? "[stat]+ []" : "[scarlet]x []") + "[lightgray]Requires: []" + node.parent.resolvedName())
-                    .wrap()
-                    .labelAlign("left")
-                    .growX()
-                    .padBottom(6f)
-            ).row();
-        }
-
-        // Special unlock conditions (if configured in techtree.hjson)
-        if (!node.conditions.isEmpty()) {
-            panel.add(label("[accent]Conditions:[]").labelAlign("left").growX().padBottom(4f)).row();
-            for (UnlockCondition cond : node.conditions) {
-                boolean met = cond.isMet(player, service.getProgressStore());
-                String prefix = met ? "[stat][OK][] " : "[scarlet][X][] ";
-                panel.add(
-                    label(prefix + cond.describe(player, service.getProgressStore()))
-                        .wrap()
-                        .labelAlign("left")
-                        .growX()
-                        .padBottom(3f)
-                ).row();
-            }
-            panel.add(space().height(6f)).row();
-        }
-
-        // Research item costs & partial progress
-        if (!unlocked) {
-            panel.add(label("[accent]Research Cost:[]").labelAlign("left").growX().padBottom(4f)).row();
-
-            if (node.costs.length == 0) {
-                panel.add(label("[stat]Free (no items required)[]").labelAlign("left").growX().padBottom(8f)).row();
-            } else {
-                TableBuilder costTable = table().align("left").growX().padBottom(10f);
-                TechResourceStorage storage = service.getStorage();
-                for (ItemStack req : node.costs) {
-                    int paid = service.getProgressStore().getPaidAmount(player.uuid(), node.id, req.item.name);
-                    int remaining = Math.max(req.amount - paid, 0);
-                    int have = storage.getAmount(player, req.item);
-
-                    String amountColor;
-                    if (remaining == 0) {
-                        amountColor = "[stat]";
-                    } else if (have >= remaining) {
-                        amountColor = "[white]";
-                    } else if (have > 0) {
-                        amountColor = "[accent]";
-                    } else {
-                        amountColor = "[scarlet]";
-                    }
-
-                    costTable.add(image("item-" + req.item.name + "-ui").scaling(Scaling.fit).size(20f).padRight(6f));
-                    costTable.add(label(req.item.localizedName).labelAlign("left").growX());
-                    costTable.add(label(amountColor + formatAmount(paid) + " / " + formatAmount(req.amount) + "[]")
-                        .labelAlign("right"))
-                        .row();
-                }
-                panel.add(costTable).row();
-            }
-
-            // Research / Contribute action button (incremental spending matching vanilla ResearchDialog)
-            boolean canAct = parentUnlocked && conditionsMet && service.canSpendOrUnlockNow(player, node);
-            boolean fullAfford = parentUnlocked && conditionsMet && service.canCompleteUnlockNow(player, node);
-
-            String btnText;
-            if (!parentUnlocked) {
-                btnText = "[gray]Unlock Parent First[]";
-            } else if (!conditionsMet) {
-                btnText = "[scarlet]Conditions Not Met[]";
-            } else if (!service.getStorage().isAvailable(player) && node.costs.length > 0) {
-                btnText = "[scarlet]No Resource Core[]";
-            } else if (fullAfford) {
-                btnText = "[accent]Research & Unlock[]";
-            } else if (canAct) {
-                btnText = "[white]Contribute Items[]";
-            } else {
-                btnText = "[scarlet]Insufficient Items[]";
-            }
-
-            panel.add(
-                button(btnText)
-                    .icon(canAct ? "hammer" : "lock")
-                    .style("defaultt")
-                    .disabled(!canAct)
-                    .clicked("research:" + node.id)
-                    .height(44f)
-                    .growX()
-                    .padTop(4f)
-            ).row();
-        } else {
-            int unlockedKids = 0;
-            for (TechNodeDef ch : node.children) {
-                if (service.isUnlocked(player, ch)) unlockedKids++;
-            }
-            panel.add(
-                label("[stat]Researched & Ready to Use![]")
-                    .labelAlign("left")
-                    .growX()
-                    .padBottom(6f)
-            ).row();
-
-            if (!node.children.isEmpty()) {
-                panel.add(
-                    label("[lightgray]Sub-branches unlocked: " + unlockedKids + " / " + node.children.size + "[]")
-                        .labelAlign("left")
-                        .growX()
-                        .padBottom(6f)
-                ).row();
-            }
-        }
-
-        if (session.statusMessage != null && !session.statusMessage.isEmpty()) {
-            panel.add(
-                label(session.statusMessage)
-                    .wrap()
-                    .labelAlign("left")
-                    .growX()
-                    .padTop(8f)
-            ).row();
-        }
-
-        panel.add(space().growY());
-        return panel;
-    }
-
-    private TechNodeDef resolveTabBranch(TechNodeDef root, String tabId) {
-        if (root == null) return null;
-        if (tabId != null && tabId.equals(root.id)) return root;
-        for (TechNodeDef child : root.children) {
-            if (child.id.equals(tabId)) return child;
-        }
-        return root.children.isEmpty() ? root : root.children.first();
-    }
-
-    private boolean isInSubtree(TechNodeDef subtreeRoot, TechNodeDef candidate) {
-        if (subtreeRoot == null || candidate == null) return false;
-        TechNodeDef cur = candidate;
-        while (cur != null) {
-            if (cur == subtreeRoot) return true;
-            cur = cur.parent;
-        }
-        return false;
+        return s;
     }
 
     private static String formatAmount(int amount) {

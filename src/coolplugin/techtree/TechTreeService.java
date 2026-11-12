@@ -399,7 +399,7 @@ public class TechTreeService {
         if (last != null && now - last < 1500L) return;
         denyMessageCooldown.put(player.uuid(), now);
         player.sendMessage("[scarlet][TechTree][] [accent]" + node.resolvedName()
-            + "[] is not researched yet! Use [accent]/tech[] to unlock it.");
+            + "[] is not researched yet! Use [accent]/t[] to unlock it.");
     }
 
     public int totalUnlockableCount() {

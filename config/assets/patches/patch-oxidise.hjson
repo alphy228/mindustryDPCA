@@ -32,12 +32,16 @@ unit.dp-dissociate-unit: {
   shadowRegion: dp-dissociate-unit-full
   weapons.0.region: dp-dissociate-mount
   weapons.0.outlineRegion: dp-dissociate-mount-outline
+  weapons.0.heatRegion: dp-dissociate-mount-heat
   weapons.1.region: dp-dissociate-mount-l
   weapons.1.outlineRegion: dp-dissociate-mount-l-outline
+  weapons.1.heatRegion: dp-dissociate-mount-l-heat
   weapons.2.region: dp-dissociate-mount
   weapons.2.outlineRegion: dp-dissociate-mount-outline
+  weapons.2.heatRegion: dp-dissociate-mount-heat
   weapons.3.region: dp-dissociate-mount-l
   weapons.3.outlineRegion: dp-dissociate-mount-l-outline
+  weapons.3.heatRegion: dp-dissociate-mount-l-heat
   weapons.4.region: dp-oxidise-weapon
   weapons.4.outlineRegion: dp-oxidise-weapon-outline
 }

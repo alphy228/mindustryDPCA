@@ -43,6 +43,86 @@ engines: [
 ]
 fogRadius: 30
 circleTarget: false
+deathExplosionEffect: {
+  type: MultiEffect
+  effects: [
+    {
+      type: WaveEffect
+      layer: 116
+      sides: 0
+      lifetime: 32
+      interp: pow3Out
+      sizeFrom: 0
+      sizeTo: 58
+      strokeFrom: 4.5
+      strokeTo: 0
+      colorFrom: e4ffd6
+      colorTo: e4ffd6
+      lightScl: 0
+      lightOpacity: 0
+    }
+    {
+      type: WaveEffect
+      layer: 116
+      sides: 0
+      lifetime: 22
+      interp: pow2Out
+      sizeFrom: 0
+      sizeTo: 34
+      strokeFrom: 2.8
+      strokeTo: 0
+      colorFrom: e4ffd6
+      colorTo: e4ffd600
+      lightScl: 0
+      lightOpacity: 0
+    }
+    {
+      type: ParticleEffect
+      layer: 116
+      particles: 1
+      length: 0
+      lifetime: 22
+      interp: pow3Out
+      sizeFrom: 6
+      sizeTo: 26
+      colorFrom: e4ffd690
+      colorTo: e4ffd600
+      lightScl: 0
+      lightOpacity: 0
+    }
+    {
+      type: ParticleEffect
+      layer: 116
+      particles: 1
+      length: 0
+      lifetime: 18
+      interp: pow2In
+      sizeFrom: 15
+      sizeTo: 0
+      colorFrom: e4ffd6
+      colorTo: e4ffd600
+      lightScl: 0
+      lightOpacity: 0
+    }
+    {
+      type: ParticleEffect
+      layer: 116
+      particles: 9
+      cone: 360
+      length: 38
+      baseLength: 4
+      lifetime: 30
+      interp: pow3Out
+      sizeInterp: pow2In
+      sizeFrom: 4.5
+      sizeTo: 0
+      colorFrom: e4ffd6
+      colorTo: e4ffd600
+      lightScl: 0
+      lightOpacity: 0
+    }
+  ]
+}
 immunities: [
   corroded
 ]
@@ -970,8 +1050,8 @@ weapons: [
       buildingDamageMultiplier: 1.25
       status: corroded
       statusDuration: 300
-      hitEffect: massiveExplosion
-      despawnEffect: pulverize
+      hitEffect: none
+      despawnEffect: none
       shootEffect: none
       smokeEffect: none
     }
@@ -1005,10 +1085,10 @@ weapons: [
     bullet: {
       type: ArtilleryBulletType
       sprite: bullet
-      speed: 0.58
-      lifetime: 140
-      drag: 0.006
-      spin: 2
+      speed: 0.96
+      lifetime: 85
+      drag: 0.01
+      spin: 3.3
       scaleLife: false
       keepVelocity: false
       collides: false
@@ -1025,7 +1105,7 @@ weapons: [
       frontColor: e4ffd6
       backColor: 6e7080
       trailEffect: none
-      trailLength: 8
+      trailLength: 6
       trailWidth: 1
       trailColor: b8f2a6aa
       layer: 115.5
@@ -1086,10 +1166,10 @@ weapons: [
     bullet: {
       type: ArtilleryBulletType
       sprite: bullet
-      speed: 0.52
-      lifetime: 152
-      drag: 0.006
-      spin: 1.6
+      speed: 0.86
+      lifetime: 92
+      drag: 0.01
+      spin: 2.6
       scaleLife: false
       keepVelocity: false
       collides: false
@@ -1106,7 +1186,7 @@ weapons: [
       frontColor: e4ffd6
       backColor: 6e7080
       trailEffect: none
-      trailLength: 9
+      trailLength: 7
       trailWidth: 1.25
       trailColor: b8f2a6aa
       layer: 115.5
@@ -1167,10 +1247,10 @@ weapons: [
     bullet: {
       type: ArtilleryBulletType
       sprite: bullet
-      speed: 0.46
-      lifetime: 164
-      drag: 0.006
-      spin: 1.3
+      speed: 0.76
+      lifetime: 99
+      drag: 0.01
+      spin: 2.1
       scaleLife: false
       keepVelocity: false
       collides: false
@@ -1187,7 +1267,7 @@ weapons: [
       frontColor: e4ffd6
       backColor: 6e7080
       trailEffect: none
-      trailLength: 10
+      trailLength: 8
       trailWidth: 1.5
       trailColor: b8f2a6aa
       layer: 115.5
@@ -1248,10 +1328,10 @@ weapons: [
     bullet: {
       type: ArtilleryBulletType
       sprite: bullet
-      speed: 0.4
-      lifetime: 176
-      drag: 0.006
-      spin: 1
+      speed: 0.66
+      lifetime: 107
+      drag: 0.01
+      spin: 1.65
       scaleLife: false
       keepVelocity: false
       collides: false
@@ -1268,7 +1348,7 @@ weapons: [
       frontColor: e4ffd6
       backColor: 6e7080
       trailEffect: none
-      trailLength: 12
+      trailLength: 9
       trailWidth: 1.8
       trailColor: b8f2a6aa
       layer: 115.5

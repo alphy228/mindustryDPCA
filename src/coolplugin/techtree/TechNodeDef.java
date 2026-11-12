@@ -16,11 +16,11 @@ public class TechNodeDef {
     public static final String DIR_LEFT = "left";
     public static final String DIR_RIGHT = "right";
 
-    /** Unique node identifier within the tree (e.g. {@code "dagger"}, {@code "router"}). */
+    /** Unique node identifier within the tree (e.g. {@code "dagger"}, {@code "router"}, {@code "titanium"}). */
     public String id;
-    /** Content type name (`unit`, `block`, `item`, `liquid`), or {@code "virtual"}. */
+    /** Content type name (`unit`, `block`, `item`, `liquid`, `sector`, `status`, `resource`), or {@code "virtual"}. */
     public String contentType = "block";
-    /** Content name inside {@code Vars.content}. */
+    /** Content name inside {@code Vars.content} (resource/core database entry for icon &amp; localized text). */
     public String contentName;
     /** Layout growth direction relative to parent (`up`, `down`, `left`, `right`). */
     public String direction = DIR_DOWN;
@@ -32,10 +32,15 @@ public class TechNodeDef {
     public @Nullable String icon;
     /** True if this node starts researched for every player (only {@code dagger} by default). */
     public boolean alwaysUnlocked = false;
+    /**
+     * True if this node cannot be researched with the UI button and is unlocked only when plugin code calls
+     * {@code TechTreeService.unlockNode(...)} / {@code CoolPlugin.unlockTechNode(...)} for that player.
+     */
+    public boolean pluginUnlocked = false;
     /** True if this node is a non-gameplay grouping node. */
     public boolean virtual = false;
 
-    /** Resolved vanilla Mindustry content. */
+    /** Resolved Mindustry database entry ({@code Item}, {@code Liquid}, {@code Block}, {@code UnitType}, {@code SectorPreset}, etc.). */
     public transient @Nullable UnlockableContent content;
     /** Parent node in the tree (null for the root node). */
     public transient @Nullable TechNodeDef parent;
@@ -50,7 +55,12 @@ public class TechNodeDef {
     public transient int gridX;
     public transient int gridY;
 
-    /** Human-readable name for server logs and chat messages (headless server has no bundle.properties). */
+    public static boolean isCustomOrModContent(@Nullable UnlockableContent c) {
+        if (c == null) return false;
+        return c.isPatchContent() || c.name.startsWith("dp-") || (c.minfo != null && c.minfo.mod != null);
+    }
+
+    /** Human-readable name for server logs and admin command output. */
     public String resolvedName() {
         if (displayName != null && !displayName.isEmpty()) return displayName;
         if (content != null) {
@@ -64,12 +74,19 @@ public class TechNodeDef {
 
     /**
      * Client-localized title string for {@code MenuBuilder} {@code Label}s.
-     * Dedicated {@code server.jar} omits {@code bundles/bundle.properties}; passing {@code "@<type>.<name>.name"}
-     * causes the client {@code Label} to resolve the localized name from its own {@code Core.bundle}.
+     * Vanilla database entries use {@code "@<type>.<name>.name"} so each client resolves its own {@code Core.bundle};
+     * server DataPatch / mod entries use the HJSON {@code localizedName}.
      */
     public String uiNameText() {
         if (displayName != null && !displayName.isEmpty()) return displayName;
         if (content != null) {
+            if (isCustomOrModContent(content)) {
+                if (content.localizedName != null && !content.localizedName.isEmpty() && !content.localizedName.equals(content.name)) {
+                    return content.localizedName;
+                }
+                String raw = content.name.startsWith("dp-") ? content.name.substring(3) : content.name;
+                return prettifyId(raw);
+            }
             return "@" + content.getContentType().name() + "." + content.name + ".name";
         }
         return resolvedName();
@@ -81,6 +98,12 @@ public class TechNodeDef {
     public String uiDescriptionText() {
         if (description != null && !description.isEmpty()) return description;
         if (content != null) {
+            if (isCustomOrModContent(content)) {
+                return content.description != null ? content.description : "";
+            }
+            if (content.getContentType() == ContentType.status) {
+                return "";
+            }
             return "@" + content.getContentType().name() + "." + content.name + ".description";
         }
         return "";
@@ -89,10 +112,22 @@ public class TechNodeDef {
     public String resolvedIcon() {
         if (icon != null && !icon.isEmpty()) return icon;
         if (content != null) {
+            if (isCustomOrModContent(content)) {
+                return content.name + "-ui";
+            }
             ContentType ct = content.getContentType();
             return ct.name() + "-" + content.name + "-ui";
         }
         return "units";
+    }
+
+    /** Optional fallback sprite region for server DataPatch sprites packed without a {@code -ui} suffix. */
+    public @Nullable String resolvedIconFallback() {
+        if (icon != null && !icon.isEmpty()) return null;
+        if (content != null && isCustomOrModContent(content)) {
+            return content.name;
+        }
+        return null;
     }
 
     public int totalCostAmount(Item item) {

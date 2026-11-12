@@ -121,6 +121,17 @@ public class TechProgressStore {
         save();
     }
 
+    public synchronized boolean unlockSingle(String uuid, String playerName, TechNodeDef node, TechNodeDef root) {
+        if (uuid == null || node == null) return false;
+        PlayerRecord rec = getOrCreate(uuid, playerName, root);
+        boolean added = rec.unlocked.add(node.id);
+        boolean hadPaid = rec.paidItems.remove(node.id) != null;
+        if (added || hadPaid) {
+            save();
+        }
+        return added;
+    }
+
     public synchronized void unlockWithParents(String uuid, String playerName, TechNodeDef node, TechNodeDef root) {
         PlayerRecord rec = getOrCreate(uuid, playerName, root);
         TechNodeDef cur = node;

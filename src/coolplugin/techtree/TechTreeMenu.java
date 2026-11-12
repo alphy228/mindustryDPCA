@@ -339,7 +339,7 @@ public class TechTreeMenu {
     private NodeBuilder<?> buildNodeButton(Player player, PlayerMenuSession session, TechNodeDef node) {
         boolean unlocked = service.isUnlocked(player, node);
         boolean selected = node.id.equals(session.selectedNodeId);
-        boolean parentUnlocked = node.parent == null || service.isUnlocked(player, node.parent);
+        boolean parentUnlocked = service.areAncestorsUnlocked(player, node);
         boolean canSpend = !unlocked && service.canSpendOrUnlockNow(player, node);
 
         var btn = buttonTable()
@@ -348,6 +348,10 @@ public class TechTreeMenu {
             .size(NODE_SIZE);
 
         ImageBuilder icon = image(node.resolvedIcon()).scaling(Scaling.fit).size(32f);
+        String fallback = node.resolvedIconFallback();
+        if (fallback != null) {
+            icon.placeholder(fallback);
+        }
         if (selected) {
             btn.color(COL_SELECTED_TINT);
         } else if (!unlocked && !(parentUnlocked && canSpend)) {
@@ -363,21 +367,26 @@ public class TechTreeMenu {
     /**
      * Submenu rendered directly below the clicked node:
      * 1) Icon + Localized Name on top
-     * 2) Costs (and any configured special conditions)
+     * 2) Costs (when locked and non-pluginUnlocked; plus any configured special conditions)
      * 3) Localized Description
-     * 4) "Research" button — nothing else.
+     * 4) "Research" button (omitted for {@code pluginUnlocked} database milestone nodes).
      */
     private StackBuilder buildNodeSubmenu(Player player, TechNodeDef node) {
         boolean unlocked = service.isUnlocked(player, node);
-        boolean parentUnlocked = node.parent == null || service.isUnlocked(player, node.parent);
+        boolean parentUnlocked = service.areAncestorsUnlocked(player, node);
         boolean conditionsMet = service.areConditionsMet(player, node);
-        boolean canAct = !unlocked && parentUnlocked && conditionsMet && service.canSpendOrUnlockNow(player, node);
+        boolean canAct = !node.pluginUnlocked && !unlocked && parentUnlocked && conditionsMet && service.canSpendOrUnlockNow(player, node);
 
         TableBuilder body = table().margin(10f).align("topLeft");
 
         // 1. Icon + Localized Name on top (`@type.name.name` must start at index 0 so client Label resolves Core.bundle)
         TableBuilder topRow = table().align("left").growX().padBottom(6f);
-        topRow.add(image(node.resolvedIcon()).scaling(Scaling.fit).size(26f).padRight(6f));
+        ImageBuilder headerIcon = image(node.resolvedIcon()).scaling(Scaling.fit).size(26f).padRight(6f);
+        String fallback = node.resolvedIconFallback();
+        if (fallback != null) {
+            headerIcon.placeholder(fallback);
+        }
+        topRow.add(headerIcon);
         topRow.add(
             label(node.uiNameText())
                 .color("ffd37fff")
@@ -387,8 +396,8 @@ public class TechTreeMenu {
         );
         body.add(topRow).row();
 
-        // 2. Costs (only when locked and non-empty; plus any special conditions if configured in HJSON)
-        if (!unlocked && node.costs.length > 0) {
+        // 2. Costs (only when locked, non-pluginUnlocked, and non-empty)
+        if (!node.pluginUnlocked && !unlocked && node.costs.length > 0) {
             TableBuilder costsTable = table().align("left").growX().padBottom(6f);
             TechResourceStorage storage = service.getStorage();
             for (ItemStack req : node.costs) {
@@ -431,19 +440,21 @@ public class TechTreeMenu {
                     .wrap()
                     .labelAlign("left")
                     .width(SUBMENU_WIDTH - 20f)
-                    .padBottom(8f)
+                    .padBottom(node.pluginUnlocked ? 0f : 8f)
             ).row();
         }
 
-        // 4. "Research" button
-        body.add(
-            button("@research")
-                .style("defaultt")
-                .disabled(!canAct)
-                .clicked("r:" + node.id)
-                .height(38f)
-                .growX()
-        );
+        // 4. "Research" button (shown only for normal researchable nodes, not plugin-unlocked nodes)
+        if (!node.pluginUnlocked) {
+            body.add(
+                button("@research")
+                    .style("defaultt")
+                    .disabled(!canAct)
+                    .clicked("r:" + node.id)
+                    .height(38f)
+                    .growX()
+            );
+        }
 
         // `image("button")` draws the 9-patch background AND blocks clicks from passing through to nodes underneath
         return stack()

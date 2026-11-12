@@ -1,5 +1,6 @@
 # Server Tech Tree (config/alphystuff/techtree.hjson)
 # Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: "...", description: "..." }]
+# Custom plugin-unlocked database nodes: { id: "titanium", type: "item", content: "titanium", pluginUnlocked: true }
 # Buildings listed in `whitelist` are buildable by all players without researching them.
 
 whitelist: []

@@ -17,6 +17,16 @@ import mindustry.type.ItemStack;
  */
 public final class TechTreeConfigIO {
 
+    private static final ContentType[] DATABASE_SEARCH_ORDER = {
+        ContentType.item,
+        ContentType.liquid,
+        ContentType.block,
+        ContentType.unit,
+        ContentType.sector,
+        ContentType.status,
+        ContentType.planet
+    };
+
     public static final class LoadedConfig {
         public final TechNodeDef root;
         public final Seq<String> whitelist;
@@ -76,19 +86,28 @@ public final class TechTreeConfigIO {
     private static TechNodeDef parseNode(JsonValue val, UnlockCondition.ConditionRegistry conditionRegistry, String inheritedDir) {
         TechNodeDef node = new TechNodeDef();
         node.virtual = val.getBoolean("virtual", false);
-        node.contentType = val.getString("type", node.virtual ? "virtual" : "block");
-        node.contentName = val.getString("content", val.getString("id", ""));
+
+        String resourceShorthand = val.getString("resource", val.getString("database", null));
+        String defaultType = node.virtual ? "virtual" : (resourceShorthand != null ? "resource" : "block");
+        node.contentType = val.getString("type", defaultType);
+
+        String fallbackContent = resourceShorthand != null ? resourceShorthand : val.getString("id", "");
+        node.contentName = val.getString("content", fallbackContent);
         node.id = val.getString("id", node.contentName);
         node.direction = val.getString("direction", inheritedDir);
         node.displayName = val.getString("displayName", null);
         node.description = val.getString("description", null);
         node.icon = val.getString("icon", null);
         node.alwaysUnlocked = val.getBoolean("alwaysUnlocked", false);
+        node.pluginUnlocked = val.getBoolean("pluginUnlocked",
+            val.getBoolean("unlockedByPlugin", val.getBoolean("manualUnlock", false)));
 
         if (!node.virtual) {
             node.content = resolveContent(node.contentType, node.contentName);
-            if (node.content == null) {
-                Log.warn("[CoolPlugin] techtree.hjson node '@' could not resolve content @:@",
+            if (node.content != null && ("resource".equalsIgnoreCase(node.contentType) || "database".equalsIgnoreCase(node.contentType))) {
+                node.contentType = node.content.getContentType().name();
+            } else if (node.content == null && !node.contentName.startsWith("dp-")) {
+                Log.warn("[CoolPlugin] techtree.hjson node '@' could not resolve content @:@ (will retry after DataPatch load)",
                     node.id, node.contentType, node.contentName);
             }
         }
@@ -114,6 +133,25 @@ public final class TechTreeConfigIO {
         }
 
         return node;
+    }
+
+    /** Re-attempts database entry lookup for any nodes referencing DataPatch (`dp-*`) content loaded on map start. */
+    public static boolean rebindContentRecursive(TechNodeDef node) {
+        if (node == null) return false;
+        boolean changed = false;
+        if (!node.virtual && node.content == null && node.contentName != null && !node.contentName.isEmpty()) {
+            node.content = resolveContent(node.contentType, node.contentName);
+            if (node.content != null) {
+                if ("resource".equalsIgnoreCase(node.contentType) || "database".equalsIgnoreCase(node.contentType)) {
+                    node.contentType = node.content.getContentType().name();
+                }
+                changed = true;
+            }
+        }
+        for (TechNodeDef child : node.children) {
+            if (rebindContentRecursive(child)) changed = true;
+        }
+        return changed;
     }
 
     private static ItemStack[] parseCosts(JsonValue costsVal) {
@@ -149,14 +187,27 @@ public final class TechTreeConfigIO {
 
     public static UnlockableContent resolveContent(String typeName, String contentName) {
         if (Vars.content == null || contentName == null || contentName.isEmpty()) return null;
-        try {
-            ContentType ct = ContentType.valueOf(typeName);
-            if (Vars.content.getByName(ct, contentName) instanceof UnlockableContent uc) {
-                return uc;
-            }
-        } catch (IllegalArgumentException ignored) {
+
+        UnlockableContent direct = resolveContentExact(typeName, contentName);
+        if (direct != null) return direct;
+
+        if (!contentName.startsWith("dp-")) {
+            return resolveContentExact(typeName, "dp-" + contentName);
         }
-        for (ContentType ct : new ContentType[]{ContentType.block, ContentType.unit, ContentType.item, ContentType.liquid}) {
+        return null;
+    }
+
+    private static UnlockableContent resolveContentExact(String typeName, String contentName) {
+        if (typeName != null && !"resource".equalsIgnoreCase(typeName) && !"database".equalsIgnoreCase(typeName)) {
+            try {
+                ContentType ct = ContentType.valueOf(typeName);
+                if (Vars.content.getByName(ct, contentName) instanceof UnlockableContent uc) {
+                    return uc;
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        for (ContentType ct : DATABASE_SEARCH_ORDER) {
             if (Vars.content.getByName(ct, contentName) instanceof UnlockableContent uc) {
                 return uc;
             }
@@ -173,6 +224,7 @@ public final class TechTreeConfigIO {
         StringBuilder sb = new StringBuilder(8192);
         sb.append("# Server Tech Tree (config/alphystuff/techtree.hjson)\n");
         sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n");
+        sb.append("# Custom plugin-unlocked database nodes: { id: \"titanium\", type: \"item\", content: \"titanium\", pluginUnlocked: true }\n");
         sb.append("# Buildings listed in `whitelist` are buildable by all players without researching them.\n\n");
 
         sb.append("whitelist: [");
@@ -190,10 +242,12 @@ public final class TechTreeConfigIO {
     }
 
     private static void writeNodeHjson(StringBuilder sb, TechNodeDef node, String indent, String inheritedDir) {
+        boolean sameContent = node.contentName == null || node.contentName.isEmpty() || node.contentName.equals(node.id);
         boolean isLeafSimple = node.children.isEmpty()
             && node.conditions.isEmpty()
             && !node.alwaysUnlocked
             && !node.virtual
+            && sameContent
             && node.displayName == null
             && node.description == null
             && node.icon == null
@@ -204,7 +258,15 @@ public final class TechTreeConfigIO {
             if (!"block".equals(node.contentType)) {
                 sb.append(", type: \"").append(escape(node.contentType)).append("\"");
             }
-            sb.append(", costs: ").append(formatInlineCosts(node.costs)).append(" }\n");
+            if (node.pluginUnlocked) {
+                sb.append(", pluginUnlocked: true");
+                if (node.costs != null && node.costs.length > 0) {
+                    sb.append(", costs: ").append(formatInlineCosts(node.costs));
+                }
+            } else {
+                sb.append(", costs: ").append(formatInlineCosts(node.costs));
+            }
+            sb.append(" }\n");
             return;
         }
 
@@ -214,7 +276,7 @@ public final class TechTreeConfigIO {
         if (!"block".equals(node.contentType)) {
             sb.append(inner).append("type: ").append(quoteIfNeeded(node.contentType)).append("\n");
         }
-        if (!node.virtual && node.contentName != null && !node.contentName.equals(node.id)) {
+        if (!node.virtual && node.contentName != null && !node.contentName.isEmpty() && !node.contentName.equals(node.id)) {
             sb.append(inner).append("content: ").append(quoteIfNeeded(node.contentName)).append("\n");
         }
         if (node.direction != null && !node.direction.equals(inheritedDir)) {
@@ -235,8 +297,13 @@ public final class TechTreeConfigIO {
         if (node.alwaysUnlocked) {
             sb.append(inner).append("alwaysUnlocked: true\n");
         }
+        if (node.pluginUnlocked) {
+            sb.append(inner).append("pluginUnlocked: true\n");
+        }
 
-        sb.append(inner).append("costs: ").append(formatInlineCosts(node.costs)).append("\n");
+        if (!node.pluginUnlocked || (node.costs != null && node.costs.length > 0)) {
+            sb.append(inner).append("costs: ").append(formatInlineCosts(node.costs)).append("\n");
+        }
 
         if (!node.conditions.isEmpty()) {
             sb.append(inner).append("conditions: [\n");

@@ -7,7 +7,6 @@ import arc.struct.ObjectSet;
 import arc.struct.Seq;
 import arc.util.Log;
 import arc.util.Nullable;
-import arc.util.Time;
 import mindustry.Vars;
 import mindustry.content.SectorPresets;
 import mindustry.core.NetServer.TeamAssigner;
@@ -37,12 +36,12 @@ import mindustry.world.meta.BuildVisibility;
 /**
  * Central orchestrator for the server-side Tech Tree system:
  * <ul>
- *   <li>Loads/saves {@code config/alphystuff/techtree.hjson} (including {@code whitelist}) and {@code techtree-progress.hjson}</li>
+ *   <li>Loads/saves {@code config/alphystuff/techtree.hjson} (including {@code whitelist} and {@code pluginUnlocked} database nodes)</li>
  *   <li>Automatically enables {@code hideBannedBlocks} on the server</li>
  *   <li>Bans all player-placeable buildings per-player unless whitelisted or researched by that player,
  *       syncing per-player {@link Rules} to each client without touching custom ({@code dp-*}) units</li>
+ *   <li>Exposes {@link #unlockNode} methods so plugin code can unlock custom resource-database nodes per-player</li>
  *   <li>Holds the swappable {@link TechResourceStorage} implementation</li>
- *   <li>Handles incremental item spending &amp; special {@link UnlockCondition} checks</li>
  * </ul>
  */
 public class TechTreeService {
@@ -73,6 +72,7 @@ public class TechTreeService {
 
     private final ObjectMap<String, TechNodeDef> nodesById = new ObjectMap<>();
     private final ObjectMap<UnlockableContent, TechNodeDef> nodesByContent = new ObjectMap<>();
+    private final ObjectMap<UnlockableContent, Seq<TechNodeDef>> allNodesByDatabaseEntry = new ObjectMap<>();
     private final Seq<Item> referencedItems = new Seq<>();
     private int totalUnlockableCount = 0;
 
@@ -81,8 +81,6 @@ public class TechTreeService {
     private boolean applyingTempWorldRules = false;
     private boolean worldStreamHooksInstalled = false;
     private final ObjectSet<String> worldStreamSyncedUuids = new ObjectSet<>();
-
-    private final ObjectMap<String, Long> denyMessageCooldown = new ObjectMap<>();
 
     public TechTreeService(Fi configDir) {
         this.configDir = configDir;
@@ -101,10 +99,12 @@ public class TechTreeService {
         installWorldStreamHooks();
 
         Events.on(WorldLoadEvent.class, event -> {
+            rebindDataPatchContentIfNeeded();
             applyServerHideBannedBlocksAndCaptureMapBans();
         });
 
         Events.on(PlayEvent.class, event -> {
+            rebindDataPatchContentIfNeeded();
             applyServerHideBannedBlocksAndCaptureMapBans();
             syncAllOnlinePlayers(null);
         });
@@ -133,6 +133,12 @@ public class TechTreeService {
             totalUnlockableCount, whitelistOrder.size, progressStore.playerCount(), treeFile.path());
     }
 
+    private synchronized void rebindDataPatchContentIfNeeded() {
+        if (TechTreeConfigIO.rebindContentRecursive(root)) {
+            rebuildIndexes();
+        }
+    }
+
     private void applyServerHideBannedBlocksAndCaptureMapBans() {
         if (Vars.state == null || Vars.state.rules == null) return;
         Vars.state.rules.hideBannedBlocks = true;
@@ -146,7 +152,6 @@ public class TechTreeService {
         if (worldStreamHooksInstalled) return;
         worldStreamHooksInstalled = true;
 
-        // Path 1: servers without external assets call assigner -> sendWorldData -> PlayerConnect synchronously
         if (Vars.netServer != null && Vars.netServer.assigner != null) {
             TeamAssigner previousAssigner = Vars.netServer.assigner;
             Vars.netServer.assigner = (player, players) -> {
@@ -158,7 +163,6 @@ public class TechTreeService {
             };
         }
 
-        // Path 2: servers WITH external assets (like mindustryDPCA sprites/patches) call sendWorldData inside RequestAssets / RequestWorld
         if (Vars.net != null) {
             Vars.net.handleServer(RequestAssetsCallPacket.class, (con, packet) -> {
                 Player p = con == null ? null : con.player;
@@ -272,6 +276,7 @@ public class TechTreeService {
     private void rebuildIndexes() {
         nodesById.clear();
         nodesByContent.clear();
+        allNodesByDatabaseEntry.clear();
         referencedItems.clear();
         totalUnlockableCount = 0;
 
@@ -285,7 +290,11 @@ public class TechTreeService {
         if (!node.virtual) {
             totalUnlockableCount++;
             if (node.content != null) {
-                nodesByContent.put(node.content, node);
+                allNodesByDatabaseEntry.get(node.content, Seq::new).add(node);
+                if ((node.content instanceof Block || node.content instanceof UnitType)
+                        && (!node.pluginUnlocked || !nodesByContent.containsKey(node.content))) {
+                    nodesByContent.put(node.content, node);
+                }
             }
         }
         if (node.costs != null) {
@@ -353,6 +362,110 @@ public class TechTreeService {
         return content == null ? null : nodesByContent.get(content);
     }
 
+    /**
+     * Programmatically registers a custom plugin-unlocked node backed by any Mindustry database entry
+     * ({@code Item}, {@code Liquid}, {@code SectorPreset}, {@code Block}, {@code UnitType}, {@code StatusEffect})
+     * for its icon, localized name, and localized description.
+     */
+    public synchronized @Nullable TechNodeDef addCustomDatabaseNode(
+            String parentNodeId,
+            String nodeId,
+            UnlockableContent databaseEntry,
+            String direction,
+            boolean saveToHjson) {
+        if (parentNodeId == null || nodeId == null || databaseEntry == null) return null;
+        TechNodeDef parent = findNode(parentNodeId);
+        if (parent == null) return null;
+
+        TechNodeDef existing = nodesById.get(nodeId);
+        if (existing != null) return existing;
+
+        TechNodeDef custom = new TechNodeDef();
+        custom.id = nodeId;
+        custom.contentType = databaseEntry.getContentType().name();
+        custom.contentName = databaseEntry.name;
+        custom.content = databaseEntry;
+        custom.direction = (direction == null || direction.isEmpty()) ? TechNodeDef.DIR_UP : direction;
+        custom.pluginUnlocked = true;
+        custom.costs = ItemStack.empty;
+        custom.parent = parent;
+
+        parent.children.add(custom);
+        rebuildIndexes();
+        if (saveToHjson) {
+            TechTreeConfigIO.save(treeFile, root, whitelistOrder);
+        }
+        return custom;
+    }
+
+    /**
+     * Plugin API: Unlocks {@code nodeId} for {@code player} (persisted per-player), refreshes their open
+     * tech tree UI if open, and updates their allowed buildings if the node unlocks a {@link Block}.
+     *
+     * @return {@code true} if the node was newly unlocked for this player; {@code false} if already unlocked or not found.
+     */
+    public synchronized boolean unlockNode(@Nullable Player player, String nodeId) {
+        if (player == null || nodeId == null) return false;
+        ensurePlayerInitialized(player);
+        TechNodeDef node = findNode(nodeId);
+        if (node == null || isUnlocked(player, node)) return false;
+
+        boolean newlyUnlocked = progressStore.unlockSingle(player.uuid(), player.plainName(), node, root);
+        if (newlyUnlocked) {
+            onNodeUnlockedExternally(player, node);
+        }
+        return newlyUnlocked;
+    }
+
+    /**
+     * Plugin API: Unlocks {@code nodeId} by player UUID (works for both online and offline players).
+     *
+     * @return {@code true} if newly unlocked.
+     */
+    public synchronized boolean unlockNode(String playerUuid, @Nullable String playerName, String nodeId) {
+        if (playerUuid == null || nodeId == null) return false;
+        TechNodeDef node = findNode(nodeId);
+        if (node == null || progressStore.isUnlocked(playerUuid, node)) return false;
+
+        boolean newlyUnlocked = progressStore.unlockSingle(playerUuid, playerName != null ? playerName : "", node, root);
+        if (newlyUnlocked && Groups.player != null) {
+            Player online = Groups.player.find(p -> playerUuid.equals(p.uuid()));
+            if (online != null) {
+                onNodeUnlockedExternally(online, node);
+            }
+        }
+        return newlyUnlocked;
+    }
+
+    /**
+     * Plugin API: Unlocks any custom node(s) referencing {@code databaseEntry} (e.g. {@code Items.titanium}
+     * or {@code Liquids.cryofluid}) for {@code player}.
+     *
+     * @return {@code true} if at least one node was newly unlocked for this player.
+     */
+    public synchronized boolean unlockNode(@Nullable Player player, @Nullable UnlockableContent databaseEntry) {
+        if (player == null || databaseEntry == null) return false;
+        ensurePlayerInitialized(player);
+        Seq<TechNodeDef> matches = allNodesByDatabaseEntry.get(databaseEntry);
+        if (matches == null || matches.isEmpty()) return false;
+
+        boolean anyNewlyUnlocked = false;
+        for (TechNodeDef node : matches) {
+            if (!isUnlocked(player, node) && progressStore.unlockSingle(player.uuid(), player.plainName(), node, root)) {
+                anyNewlyUnlocked = true;
+                onNodeUnlockedExternally(player, node);
+            }
+        }
+        return anyNewlyUnlocked;
+    }
+
+    private void onNodeUnlockedExternally(Player player, TechNodeDef node) {
+        if (node.content instanceof Block unlockedBlock && isBlockAllowedForPlayer(player, unlockedBlock)) {
+            syncPlayerRulesLive(player, unlockedBlock);
+        }
+        menu.refreshOpenSession(player);
+    }
+
     public void ensurePlayerInitialized(Player player) {
         if (player == null) return;
         String rawName = player.name != null ? player.name : player.plainName();
@@ -364,6 +477,16 @@ public class TechTreeService {
         if (node.alwaysUnlocked || node.virtual) return true;
         if (player == null) return false;
         return progressStore.isUnlocked(player.uuid(), node);
+    }
+
+    public boolean areAncestorsUnlocked(Player player, TechNodeDef node) {
+        if (node == null) return false;
+        TechNodeDef p = node.parent;
+        while (p != null) {
+            if (!isUnlocked(player, p)) return false;
+            p = p.parent;
+        }
+        return true;
     }
 
     public boolean isContentUnlocked(Player player, UnlockableContent content) {
@@ -390,7 +513,7 @@ public class TechTreeService {
         if (isWhitelisted(block)) return true;
 
         TechNodeDef node = findNodeByContent(block);
-        return node != null && isUnlocked(player, node);
+        return node != null && isUnlocked(player, node) && areAncestorsUnlocked(player, node);
     }
 
     /** Fills {@code out} with every building banned for {@code player} (map bans + unresearched non-whitelisted buildings). */
@@ -475,12 +598,12 @@ public class TechTreeService {
 
     /**
      * Matches vanilla {@code ResearchDialog}: a node is visible on the tree canvas iff it is the root
-     * or its parent node has already been unlocked by this player.
+     * or all of its ancestor nodes have been unlocked by this player.
      */
     public boolean isVisible(Player player, TechNodeDef node) {
         if (node == null) return false;
         if (node.parent == null || node.parent.virtual) return true;
-        return isUnlocked(player, node.parent);
+        return areAncestorsUnlocked(player, node);
     }
 
     public boolean areConditionsMet(Player player, TechNodeDef node) {
@@ -492,8 +615,8 @@ public class TechTreeService {
     }
 
     public boolean canSpendOrUnlockNow(Player player, TechNodeDef node) {
-        if (player == null || node == null || isUnlocked(player, node)) return false;
-        if (node.parent != null && !isUnlocked(player, node.parent)) return false;
+        if (player == null || node == null || node.pluginUnlocked || isUnlocked(player, node)) return false;
+        if (!areAncestorsUnlocked(player, node)) return false;
         if (!areConditionsMet(player, node)) return false;
         if (node.costs.length == 0) return true;
         if (!storage.isAvailable(player)) return false;
@@ -513,8 +636,8 @@ public class TechTreeService {
     }
 
     public boolean canCompleteUnlockNow(Player player, TechNodeDef node) {
-        if (player == null || node == null || isUnlocked(player, node)) return false;
-        if (node.parent != null && !isUnlocked(player, node.parent)) return false;
+        if (player == null || node == null || node.pluginUnlocked || isUnlocked(player, node)) return false;
+        if (!areAncestorsUnlocked(player, node)) return false;
         if (!areConditionsMet(player, node)) return false;
         if (node.costs.length == 0) return true;
         if (!storage.isAvailable(player)) return false;
@@ -544,25 +667,25 @@ public class TechTreeService {
     /**
      * Performs vanilla {@code ResearchDialog}-style incremental item spending:
      * deducts up to the remaining cost per item stack from {@link TechResourceStorage},
-     * saves partial progress, and unlocks the node once every stack reaches `0` remaining.
+     * saves partial progress, and unlocks the node silently (no chat spam) once every stack reaches `0` remaining.
      */
     public synchronized ResearchOutcome attemptResearch(Player player, TechNodeDef node) {
-        if (player == null || node == null) {
-            return new ResearchOutcome(false, false, "[scarlet]Invalid node.[]");
+        if (player == null || node == null || node.pluginUnlocked) {
+            return new ResearchOutcome(false, false, "");
         }
         ensurePlayerInitialized(player);
 
         if (isUnlocked(player, node)) {
-            return new ResearchOutcome(true, false, "[stat]Already researched![]");
+            return new ResearchOutcome(true, false, "");
         }
-        if (node.parent != null && !isUnlocked(player, node.parent)) {
-            return new ResearchOutcome(false, false, "[scarlet]Research parent '" + node.parent.resolvedName() + "' first.[]");
+        if (!areAncestorsUnlocked(player, node)) {
+            return new ResearchOutcome(false, false, "");
         }
         if (!areConditionsMet(player, node)) {
-            return new ResearchOutcome(false, false, "[scarlet]Special unlock conditions are not met yet.[]");
+            return new ResearchOutcome(false, false, "");
         }
         if (node.costs.length > 0 && !storage.isAvailable(player)) {
-            return new ResearchOutcome(false, false, "[scarlet]No resource storage available.[]");
+            return new ResearchOutcome(false, false, "");
         }
 
         boolean spentAny = false;
@@ -588,21 +711,19 @@ public class TechTreeService {
             if (node.content instanceof Block unlockedBlock) {
                 syncPlayerRulesLive(player, unlockedBlock);
             }
-            player.sendMessage("[accent][TechTree][] Researched [stat]" + node.resolvedName() + "[]!");
-            return new ResearchOutcome(true, spentAny, "[stat]Unlocked " + node.resolvedName() + "![]");
+            return new ResearchOutcome(true, spentAny, "");
         }
 
         if (spentAny) {
-            int pct = getProgressPercent(player, node);
-            return new ResearchOutcome(false, true, "[accent]Contributed items (" + pct + "% complete).[]");
+            return new ResearchOutcome(false, true, "");
         }
 
-        return new ResearchOutcome(false, false, "[scarlet]Not enough items in " + storage.storageName(player) + ".[]");
+        return new ResearchOutcome(false, false, "");
     }
 
     /**
      * ActionFilter enforcing per-player building bans (all buildings banned unless whitelisted or researched)
-     * and vanilla unit locks in {@code techtree.hjson}. Custom units ({@code dp-*}) are NEVER touched.
+     * and vanilla unit locks in {@code techtree.hjson} silently (no chat spam). Custom units ({@code dp-*}) are NEVER touched.
      */
     public boolean allowPlayerAction(PlayerAction action) {
         if (action == null || action.player == null) return true;
@@ -612,20 +733,12 @@ public class TechTreeService {
         if (action.type == ActionType.placeBlock && action.block != null) {
             Block block = action.block;
             if (!isBlockAllowedForPlayer(player, block)) {
-                TechNodeDef blockNode = findNodeByContent(block);
-                if (blockNode != null && !mapBannedBlocks.contains(block)) {
-                    notifyLocked(player, blockNode);
-                } else {
-                    notifyBannedBuilding(player, block);
-                }
                 return false;
             }
 
-            // Also check blueprint-configured UnitFactory plan on placement
             if (block instanceof UnitFactory factory && action.config != null) {
                 UnitType plannedUnit = extractFactoryUnit(factory, action.config);
                 if (plannedUnit != null && isVanillaUnitLocked(player, plannedUnit)) {
-                    notifyLocked(player, findNodeByContent(plannedUnit));
                     return false;
                 }
             }
@@ -633,7 +746,6 @@ public class TechTreeService {
             UnitFactory factory = (UnitFactory) fb.block;
             UnitType selectedUnit = extractFactoryUnit(factory, action.config);
             if (selectedUnit != null && isVanillaUnitLocked(player, selectedUnit)) {
-                notifyLocked(player, findNodeByContent(selectedUnit));
                 return false;
             }
         }
@@ -653,35 +765,12 @@ public class TechTreeService {
     }
 
     private boolean isVanillaUnitLocked(Player player, UnitType unit) {
-        // Hard safety guard: NEVER lock or touch custom/DataPatch units (e.g. dp-oxidise-unit, dp-corrode-unit, dp-dissociate-unit)
         if (unit == null) return false;
         if (unit.name.startsWith("dp-") || (unit.minfo != null && unit.minfo.mod != null)) {
             return false;
         }
         TechNodeDef unitNode = findNodeByContent(unit);
-        return unitNode != null && !isUnlocked(player, unitNode);
-    }
-
-    private void notifyLocked(Player player, TechNodeDef node) {
-        if (player == null || node == null) return;
-        if (onDenyCooldown(player)) return;
-        player.sendMessage("[scarlet][TechTree][] [accent]" + node.resolvedName()
-            + "[] is not researched yet! Use [accent]/t[] to unlock it.");
-    }
-
-    private void notifyBannedBuilding(Player player, Block block) {
-        if (player == null || block == null) return;
-        if (onDenyCooldown(player)) return;
-        player.sendMessage("[scarlet][TechTree][] [accent]" + TechNodeDef.prettifyId(block.name)
-            + "[] is banned (not researched or whitelisted).");
-    }
-
-    private boolean onDenyCooldown(Player player) {
-        long now = Time.millis();
-        Long last = denyMessageCooldown.get(player.uuid());
-        if (last != null && now - last < 1500L) return true;
-        denyMessageCooldown.put(player.uuid(), now);
-        return false;
+        return unitNode != null && !(isUnlocked(player, unitNode) && areAncestorsUnlocked(player, unitNode));
     }
 
     public int totalUnlockableCount() {
@@ -695,7 +784,7 @@ public class TechTreeService {
 
     public int countUnlockedInSubtree(Player player, TechNodeDef sub) {
         if (sub == null) return 0;
-        int c = (!sub.virtual && isUnlocked(player, sub)) ? 1 : 0;
+        int c = (!sub.virtual && isUnlocked(player, sub) && areAncestorsUnlocked(player, sub)) ? 1 : 0;
         for (TechNodeDef ch : sub.children) {
             c += countUnlockedInSubtree(player, ch);
         }

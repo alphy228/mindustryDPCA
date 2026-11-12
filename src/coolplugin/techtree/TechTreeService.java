@@ -6,11 +6,23 @@ import arc.struct.ObjectMap;
 import arc.struct.ObjectSet;
 import arc.struct.Seq;
 import arc.util.Log;
+import arc.util.Nullable;
 import arc.util.Time;
 import mindustry.Vars;
+import mindustry.content.SectorPresets;
+import mindustry.core.NetServer.TeamAssigner;
 import mindustry.ctype.UnlockableContent;
+import mindustry.game.EventType.PlayEvent;
+import mindustry.game.EventType.PlayerConnect;
 import mindustry.game.EventType.PlayerJoin;
+import mindustry.game.EventType.WorldLoadEvent;
+import mindustry.game.Rules;
+import mindustry.gen.Call;
+import mindustry.gen.Groups;
 import mindustry.gen.Player;
+import mindustry.gen.RequestAssetsCallPacket;
+import mindustry.gen.RequestWorldCallPacket;
+import mindustry.gen.ResearchedCallPacket;
 import mindustry.net.Administration.ActionType;
 import mindustry.net.Administration.PlayerAction;
 import mindustry.type.Item;
@@ -20,15 +32,17 @@ import mindustry.world.Block;
 import mindustry.world.blocks.units.UnitFactory;
 import mindustry.world.blocks.units.UnitFactory.UnitFactoryBuild;
 import mindustry.world.blocks.units.UnitFactory.UnitPlan;
+import mindustry.world.meta.BuildVisibility;
 
 /**
  * Central orchestrator for the server-side Tech Tree system:
  * <ul>
- *   <li>Loads/saves {@code config/alphystuff/techtree.hjson} and {@code techtree-progress.hjson}</li>
+ *   <li>Loads/saves {@code config/alphystuff/techtree.hjson} (including {@code whitelist}) and {@code techtree-progress.hjson}</li>
+ *   <li>Automatically enables {@code hideBannedBlocks} on the server</li>
+ *   <li>Bans all player-placeable buildings per-player unless whitelisted or researched by that player,
+ *       syncing per-player {@link Rules} to each client without touching custom ({@code dp-*}) units</li>
  *   <li>Holds the swappable {@link TechResourceStorage} implementation</li>
  *   <li>Handles incremental item spending &amp; special {@link UnlockCondition} checks</li>
- *   <li>Enforces per-player unlocks for buildings and vanilla units present in {@code techtree.hjson}
- *       without ever touching unlisted or custom (`dp-*`) units/blocks</li>
  * </ul>
  */
 public class TechTreeService {
@@ -54,10 +68,19 @@ public class TechTreeService {
     private TechResourceStorage storage = new CoreResourceStorage();
 
     private TechNodeDef root;
+    private final Seq<String> whitelistOrder = new Seq<>();
+    private final ObjectSet<String> whitelistedBlockNames = new ObjectSet<>();
+
     private final ObjectMap<String, TechNodeDef> nodesById = new ObjectMap<>();
     private final ObjectMap<UnlockableContent, TechNodeDef> nodesByContent = new ObjectMap<>();
     private final Seq<Item> referencedItems = new Seq<>();
     private int totalUnlockableCount = 0;
+
+    /** Map-authored block bans captured on map load before per-player rules are injected. */
+    private final ObjectSet<Block> mapBannedBlocks = new ObjectSet<>();
+    private boolean applyingTempWorldRules = false;
+    private boolean worldStreamHooksInstalled = false;
+    private final ObjectSet<String> worldStreamSyncedUuids = new ObjectSet<>();
 
     private final ObjectMap<String, Long> denyMessageCooldown = new ObjectMap<>();
 
@@ -74,9 +97,31 @@ public class TechTreeService {
         progressStore.load(root);
         menu.register();
 
+        applyServerHideBannedBlocksAndCaptureMapBans();
+        installWorldStreamHooks();
+
+        Events.on(WorldLoadEvent.class, event -> {
+            applyServerHideBannedBlocksAndCaptureMapBans();
+        });
+
+        Events.on(PlayEvent.class, event -> {
+            applyServerHideBannedBlocksAndCaptureMapBans();
+            syncAllOnlinePlayers(null);
+        });
+
+        Events.on(PlayerConnect.class, event -> {
+            restoreServerGlobalBansAfterWorldStream();
+        });
+
         Events.on(PlayerJoin.class, event -> {
             if (event.player != null) {
                 ensurePlayerInitialized(event.player);
+                boolean syncedInStream = worldStreamSyncedUuids.remove(event.player.uuid());
+                if (syncedInStream) {
+                    sendCleanPlayerRules(event.player);
+                } else {
+                    syncPlayerRulesLive(event.player, null);
+                }
             }
         });
 
@@ -84,25 +129,144 @@ public class TechTreeService {
             Vars.netServer.admins.addActionFilter(this::allowPlayerAction);
         }
 
-        Log.info("[CoolPlugin] TechTree ready (@ unlockable nodes, @ saved player records, config=@)",
-            totalUnlockableCount, progressStore.playerCount(), treeFile.path());
+        Log.info("[CoolPlugin] TechTree ready (@ unlockable nodes, @ whitelisted blocks, @ saved player records, hideBannedBlocks=true, config=@)",
+            totalUnlockableCount, whitelistOrder.size, progressStore.playerCount(), treeFile.path());
+    }
+
+    private void applyServerHideBannedBlocksAndCaptureMapBans() {
+        if (Vars.state == null || Vars.state.rules == null) return;
+        Vars.state.rules.hideBannedBlocks = true;
+        if (!applyingTempWorldRules) {
+            mapBannedBlocks.clear();
+            mapBannedBlocks.addAll(Vars.state.rules.bannedBlocks);
+        }
+    }
+
+    private void installWorldStreamHooks() {
+        if (worldStreamHooksInstalled) return;
+        worldStreamHooksInstalled = true;
+
+        // Path 1: servers without external assets call assigner -> sendWorldData -> PlayerConnect synchronously
+        if (Vars.netServer != null && Vars.netServer.assigner != null) {
+            TeamAssigner previousAssigner = Vars.netServer.assigner;
+            Vars.netServer.assigner = (player, players) -> {
+                var assigned = previousAssigner.assign(player, players);
+                if (Vars.state != null && Vars.state.data != null && !Vars.state.data.hasExternalAssets()) {
+                    applyTempWorldRulesForPlayer(player);
+                }
+                return assigned;
+            };
+        }
+
+        // Path 2: servers WITH external assets (like mindustryDPCA sprites/patches) call sendWorldData inside RequestAssets / RequestWorld
+        if (Vars.net != null) {
+            Vars.net.handleServer(RequestAssetsCallPacket.class, (con, packet) -> {
+                Player p = con == null ? null : con.player;
+                withPlayerWorldRules(p, () -> packet.handleServer(con));
+            });
+            Vars.net.handleServer(RequestWorldCallPacket.class, (con, packet) -> {
+                Player p = con == null ? null : con.player;
+                withPlayerWorldRules(p, () -> packet.handleServer(con));
+            });
+        }
+    }
+
+    /** Executes {@code action} (such as {@code netServer.sendWorldData(player)}) while {@code state.rules} holds {@code player}'s bans. */
+    public synchronized void withPlayerWorldRules(@Nullable Player player, Runnable action) {
+        if (player == null || Vars.state == null || Vars.state.rules == null) {
+            action.run();
+            return;
+        }
+        applyTempWorldRulesForPlayer(player);
+        try {
+            action.run();
+        } finally {
+            restoreServerGlobalBansAfterWorldStream();
+        }
+    }
+
+    private synchronized void applyTempWorldRulesForPlayer(@Nullable Player player) {
+        if (player == null || Vars.state == null || Vars.state.rules == null) return;
+        ensurePlayerInitialized(player);
+        if (!applyingTempWorldRules) {
+            mapBannedBlocks.clear();
+            mapBannedBlocks.addAll(Vars.state.rules.bannedBlocks);
+            applyingTempWorldRules = true;
+        }
+        Vars.state.rules.hideBannedBlocks = true;
+        Vars.state.rules.bannedBlocks.clear();
+        populateBannedBlocksForPlayer(player, Vars.state.rules.bannedBlocks);
+        worldStreamSyncedUuids.add(player.uuid());
+    }
+
+    private synchronized void restoreServerGlobalBansAfterWorldStream() {
+        if (!applyingTempWorldRules) return;
+        applyingTempWorldRules = false;
+        if (Vars.state != null && Vars.state.rules != null) {
+            Vars.state.rules.hideBannedBlocks = true;
+            Vars.state.rules.bannedBlocks.clear();
+            Vars.state.rules.bannedBlocks.addAll(mapBannedBlocks);
+        }
     }
 
     public synchronized void reloadTree() {
-        this.root = TechTreeConfigIO.loadOrCreate(treeFile, conditionRegistry);
+        TechTreeConfigIO.LoadedConfig cfg = TechTreeConfigIO.loadConfigOrCreate(treeFile, conditionRegistry);
+        this.root = cfg.root;
+        setWhitelistInternal(cfg.whitelist);
         rebuildIndexes();
         progressStore.reseedAll(root);
+        applyServerHideBannedBlocksAndCaptureMapBans();
     }
 
     public synchronized void regenerateDefaultTree(boolean resetPlayerProgress) {
         this.root = DefaultSerpuloPreThoriumTree.createDefaultRoot();
-        TechTreeConfigIO.save(treeFile, root);
+        TechTreeConfigIO.save(treeFile, root, whitelistOrder);
         rebuildIndexes();
         if (resetPlayerProgress) {
             progressStore.resetAllPlayers(root);
         } else {
             progressStore.reseedAll(root);
         }
+        applyServerHideBannedBlocksAndCaptureMapBans();
+    }
+
+    private void setWhitelistInternal(Seq<String> names) {
+        whitelistOrder.clear();
+        whitelistedBlockNames.clear();
+        if (names == null) return;
+        for (String n : names) {
+            if (n == null) continue;
+            String trimmed = n.trim();
+            if (!trimmed.isEmpty() && whitelistedBlockNames.add(trimmed)) {
+                whitelistOrder.add(trimmed);
+            }
+        }
+    }
+
+    public synchronized Seq<String> getWhitelist() {
+        return whitelistOrder.copy();
+    }
+
+    public synchronized boolean isWhitelisted(@Nullable Block block) {
+        return block != null && whitelistedBlockNames.contains(block.name);
+    }
+
+    public synchronized boolean addWhitelist(String blockName) {
+        if (blockName == null || blockName.trim().isEmpty()) return false;
+        String name = blockName.trim();
+        if (!whitelistedBlockNames.add(name)) return false;
+        whitelistOrder.add(name);
+        TechTreeConfigIO.save(treeFile, root, whitelistOrder);
+        return true;
+    }
+
+    public synchronized boolean removeWhitelist(String blockName) {
+        if (blockName == null || blockName.trim().isEmpty()) return false;
+        String name = blockName.trim();
+        if (!whitelistedBlockNames.remove(name)) return false;
+        whitelistOrder.remove(name);
+        TechTreeConfigIO.save(treeFile, root, whitelistOrder);
+        return true;
     }
 
     private void rebuildIndexes() {
@@ -121,7 +285,6 @@ public class TechTreeService {
         if (!node.virtual) {
             totalUnlockableCount++;
             if (node.content != null) {
-                // Never index custom mod/DataPatch content even if manually added by mistake unless vanilla
                 nodesByContent.put(node.content, node);
             }
         }
@@ -204,10 +367,110 @@ public class TechTreeService {
     }
 
     public boolean isContentUnlocked(Player player, UnlockableContent content) {
+        if (content instanceof Block block) {
+            return isBlockAllowedForPlayer(player, block);
+        }
         TechNodeDef node = findNodeByContent(content);
-        // Content NOT in techtree.hjson (including ALL custom dp-* units and blocks outside the tree) is untouched!
         if (node == null) return true;
         return isUnlocked(player, node);
+    }
+
+    /** True if {@code block} is a player-buildable building subject to whitelist/tech-tree gating. */
+    public static boolean isLockableBuilding(@Nullable Block block) {
+        return block != null && block.placeablePlayer && block.buildVisibility != BuildVisibility.hidden;
+    }
+
+    /**
+     * A building is allowed for {@code player} iff it is NOT banned by the map AND
+     * (it is in {@code whitelist} OR it is present in {@code techtree.hjson} and unlocked by {@code player}).
+     */
+    public boolean isBlockAllowedForPlayer(@Nullable Player player, @Nullable Block block) {
+        if (!isLockableBuilding(block)) return true;
+        if (mapBannedBlocks.contains(block)) return false;
+        if (isWhitelisted(block)) return true;
+
+        TechNodeDef node = findNodeByContent(block);
+        return node != null && isUnlocked(player, node);
+    }
+
+    /** Fills {@code out} with every building banned for {@code player} (map bans + unresearched non-whitelisted buildings). */
+    public void populateBannedBlocksForPlayer(Player player, ObjectSet<Block> out) {
+        out.addAll(mapBannedBlocks);
+        if (Vars.content == null) return;
+        for (Block block : Vars.content.blocks()) {
+            if (isLockableBuilding(block) && !isBlockAllowedForPlayer(player, block)) {
+                out.add(block);
+            }
+        }
+    }
+
+    /** Builds a clean per-player {@link Rules} copy with {@code hideBannedBlocks = true} and {@code player}'s banned buildings. */
+    public Rules buildPlayerRules(Player player) {
+        Rules base = (Vars.state != null && Vars.state.rules != null) ? Vars.state.rules.copy() : new Rules();
+        base.hideBannedBlocks = true;
+        base.bannedBlocks.clear();
+        populateBannedBlocksForPlayer(player, base.bannedBlocks);
+        return base;
+    }
+
+    public void sendCleanPlayerRules(@Nullable Player player) {
+        if (player == null || player.con == null) return;
+        Call.setRules(player.con, buildPlayerRules(player));
+    }
+
+    /**
+     * Pushes updated per-player {@code bannedBlocks} + {@code hideBannedBlocks = true} to {@code player.con}
+     * AND triggers {@code PlacementFragment.rebuild()} immediately on that client without closing open menus.
+     */
+    public void syncPlayerRulesLive(@Nullable Player player, @Nullable Block newlyUnlockedBlock) {
+        if (player == null || player.con == null) return;
+        ensurePlayerInitialized(player);
+
+        Rules cleanRules = buildPlayerRules(player);
+        Block triggerBlock = (newlyUnlockedBlock != null && !newlyUnlockedBlock.alwaysUnlocked)
+            ? newlyUnlockedBlock
+            : findFallbackTriggerBlock();
+
+        if (triggerBlock == null || SectorPresets.groundZero == null || SectorPresets.groundZero.sector == null) {
+            Call.setRules(player.con, cleanRules);
+            return;
+        }
+
+        Rules tempCampaignRules = cleanRules.copy();
+        if (tempCampaignRules.sector == null) {
+            tempCampaignRules.sector = SectorPresets.groundZero.sector;
+        }
+        tempCampaignRules.researched.clear();
+        if (Vars.content != null) {
+            for (Block b : Vars.content.blocks()) {
+                if (isLockableBuilding(b) && !cleanRules.bannedBlocks.contains(b) && b != triggerBlock) {
+                    tempCampaignRules.researched.add(b);
+                }
+            }
+        }
+
+        Call.setRules(player.con, tempCampaignRules);
+
+        ResearchedCallPacket pkt = new ResearchedCallPacket();
+        pkt.content = triggerBlock;
+        player.con.send(pkt, true);
+
+        Call.setRules(player.con, cleanRules);
+    }
+
+    public void syncAllOnlinePlayers(@Nullable Block newlyUnlockedBlock) {
+        if (Groups.player == null) return;
+        for (Player p : Groups.player) {
+            syncPlayerRulesLive(p, newlyUnlockedBlock);
+        }
+    }
+
+    private @Nullable Block findFallbackTriggerBlock() {
+        if (Vars.content == null) return null;
+        for (Block b : Vars.content.blocks()) {
+            if (!b.alwaysUnlocked) return b;
+        }
+        return null;
     }
 
     /**
@@ -322,6 +585,9 @@ public class TechTreeService {
 
         if (completedAll) {
             progressStore.unlockWithParents(player.uuid(), player.plainName(), node, root);
+            if (node.content instanceof Block unlockedBlock) {
+                syncPlayerRulesLive(player, unlockedBlock);
+            }
             player.sendMessage("[accent][TechTree][] Researched [stat]" + node.resolvedName() + "[]!");
             return new ResearchOutcome(true, spentAny, "[stat]Unlocked " + node.resolvedName() + "![]");
         }
@@ -335,8 +601,8 @@ public class TechTreeService {
     }
 
     /**
-     * ActionFilter enforcing per-player unlocks ONLY for blocks and vanilla units explicitly present
-     * in {@code config/alphystuff/techtree.hjson}. Custom units (`dp-*`) are NEVER touched.
+     * ActionFilter enforcing per-player building bans (all buildings banned unless whitelisted or researched)
+     * and vanilla unit locks in {@code techtree.hjson}. Custom units ({@code dp-*}) are NEVER touched.
      */
     public boolean allowPlayerAction(PlayerAction action) {
         if (action == null || action.player == null) return true;
@@ -345,9 +611,13 @@ public class TechTreeService {
 
         if (action.type == ActionType.placeBlock && action.block != null) {
             Block block = action.block;
-            TechNodeDef blockNode = findNodeByContent(block);
-            if (blockNode != null && !isUnlocked(player, blockNode)) {
-                notifyLocked(player, blockNode);
+            if (!isBlockAllowedForPlayer(player, block)) {
+                TechNodeDef blockNode = findNodeByContent(block);
+                if (blockNode != null && !mapBannedBlocks.contains(block)) {
+                    notifyLocked(player, blockNode);
+                } else {
+                    notifyBannedBuilding(player, block);
+                }
                 return false;
             }
 
@@ -394,12 +664,24 @@ public class TechTreeService {
 
     private void notifyLocked(Player player, TechNodeDef node) {
         if (player == null || node == null) return;
-        long now = Time.millis();
-        Long last = denyMessageCooldown.get(player.uuid());
-        if (last != null && now - last < 1500L) return;
-        denyMessageCooldown.put(player.uuid(), now);
+        if (onDenyCooldown(player)) return;
         player.sendMessage("[scarlet][TechTree][] [accent]" + node.resolvedName()
             + "[] is not researched yet! Use [accent]/t[] to unlock it.");
+    }
+
+    private void notifyBannedBuilding(Player player, Block block) {
+        if (player == null || block == null) return;
+        if (onDenyCooldown(player)) return;
+        player.sendMessage("[scarlet][TechTree][] [accent]" + TechNodeDef.prettifyId(block.name)
+            + "[] is banned (not researched or whitelisted).");
+    }
+
+    private boolean onDenyCooldown(Player player) {
+        long now = Time.millis();
+        Long last = denyMessageCooldown.get(player.uuid());
+        if (last != null && now - last < 1500L) return true;
+        denyMessageCooldown.put(player.uuid(), now);
+        return false;
     }
 
     public int totalUnlockableCount() {

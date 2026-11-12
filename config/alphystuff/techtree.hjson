@@ -1,5 +1,8 @@
 # Server Tech Tree (config/alphystuff/techtree.hjson)
 # Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: "...", description: "..." }]
+# Buildings listed in `whitelist` are buildable by all players without researching them.
+
+whitelist: []
 
 root: {
   id: dagger

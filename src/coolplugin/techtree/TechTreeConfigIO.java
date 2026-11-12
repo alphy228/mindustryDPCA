@@ -17,27 +17,60 @@ import mindustry.type.ItemStack;
  */
 public final class TechTreeConfigIO {
 
-    private TechTreeConfigIO() {}
+    public static final class LoadedConfig {
+        public final TechNodeDef root;
+        public final Seq<String> whitelist;
 
-    public static TechNodeDef loadOrCreate(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
-        if (!file.exists()) {
-            TechNodeDef def = DefaultSerpuloPreThoriumTree.createDefaultRoot();
-            save(file, def);
-            Log.info("[CoolPlugin] Created default pre-Thorium/Plastanium tech tree at @", file.path());
-            return def;
+        public LoadedConfig(TechNodeDef root, Seq<String> whitelist) {
+            this.root = root;
+            this.whitelist = whitelist;
         }
-        return load(file, conditionRegistry);
     }
 
-    public static TechNodeDef load(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
+    private TechTreeConfigIO() {}
+
+    public static LoadedConfig loadConfigOrCreate(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
+        if (!file.exists()) {
+            TechNodeDef def = DefaultSerpuloPreThoriumTree.createDefaultRoot();
+            Seq<String> whitelist = new Seq<>();
+            save(file, def, whitelist);
+            Log.info("[CoolPlugin] Created default pre-Thorium/Plastanium tech tree at @", file.path());
+            return new LoadedConfig(def, whitelist);
+        }
+        return loadConfig(file, conditionRegistry);
+    }
+
+    public static TechNodeDef loadOrCreate(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
+        return loadConfigOrCreate(file, conditionRegistry).root;
+    }
+
+    public static LoadedConfig loadConfig(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
         String rawHjson = file.readString("UTF-8");
         String jsonText = Jval.read(rawHjson).toString(Jval.Jformat.plain);
         JsonValue rootVal = new JsonReader().parse(jsonText);
 
+        Seq<String> whitelist = new Seq<>();
+        JsonValue wlVal = rootVal.get("whitelist");
+        if (wlVal != null && wlVal.isArray()) {
+            for (JsonValue entry = wlVal.child; entry != null; entry = entry.next) {
+                String name = entry.asString();
+                if (name != null) {
+                    String trimmed = name.trim();
+                    if (!trimmed.isEmpty() && !whitelist.contains(trimmed)) {
+                        whitelist.add(trimmed);
+                    }
+                }
+            }
+        }
+
         JsonValue treeVal = rootVal.has("root") ? rootVal.get("root") : rootVal;
         TechNodeDef root = parseNode(treeVal, conditionRegistry, TechNodeDef.DIR_DOWN);
         DefaultSerpuloPreThoriumTree.assignParents(root, null);
-        return root;
+        return new LoadedConfig(root, whitelist);
+    }
+
+    public static TechNodeDef load(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
+        return loadConfig(file, conditionRegistry).root;
     }
 
     private static TechNodeDef parseNode(JsonValue val, UnlockCondition.ConditionRegistry conditionRegistry, String inheritedDir) {
@@ -132,10 +165,25 @@ public final class TechTreeConfigIO {
     }
 
     public static void save(Fi file, TechNodeDef root) {
+        save(file, root, new Seq<>());
+    }
+
+    public static void save(Fi file, TechNodeDef root, Seq<String> whitelist) {
         file.parent().mkdirs();
         StringBuilder sb = new StringBuilder(8192);
         sb.append("# Server Tech Tree (config/alphystuff/techtree.hjson)\n");
-        sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n\n");
+        sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n");
+        sb.append("# Buildings listed in `whitelist` are buildable by all players without researching them.\n\n");
+
+        sb.append("whitelist: [");
+        if (whitelist != null && !whitelist.isEmpty()) {
+            for (int i = 0; i < whitelist.size; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append("\"").append(escape(whitelist.get(i))).append("\"");
+            }
+        }
+        sb.append("]\n\n");
+
         sb.append("root: ");
         writeNodeHjson(sb, root, "", TechNodeDef.DIR_DOWN);
         file.writeString(sb.toString(), false, "UTF-8");

@@ -36,7 +36,8 @@ public class TechTreeMenu {
     private static final float NODE_SIZE = 50f;
     private static final float COL_GAP = 14f;
     private static final float ROW_GAP = 18f;
-    private static final float CANVAS_PAD = 24f;
+    private static final float CANVAS_MARGIN = 96f;
+    private static final float CANVAS_BOTTOM_EXTRA = 160f;
     private static final float LINE_THICK = 4f;
     private static final float SUBMENU_WIDTH = 236f;
 
@@ -182,6 +183,13 @@ public class TechTreeMenu {
         return root;
     }
 
+    /** Public helper for headless packet-size & layout verification. */
+    public TableBuilder buildCanvasUpdateForTest(Player player, String selectedNodeId) {
+        PlayerMenuSession session = getOrInitSession(player);
+        session.selectedNodeId = selectedNodeId == null ? "" : selectedNodeId;
+        return buildTreeCanvasContents(player, session);
+    }
+
     /** Public helper for headless packet-size verification. */
     public int measureFullDialogBytes(Player player, String selectedNodeId) {
         PlayerMenuSession session = getOrInitSession(player);
@@ -219,7 +227,12 @@ public class TechTreeMenu {
         return table();
     }
 
-    private StackBuilder buildTreeCanvasContents(Player player, PlayerMenuSession session) {
+    /**
+     * Wraps the {@code StackBuilder} inside a {@link TableBuilder} so {@code Call.menuBuilderUpdate}
+     * (whose {@code UiTreeBuilder.build(Table, NodeBuilder)} unpacks root entries directly into the target {@code Table})
+     * keeps {@code grid} and {@code submenu} stacked on top of each other rather than side-by-side.
+     */
+    private TableBuilder buildTreeCanvasContents(Player player, PlayerMenuSession session) {
         TechNodeDef root = service.getRoot();
 
         GridCanvas canvas = TechTreeLayoutEngine.buildCanvas(
@@ -228,7 +241,7 @@ public class TechTreeMenu {
             node -> service.isUnlocked(player, node)
         );
 
-        TableBuilder grid = table().align("topLeft").margin(CANVAS_PAD);
+        TableBuilder grid = table().align("topLeft").margin(CANVAS_MARGIN);
 
         // Row 0: zero-height column-width definitions so empty runs can be collapsed with colspan()
         for (int c = 0; c < canvas.cols; c++) {
@@ -290,6 +303,7 @@ public class TechTreeMenu {
             }
             grid.row();
         }
+        grid.add(space().height(CANVAS_BOTTOM_EXTRA).colspan(canvas.cols)).row();
 
         StackBuilder layers = stack().add(grid);
 
@@ -297,14 +311,11 @@ public class TechTreeMenu {
         if (!session.selectedNodeId.isEmpty()) {
             TechNodeDef selected = service.findNode(session.selectedNodeId);
             if (selected != null && service.isVisible(player, selected)) {
-                int nodeCols = (canvas.cols + 1) / 2;
-                float gridPixelW = CANVAS_PAD * 2f + nodeCols * NODE_SIZE + Math.max(0, nodeCols - 1) * COL_GAP;
-                float nodeLeftX = CANVAS_PAD + selected.gridX * (NODE_SIZE + COL_GAP);
+                float nodeLeftX = CANVAS_MARGIN + selected.gridX * (NODE_SIZE + COL_GAP);
                 float nodeCenterX = nodeLeftX + NODE_SIZE / 2f;
-                float nodeBottomY = CANVAS_PAD + selected.gridY * (NODE_SIZE + ROW_GAP) + NODE_SIZE;
+                float nodeBottomY = CANVAS_MARGIN + selected.gridY * (NODE_SIZE + ROW_GAP) + NODE_SIZE;
 
-                float maxLeft = Math.max(4f, gridPixelW - SUBMENU_WIDTH - 4f);
-                float popupLeftX = Math.max(4f, Math.min(nodeCenterX - SUBMENU_WIDTH / 2f, maxLeft));
+                float popupLeftX = Math.max(4f, nodeCenterX - SUBMENU_WIDTH / 2f);
                 float popupTopY = nodeBottomY + 4f;
 
                 StackBuilder submenu = buildNodeSubmenu(player, selected)
@@ -317,33 +328,43 @@ public class TechTreeMenu {
             }
         }
 
-        return layers;
+        return table().add(layers);
     }
 
+    /**
+     * Uses {@code buttonTable()} + child {@code image(...)} rather than {@code imageButton(...)},
+     * because {@code UiTreeBuilder}'s {@code imageButton} calls {@code setStyle(Styles.nodei / defaulti)}
+     * AFTER setting the drawable, which overwrites {@code imageUp} with {@code null}.
+     */
     private NodeBuilder<?> buildNodeButton(Player player, PlayerMenuSession session, TechNodeDef node) {
         boolean unlocked = service.isUnlocked(player, node);
         boolean selected = node.id.equals(session.selectedNodeId);
         boolean parentUnlocked = node.parent == null || service.isUnlocked(player, node.parent);
         boolean canSpend = !unlocked && service.canSpendOrUnlockNow(player, node);
 
-        ImageButtonBuilder btn = imageButton(node.resolvedIcon())
+        var btn = buttonTable()
             .style(unlocked ? "nodei" : "defaulti")
             .clicked("n:" + node.id)
             .size(NODE_SIZE);
 
+        ImageBuilder icon = image(node.resolvedIcon()).scaling(Scaling.fit).size(32f);
         if (selected) {
             btn.color(COL_SELECTED_TINT);
         } else if (!unlocked && !(parentUnlocked && canSpend)) {
             btn.color("ff6464cc");
+            icon.color(COL_DIM_ICON);
+        } else if (!unlocked) {
+            icon.color("d8d8d8ff");
         }
+        btn.add(icon);
         return btn;
     }
 
     /**
      * Submenu rendered directly below the clicked node:
-     * 1) Icon + Name on top
+     * 1) Icon + Localized Name on top
      * 2) Costs (and any configured special conditions)
-     * 3) Description
+     * 3) Localized Description
      * 4) "Research" button — nothing else.
      */
     private StackBuilder buildNodeSubmenu(Player player, TechNodeDef node) {
@@ -354,10 +375,16 @@ public class TechTreeMenu {
 
         TableBuilder body = table().margin(10f).align("topLeft");
 
-        // 1. Name + Icon on top
+        // 1. Icon + Localized Name on top (`@type.name.name` must start at index 0 so client Label resolves Core.bundle)
         TableBuilder topRow = table().align("left").growX().padBottom(6f);
         topRow.add(image(node.resolvedIcon()).scaling(Scaling.fit).size(26f).padRight(6f));
-        topRow.add(label("[accent]" + node.resolvedName() + "[]").wrap().labelAlign("left").growX());
+        topRow.add(
+            label(node.uiNameText())
+                .color("ffd37fff")
+                .wrap()
+                .labelAlign("left")
+                .growX()
+        );
         body.add(topRow).row();
 
         // 2. Costs (only when locked and non-empty; plus any special conditions if configured in HJSON)
@@ -395,11 +422,12 @@ public class TechTreeMenu {
             }
         }
 
-        // 3. Description
-        String desc = node.resolvedDescription();
+        // 3. Localized Description (`@type.name.description` resolved client-side via Core.bundle)
+        String desc = node.uiDescriptionText();
         if (desc != null && !desc.isEmpty()) {
             body.add(
-                label("[lightgray]" + desc + "[]")
+                label(desc)
+                    .color("d3d3d3ff")
                     .wrap()
                     .labelAlign("left")
                     .width(SUBMENU_WIDTH - 20f)
@@ -409,7 +437,7 @@ public class TechTreeMenu {
 
         // 4. "Research" button
         body.add(
-            button("Research")
+            button("@research")
                 .style("defaultt")
                 .disabled(!canAct)
                 .clicked("r:" + node.id)

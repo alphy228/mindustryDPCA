@@ -50,15 +50,39 @@ public class TechNodeDef {
     public transient int gridX;
     public transient int gridY;
 
+    /** Human-readable name for server logs and chat messages (headless server has no bundle.properties). */
     public String resolvedName() {
         if (displayName != null && !displayName.isEmpty()) return displayName;
-        if (content != null && content.localizedName != null) return content.localizedName;
-        return id;
+        if (content != null) {
+            if (content.localizedName != null && !content.localizedName.equals(content.name)) {
+                return content.localizedName;
+            }
+            return prettifyId(content.name);
+        }
+        return prettifyId(id);
     }
 
-    public String resolvedDescription() {
+    /**
+     * Client-localized title string for {@code MenuBuilder} {@code Label}s.
+     * Dedicated {@code server.jar} omits {@code bundles/bundle.properties}; passing {@code "@<type>.<name>.name"}
+     * causes the client {@code Label} to resolve the localized name from its own {@code Core.bundle}.
+     */
+    public String uiNameText() {
+        if (displayName != null && !displayName.isEmpty()) return displayName;
+        if (content != null) {
+            return "@" + content.getContentType().name() + "." + content.name + ".name";
+        }
+        return resolvedName();
+    }
+
+    /**
+     * Client-localized description string for {@code MenuBuilder} {@code Label}s.
+     */
+    public String uiDescriptionText() {
         if (description != null && !description.isEmpty()) return description;
-        if (content != null && content.description != null) return content.description;
+        if (content != null) {
+            return "@" + content.getContentType().name() + "." + content.name + ".description";
+        }
         return "";
     }
 
@@ -76,5 +100,18 @@ public class TechNodeDef {
             if (stack.item == item) return stack.amount;
         }
         return 0;
+    }
+
+    public static String prettifyId(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        String[] parts = raw.split("[-_]");
+        StringBuilder sb = new StringBuilder(raw.length() + 4);
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(p.charAt(0)));
+            if (p.length() > 1) sb.append(p.substring(1));
+        }
+        return sb.length() > 0 ? sb.toString() : raw;
     }
 }

@@ -49,7 +49,7 @@ import static mindustry.Vars.*;
 /**
  * Single-unit player lifecycle & faction spawn manager backed by {@link PlayerSessionManager} (`players.db`):
  * <ul>
- *   <li>On join (or via {@code /faction}), presents {@link FactionJoinMenu} (Sharded, Crux, grayed-out Neoplasm & Malis).</li>
+ *   <li>On join (or via {@code /menu}), presents {@link FactionJoinMenu} (Sharded, Crux, grayed-out Neoplasm & Malis).</li>
  *   <li>Each faction persists its own current {@link UnitType} per account (Guest UUID or secured {@code login + password}).</li>
  *   <li>Spawns the player's saved faction unit at random {@code dp-<teamname>-spawnpoint} floor tile, or falls back to
  *       a core destruction site while logging a long poem about the mapper forgetting spawnpoints.</li>
@@ -98,6 +98,7 @@ public class PlayerUnitSystem {
     private final ObjectMap<String, Long> respawnAt = new ObjectMap<>();
     private final ObjectMap<String, Long> lastRespawnOffer = new ObjectMap<>();
     private final ObjectMap<String, Long> lastExitOffer = new ObjectMap<>();
+    private final ObjectMap<String, Long> lastReconLockNotice = new ObjectMap<>();
     private final ObjectMap<String, Integer> lostScans = new ObjectMap<>();
 
     private final Seq<String> lostBuffer = new Seq<>();
@@ -130,7 +131,7 @@ public class PlayerUnitSystem {
     private void onFactionMenuDismissed(@Nullable Player player) {
         if (player == null) return;
         activeJoinMenus.remove(player.uuid());
-        // Only force-reopen if the player has no faction yet (if they opened /faction mid-game and hit Esc, keep current faction)
+        // Only force-reopen if the player has no faction yet (if they opened /menu mid-game and hit Esc, keep current faction)
         if (!hasChosenFaction(player)) {
             Time.run(15f, () -> {
                 if (valid(player) && !hasChosenFaction(player)) {
@@ -152,6 +153,19 @@ public class PlayerUnitSystem {
                 if (action.type == ActionType.respawn) {
                     return false;
                 }
+                if (action.type == ActionType.buildSelect
+                    && action.tile != null
+                    && action.tile.build instanceof ReconstructorBuild reconBuild) {
+                    Unit current = owned.get(action.player.uuid());
+                    if (current == null) current = action.player.unit();
+                    if (current != null && !isReconstructorUpgradeAllowed(action.player.uuid(), current.type, reconBuild)) {
+                        notifyLockedReconstructorUpgrade(
+                            action.player,
+                            resolveReconstructorUpgrade(reconBuild, current.type)
+                        );
+                        return false;
+                    }
+                }
                 if (action.type == ActionType.control) {
                     Unit current = owned.get(action.player.uuid());
                     if (action.unit != null && action.unit == current) return true;
@@ -169,6 +183,7 @@ public class PlayerUnitSystem {
             respawnAt.clear();
             lastRespawnOffer.clear();
             lastExitOffer.clear();
+            lastReconLockNotice.clear();
             lostScans.clear();
             activeJoinMenus.clear();
         });
@@ -188,6 +203,7 @@ public class PlayerUnitSystem {
             respawnAt.remove(uuid);
             lastRespawnOffer.remove(uuid);
             lastExitOffer.remove(uuid);
+            lastReconLockNotice.remove(uuid);
             lostScans.remove(uuid);
             cleanupOwnedUnit(uuid);
         });
@@ -258,14 +274,8 @@ public class PlayerUnitSystem {
 
     public void registerCommands(CommandHandler handler) {
         handler.<Player>register(
-            "faction",
-            "Open the faction selection menu to choose or switch factions.",
-            (args, player) -> requestOpenFactionMenu(player)
-        );
-
-        handler.<Player>register(
-            "factions",
-            "Open the faction selection menu to choose or switch factions.",
+            "menu",
+            "opens the starting menu",
             (args, player) -> requestOpenFactionMenu(player)
         );
 
@@ -505,7 +515,7 @@ public class PlayerUnitSystem {
                 return;
             }
         } else if (previousFaction != null) {
-            // Switching faction via /faction: despawn old faction's unit cleanly (preserving old faction's saved unitType in SQLite)
+            // Switching faction via /menu: despawn old faction's unit cleanly (preserving old faction's saved unitType in SQLite)
             cleanupOwnedUnit(uuid);
         }
 
@@ -653,6 +663,119 @@ public class PlayerUnitSystem {
 
     // ------------------------------------------------------------------ upgrades & swaps (Reconstructor / Factory / Assembler)
 
+    private @Nullable UnitType resolveReconstructorUpgrade(
+        @Nullable ReconstructorBuild reconBuild,
+        @Nullable UnitType sourceType
+    ) {
+        if (reconBuild == null || sourceType == null) {
+            return null;
+        }
+        return reconBuild.upgrade(sourceType);
+    }
+
+    public boolean isReconstructorUpgradeAllowed(
+        @Nullable String uuid,
+        @Nullable UnitType sourceType,
+        @Nullable ReconstructorBuild reconBuild
+    ) {
+        UnitType targetType = resolveReconstructorUpgrade(reconBuild, sourceType);
+        if (targetType == null) return true;
+        return techTree == null || techTree.isUnitUnlockedForUuid(uuid, targetType);
+    }
+
+    private void notifyLockedReconstructorUpgrade(@Nullable Player player, @Nullable UnitType targetType) {
+        if (player == null || targetType == null) return;
+        long now = Time.millis();
+        if (now - lastReconLockNotice.get(player.uuid(), 0L) < 2000L) return;
+        lastReconLockNotice.put(player.uuid(), now);
+        String unitName = (targetType.localizedName != null && !targetType.localizedName.isEmpty())
+            ? targetType.localizedName
+            : targetType.name;
+        player.sendMessage("[scarlet]Cannot upgrade to [white]" + unitName + "[scarlet]: not unlocked in your tech tree.[]");
+    }
+
+    private void ejectFromLockedReconstructor(
+        @Nullable Player player,
+        String uuid,
+        Unit unit,
+        ReconstructorBuild reconBuild
+    ) {
+        reconBuild.progress = 0f;
+        notifyLockedReconstructorUpgrade(player, resolveReconstructorUpgrade(reconBuild, unit.type));
+
+        Payload taken = reconBuild.takePayload();
+        UnitPayload unitPayload;
+        if (taken instanceof UnitPayload up && up.unit == unit) {
+            unitPayload = up;
+        } else {
+            if (taken != null) {
+                reconBuild.handlePayload(reconBuild, taken);
+            }
+            if (reconBuild.payload != null && reconBuild.payload.unit == unit) {
+                unitPayload = reconBuild.payload;
+                reconBuild.payload = null;
+            } else {
+                unitPayload = new UnitPayload(unit);
+            }
+        }
+
+        boolean dumped = tryDump(reconBuild, unitPayload) || tryDumpNearTile(reconBuild.tileX(), reconBuild.tileY(), unitPayload);
+        if (!dumped) {
+            Tile fallback = findNearestPassableTile(reconBuild.tileX(), reconBuild.tileY(), unit.type);
+            float wx = fallback != null ? fallback.worldx() : reconBuild.x;
+            float wy = fallback != null ? fallback.worldy() : reconBuild.y;
+            unitPayload.set(wx, wy, unitPayload.rotation());
+            if (!unitPayload.dump()) {
+                Unit replacement = unit.type.spawn(unit.team, wx, wy);
+                Units.notifyUnitSpawn(replacement);
+                owned.put(uuid, replacement);
+                unit = replacement;
+            }
+        }
+
+        syncPayloadHolder(reconBuild);
+        holders.remove(uuid);
+        lastExitOffer.remove(uuid);
+        lostScans.remove(uuid);
+
+        if (player != null && unit.isValid() && !unit.dead()) {
+            player.unit(unit);
+        }
+    }
+
+    private boolean tryDumpNearTile(int cx, int cy, UnitPayload payload) {
+        if (world == null || world.tiles == null) return false;
+        for (int r = 1; r <= 8; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dy = -r; dy <= r; dy++) {
+                    if (Math.abs(dx) != r && Math.abs(dy) != r) continue;
+                    Tile tile = world.tile(cx + dx, cy + dy);
+                    if (tile == null || tile.solid()) continue;
+                    payload.set(tile.worldx(), tile.worldy(), payload.rotation());
+                    if (payload.dump()) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private @Nullable Tile findNearestPassableTile(int cx, int cy, UnitType type) {
+        if (world == null || world.tiles == null) return null;
+        int maxR = Math.max(world.width(), world.height());
+        for (int r = 1; r <= maxR; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dy = -r; dy <= r; dy++) {
+                    if (Math.abs(dx) != r && Math.abs(dy) != r) continue;
+                    Tile tile = world.tile(cx + dx, cy + dy);
+                    if (tile != null && !tile.solid() && (type.flying || tile.floor() == null || !tile.floor().isLiquid)) {
+                        return tile;
+                    }
+                }
+            }
+        }
+        return world.tile(cx, cy);
+    }
+
     private void handleUnitCreated(UnitCreateEvent e) {
         if (e.unit == null) return;
 
@@ -664,6 +787,28 @@ public class PlayerUnitSystem {
                 String uuid = entry.key;
                 Unit old = owned.get(uuid);
                 if (old != null && !old.isValid() && !old.dead()) {
+                    if (techTree != null && !techTree.isUnitUnlockedForUuid(uuid, e.unit.type)) {
+                        Player player = playerByUuid(uuid);
+                        notifyLockedReconstructorUpgrade(player, e.unit.type);
+                        if (reconBuild.payload != null && reconBuild.payload.unit == e.unit) {
+                            reconBuild.payload = null;
+                        }
+                        e.unit.remove();
+                        Tile outTile = findNearestPassableTile(reconBuild.tileX(), reconBuild.tileY(), old.type);
+                        float wx = outTile != null ? outTile.worldx() : reconBuild.x;
+                        float wy = outTile != null ? outTile.worldy() : reconBuild.y;
+                        Unit restored = old.type.spawn(old.team, wx, wy);
+                        Units.notifyUnitSpawn(restored);
+                        owned.put(uuid, restored);
+                        holders.remove(uuid);
+                        lostScans.remove(uuid);
+                        syncPayloadHolder(reconBuild);
+                        if (player != null) {
+                            player.unit(restored);
+                        }
+                        return;
+                    }
+
                     owned.put(uuid, e.unit);
                     holders.put(uuid, reconBuild);
                     lostScans.remove(uuid);
@@ -860,6 +1005,12 @@ public class PlayerUnitSystem {
             if (!ownedUnit.isValid()) {
                 if (!assemblerHolders.containsKey(uuid)) {
                     Posc immediateHolder = findHolder(ownedUnit);
+                    Posc activeHolder = immediateHolder != null ? immediateHolder : holders.get(uuid);
+                    if (activeHolder instanceof ReconstructorBuild reconBuild
+                        && !isReconstructorUpgradeAllowed(uuid, ownedUnit.type, reconBuild)) {
+                        ejectFromLockedReconstructor(player, uuid, ownedUnit, reconBuild);
+                        continue;
+                    }
                     if (immediateHolder instanceof UnitAssemblerBuild asm) {
                         assemblerHolders.put(uuid, asm);
                         holders.remove(uuid);
@@ -882,9 +1033,8 @@ public class PlayerUnitSystem {
     private void scanHolders() {
         lostBuffer.clear();
 
-        for (ObjectMap.Entry<String, Unit> entry : owned) {
-            String uuid = entry.key;
-            Unit unit = entry.value;
+        for (String uuid : owned.keys().toSeq()) {
+            Unit unit = owned.get(uuid);
 
             if (unit == null) {
                 lostBuffer.add(uuid);
@@ -912,6 +1062,11 @@ public class PlayerUnitSystem {
             }
 
             Posc holder = findHolder(unit);
+            if (holder instanceof ReconstructorBuild reconBuild
+                && !isReconstructorUpgradeAllowed(uuid, unit.type, reconBuild)) {
+                ejectFromLockedReconstructor(playerByUuid(uuid), uuid, unit, reconBuild);
+                continue;
+            }
             if (holder instanceof UnitAssemblerBuild asm) {
                 assemblerHolders.put(uuid, asm);
                 holders.remove(uuid);

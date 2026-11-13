@@ -3,6 +3,9 @@ test.sh
 build/
 config/mods/*.jar
 config/alphystuff/techtree-progress.hjson
+config/alphystuff/players.db*
+config/assets/patches/00-autogen-itemcap.hjson
+config/assets/patches/zz-autogen-buildspeed.hjson
 config/logs/
 config/maps/
 config/rules.hjson

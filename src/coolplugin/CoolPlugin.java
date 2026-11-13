@@ -8,6 +8,7 @@ import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.BuildResourceStorage;
 import coolplugin.gameplay.BuildSystem;
 import coolplugin.gameplay.PlayerUnitSystem;
+import coolplugin.gameplay.UnitPatchManager;
 import coolplugin.techtree.TechNodeDef;
 import coolplugin.techtree.TechResourceStorage;
 import coolplugin.techtree.TechTreeCommands;
@@ -30,6 +31,7 @@ public class CoolPlugin extends Plugin {
 
     private PlayerDatabase playerDatabase;
     private PlayerSessionManager sessionManager;
+    private UnitPatchManager unitPatchManager;
     private TechTreeService techTree;
     private BuildSystem buildSystem;
     private PlayerUnitSystem playerUnitSystem;
@@ -37,6 +39,7 @@ public class CoolPlugin extends Plugin {
     @Override
     public void init() {
         ensureSystemsCreated();
+        unitPatchManager.runOnServerLoad();
         sessionManager.start();
         techTree.init();
         buildSystem.start();
@@ -113,6 +116,7 @@ public class CoolPlugin extends Plugin {
         if (techTree == null) {
             Fi configBase = Vars.dataDirectory != null ? Vars.dataDirectory : new Fi("config");
             Fi alphyDir = configBase.child("alphystuff");
+            unitPatchManager = new UnitPatchManager(configBase);
             playerDatabase = new PlayerDatabase(alphyDir.child("players.db"));
             sessionManager = new PlayerSessionManager(playerDatabase);
             techTree = new TechTreeService(alphyDir, playerDatabase, sessionManager);

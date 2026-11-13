@@ -502,23 +502,53 @@ public class TechTreeService {
         return progressStore.isUnlocked(player.uuid(), node);
     }
 
+    public boolean isUnlockedByUuid(@Nullable String uuid, @Nullable TechNodeDef node) {
+        if (node == null) return true;
+        if (node.alwaysUnlocked || node.virtual) return true;
+        if (uuid == null) return false;
+        return progressStore.isUnlocked(uuid, node);
+    }
+
     public boolean areAncestorsUnlocked(Player player, TechNodeDef node) {
+        return areAncestorsUnlockedByUuid(player == null ? null : player.uuid(), node);
+    }
+
+    public boolean areAncestorsUnlockedByUuid(@Nullable String uuid, @Nullable TechNodeDef node) {
         if (node == null) return false;
         TechNodeDef p = node.parent;
         while (p != null) {
-            if (!isUnlocked(player, p)) return false;
+            if (!isUnlockedByUuid(uuid, p)) return false;
             p = p.parent;
         }
         return true;
+    }
+
+    public boolean isUnitUnlockedForPlayer(@Nullable Player player, @Nullable UnitType unit) {
+        if (player != null) {
+            ensurePlayerInitialized(player);
+        }
+        return isUnitUnlockedForUuid(player == null ? null : player.uuid(), unit);
+    }
+
+    public boolean isUnitUnlockedForUuid(@Nullable String uuid, @Nullable UnitType unit) {
+        if (unit == null) return false;
+        TechNodeDef node = findNodeByContent(unit);
+        if (node != null) {
+            return isUnlockedByUuid(uuid, node) && areAncestorsUnlockedByUuid(uuid, node);
+        }
+        return unit.alwaysUnlocked || unit.name.startsWith("dp-") || (unit.minfo != null && unit.minfo.mod != null);
     }
 
     public boolean isContentUnlocked(Player player, UnlockableContent content) {
         if (content instanceof Block block) {
             return isBlockAllowedForPlayer(player, block);
         }
+        if (content instanceof UnitType unit) {
+            return isUnitUnlockedForPlayer(player, unit);
+        }
         TechNodeDef node = findNodeByContent(content);
         if (node == null) return true;
-        return isUnlocked(player, node);
+        return isUnlocked(player, node) && areAncestorsUnlocked(player, node);
     }
 
     /** True if {@code block} is a player-buildable building subject to whitelist/tech-tree gating. */

@@ -1,8 +1,8 @@
 {
   "name": "coolplugin",
-  "displayName": "CoolPlugin",
+  "displayName": "le minusdry plugin au java",
   "author": "alphy",
-  "description": "Server-side persistent per-player tech tree menu using Mindustry MenuBuilder, configured via config/alphystuff/techtree.hjson.",
+  "description": "THE GLORIOUS",
   "version": "1.0.0",
   "main": "coolplugin.CoolPlugin",
   "minGameVersion": "156",

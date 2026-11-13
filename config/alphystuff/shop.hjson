@@ -94,6 +94,10 @@ items: [
     colorHex: "95abd9"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
+    subweaponPreset: "kinetic"
+    subweaponReload: 16
+    subweaponDamage: 10
+    subweaponRange: 150
     craftable: true
     decraftable: true
     reloadMultBonus: 0.12
@@ -179,7 +183,8 @@ items: [
     colorHex: "84f491"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "healWaveDynamic"
+    haloSides: 6
+    haloEffect: "none"
     haloRadius: 10
     haloInterval: 30
     craftable: true
@@ -328,6 +333,10 @@ items: [
     colorHex: "cbd97e"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
+    subweaponPreset: "blaster"
+    subweaponReload: 12
+    subweaponDamage: 13
+    subweaponRange: 170
     craftable: true
     decraftable: true
     damageMultBonus: 0.12
@@ -363,6 +372,10 @@ items: [
     colorHex: "ff795e"
     attachMode: SUBWEAPON
     mountSubtype: DORSAL_TURRET
+    subweaponPreset: "mortar"
+    subweaponReload: 46
+    subweaponDamage: 38
+    subweaponRange: 225
     craftable: true
     decraftable: true
     damageMultBonus: 0.26
@@ -380,6 +393,10 @@ items: [
     colorHex: "f4ba6e"
     attachMode: SUBWEAPON
     mountSubtype: WING_POD
+    subweaponPreset: "pierce"
+    subweaponReload: 20
+    subweaponDamage: 24
+    subweaponRange: 190
     craftable: true
     decraftable: true
     damageMultBonus: 0.38
@@ -415,7 +432,8 @@ items: [
     colorHex: "f9a3c7"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "dynamicWave"
+    haloSides: 6
+    haloEffect: "none"
     haloRadius: 12
     haloInterval: 28
     craftable: true
@@ -445,7 +463,7 @@ items: [
   {
     id: "bz-12"
     name: "Regen Halo"
-    description: "Projector ring bathing the unit center in rapid repair waves."
+    description: "Projector ring bathing the unit center in a steady repair halo."
     tier: bazaar
     category: defense
     sprite: "shop-bz-12"
@@ -453,7 +471,8 @@ items: [
     colorHex: "84f491"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "healWaveDynamic"
+    haloSides: 8
+    haloEffect: "none"
     haloRadius: 14
     haloInterval: 24
     craftable: true
@@ -490,7 +509,8 @@ items: [
     colorHex: "84f491"
     attachMode: HALO
     haloAnchor: WEAPONS
-    haloEffect: "shieldApply"
+    haloSides: 4
+    haloEffect: "none"
     haloRadius: 6
     haloInterval: 26
     craftable: true
@@ -510,7 +530,8 @@ items: [
     colorHex: "7fe6ff"
     attachMode: HALO
     haloAnchor: ENGINES
-    haloEffect: "dynamicWave"
+    haloSides: 4
+    haloEffect: "none"
     haloRadius: 6.5
     haloInterval: 22
     craftable: true
@@ -522,7 +543,7 @@ items: [
   {
     id: "ca-01"
     name: "Philosopher's Husk"
-    description: "Condensed forbidden matter radiating a spiked crimson core halo."
+    description: "Condensed forbidden matter radiating a crimson core halo."
     tier: cursed-altar
     category: resource
     sprite: "shop-ca-01"
@@ -530,7 +551,8 @@ items: [
     colorHex: "d9385a"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "dynamicSpikes"
+    haloSides: 5
+    haloEffect: "none"
     haloRadius: 14
     haloInterval: 26
     craftable: true
@@ -603,6 +625,10 @@ items: [
     colorHex: "ff6b5b"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
+    subweaponPreset: "incendiary"
+    subweaponReload: 7
+    subweaponDamage: 18
+    subweaponRange: 200
     craftable: true
     decraftable: false
     damageMultBonus: 0.3
@@ -640,7 +666,8 @@ items: [
     colorHex: "ff5e7e"
     attachMode: HALO
     haloAnchor: WEAPONS
-    haloEffect: "hitSquaresColor"
+    haloSides: 4
+    haloEffect: "none"
     haloRadius: 6.5
     haloInterval: 22
     craftable: true
@@ -671,7 +698,7 @@ items: [
   {
     id: "ca-09"
     name: "Undying Heart"
-    description: "Pulsing crimson core halo regenerating tremendous health."
+    description: "Crimson core halo regenerating tremendous health."
     tier: cursed-altar
     category: defense
     sprite: "shop-ca-09"
@@ -679,7 +706,8 @@ items: [
     colorHex: "ff2e55"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "shieldApply"
+    haloSides: 6
+    haloEffect: "none"
     haloRadius: 13
     haloInterval: 20
     craftable: true
@@ -719,7 +747,8 @@ items: [
     colorHex: "ff6b5b"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "pointShockwave"
+    haloSides: 8
+    haloEffect: "none"
     haloRadius: 15
     haloInterval: 30
     craftable: true
@@ -793,7 +822,8 @@ items: [
     colorHex: "ffd37f"
     attachMode: HALO
     haloAnchor: CENTER
-    haloEffect: "dynamicSpikes"
+    haloSides: 8
+    haloEffect: "none"
     haloRadius: 18
     haloInterval: 22
     craftable: true

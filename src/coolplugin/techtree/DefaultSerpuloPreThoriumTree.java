@@ -109,7 +109,12 @@ public final class DefaultSerpuloPreThoriumTree {
         UnlockableContent c = src.content;
         if (c == null || c instanceof SectorPreset) return null;
         if (!isVanillaContent(c)) return null;
-        if (c == Blocks.plastaniumCompressor || c == Blocks.phaseWeaver || c == Blocks.surgeSmelter || c == Blocks.thoriumReactor) {
+        if (c == Blocks.plastaniumCompressor
+            || c == Blocks.phaseWeaver
+            || c == Blocks.surgeSmelter
+            || c == Blocks.thoriumReactor
+            || c == Blocks.advancedLaunchPad
+            || c == Blocks.landingPad) {
             return null;
         }
         if (c instanceof Item it && lateItems.contains(it)) return null;

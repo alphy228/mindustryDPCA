@@ -1,5 +1,7 @@
 name: Copper Container, Item Shops, and Launch Pad
 block.launch-pad.buildVisibility: shown
+block.advanced-launch-pad.buildVisibility: hidden
+block.landing-pad.buildVisibility: hidden
 block.dp-copper-container: {
   region: dp-copper-container
   fullIcon: dp-copper-container

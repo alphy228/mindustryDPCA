@@ -315,13 +315,6 @@ root: {
               children: [
                 { id: "dp-copper-container", costs: { copper: 35 } }
                 { id: "launch-pad", costs: { copper: 4000, lead: 2500, titanium: 1800, silicon: 1500 } }
-                {
-                  id: advanced-launch-pad
-                  costs: { copper: 13000, lead: 11000, titanium: 7200, silicon: 9200 }
-                  children: [
-                    { id: "landing-pad", costs: { copper: 7200, graphite: 3300, titanium: 3300 } }
-                  ]
-                }
                 { id: "distributor", costs: { copper: 100, lead: 100 } }
                 {
                   id: sorter

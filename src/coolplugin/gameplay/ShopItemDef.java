@@ -233,14 +233,21 @@ public final class ShopItemDef {
     public float mountSideOffset = 0f;
     public float mountAngleOffset = Float.NaN;
 
-    // Halo placement & configurable Fx effect parameters
+    // Halo placement & steady geometric ShapeMarker / optional Fx parameters
     public HaloAnchor haloAnchor = HaloAnchor.CENTER;
-    public String haloEffect = "dynamicWave";
+    public String haloEffect = "none";
     public String haloColorHex = "";
     public float haloRadius = 12f;
     public float haloInterval = 26f;
+    public int haloSides = 6;
 
-    // Floating follower configuration
+    // Subweapon server projectile parameters (fired via Call.createBullet when in active slots 1..4)
+    public String subweaponPreset = "kinetic";
+    public float subweaponReload = 16f;
+    public float subweaponDamage = 11f;
+    public float subweaponRange = 160f;
+
+    // Floating / tail follower configuration
     public float followDistance = 10.5f;
 
     /** True if players can craft this item at its station; false for salvage/relic items that can only be decrafted. */
@@ -323,9 +330,16 @@ public final class ShopItemDef {
         return "item-" + iconItem + "-ui";
     }
 
-    public String visualUnitName() {
+    public String worldTextureName() {
         String sp = effectiveSprite();
-        return sp.startsWith("dp-") ? sp : ("dp-" + sp);
+        if (sp.startsWith("dp-") || sp.startsWith("item-") || sp.startsWith("block-") || sp.startsWith("unit-")) {
+            return sp;
+        }
+        return "dp-" + sp;
+    }
+
+    public String visualUnitName() {
+        return worldTextureName();
     }
 
     public String worldGlyph() {

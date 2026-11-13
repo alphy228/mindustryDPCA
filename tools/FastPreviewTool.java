@@ -38,8 +38,8 @@ import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.BuildResourceStorage;
 import coolplugin.gameplay.BuildSystem;
 import coolplugin.gameplay.ItemShopMenu;
+import coolplugin.gameplay.ItemShopSystem;
 import coolplugin.gameplay.PlayerItemSystem;
-import coolplugin.gameplay.PlayerItemSystem.ComputedStats;
 import coolplugin.gameplay.ShopItemDef.StationTier;
 import coolplugin.gameplay.UiSpriteSync;
 import coolplugin.techtree.TechTreeService;
@@ -55,7 +55,9 @@ import mindustry.core.NetServer;
 import mindustry.core.World;
 import mindustry.ctype.ContentType;
 import mindustry.entities.EntityCollisions;
+import mindustry.game.MapObjectives.ObjectiveMarker;
 import mindustry.game.Team;
+import mindustry.gen.Building;
 import mindustry.gen.Bullet;
 import mindustry.gen.Drawc;
 import mindustry.gen.Groups;
@@ -78,19 +80,25 @@ import mindustry.ui.Fonts;
 import mindustry.ui.Styles;
 import mindustry.ui.builder.UiBuilder.NodeBuilder;
 import mindustry.ui.builder.UiTreeBuilder;
+import mindustry.world.Block;
 import mindustry.world.Tile;
 import mindustry.world.Tiles;
+import mindustry.world.blocks.logic.LogicBlock.LogicBuild;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Method;
 
 /**
- * Fast (~3.5 second) authentic Mindustry v160.7 SDL2/OpenGL preview renderer.
- * Renders real Mindustry UI scenes (via TypeIO.writeUiBuilder -> TypeIO.readUiBuilder -> UiTreeBuilder.build)
- * and real Mindustry world units with MOUNT (symmetrical subtypes), HALO (center/weapons/engines HaloParts + Fx),
- * FOLLOW (standoff companions), and SUBWEAPON (rotating & firing turrets) directly from the OpenGL framebuffer.
+ * Fast (~3.5 second) authentic Mindustry v160.7 SDL2/OpenGL preview renderer for v15.
+ * Renders:
+ *  - Real Mindustry UI scenes (via TypeIO.writeUiBuilder -> TypeIO.readUiBuilder -> UiTreeBuilder.build)
+ *    including hidden unowned salvage relics vs visible owned salvage relics without 'Salvage only' text.
+ *  - Real WorldProcessor + Plugin item rigs (TextureMarker / ShapeMarker / LineMarker in Vars.state.markers.worldMarkers),
+ *    steady halved 5-tile (40f) shop circles, tail-following overburdened slots 5..10 with connection lines,
+ *    and server-fired Bullets — with ZERO item carrier Units spawned!
  */
 public class FastPreviewTool {
 
@@ -120,7 +128,7 @@ public class FastPreviewTool {
         String outDir = args.length > 1 ? args[1] : "/home/user";
 
         SdlConfig cfg = new SdlConfig();
-        cfg.title = "Mindustry v160.7 Fast Preview Tool";
+        cfg.title = "Mindustry v160.7 Fast Preview Tool (v15)";
         cfg.width = WIDTH;
         cfg.height = HEIGHT;
         cfg.disableAudio = true;
@@ -217,11 +225,13 @@ public class FastPreviewTool {
         Vars.state = new GameState();
         Vars.collisions = new EntityCollisions();
         Vars.world = new World();
+        Vars.indexer = new mindustry.ai.BlockIndexer();
         Vars.logic = new Logic();
         Vars.netServer = new NetServer();
         Groups.init();
 
         Vars.content.init();
+        Vars.logicVars.init();
         Vars.content.load();
         Fonts.loadContentIcons();
 
@@ -238,30 +248,48 @@ public class FastPreviewTool {
         Vars.state.rules.fog = false;
         Vars.state.set(GameState.State.playing);
 
-        // Apply DataPatcher for custom liquids + units (including all 45 dp-shop-* MOUNT/FOLLOW/HALO/SUBWEAPON units!)
+        // Apply DataPatcher for custom liquids, blocks (dp-workbench/dp-bazaar/dp-cursed-altar), and remaining non-item units
         Seq<ContentAsset> cAssets = new Seq<>();
         Seq<PatchAsset> pAssets = new Seq<>();
-        Fi liquidsDir = configDir.child("assets").child("content").child("liquids");
-        if (liquidsDir.exists()) {
-            for (Fi f : liquidsDir.list()) {
-                if ("hjson".equalsIgnoreCase(f.extension())) {
-                    cAssets.add(new ContentAsset(f.nameWithoutExtension(), ContentType.liquid, f.readString("UTF-8")));
+        String[][] customDirs = {
+            {"liquids", "liquid"},
+            {"blocks", "block"},
+            {"units", "unit"}
+        };
+        for (String[] pair : customDirs) {
+            Fi dir = configDir.child("assets").child("content").child(pair[0]);
+            if (dir.exists()) {
+                ContentType ct = ContentType.valueOf(pair[1]);
+                for (Fi f : dir.list()) {
+                    if ("hjson".equalsIgnoreCase(f.extension())) {
+                        cAssets.add(new ContentAsset(f.nameWithoutExtension(), ct, f.readString("UTF-8")));
+                    }
                 }
             }
         }
-        Fi unitsContentDir = configDir.child("assets").child("content").child("units");
-        if (unitsContentDir.exists()) {
-            for (Fi f : unitsContentDir.list()) {
+        Fi patchesDir = configDir.child("assets").child("patches");
+        if (patchesDir.exists()) {
+            for (Fi f : patchesDir.list()) {
                 if ("hjson".equalsIgnoreCase(f.extension())) {
-                    cAssets.add(new ContentAsset(f.nameWithoutExtension(), ContentType.unit, f.readString("UTF-8")));
+                    pAssets.add(new PatchAsset(f.readString("UTF-8")));
                 }
             }
         }
         DataPatcher patcher = new DataPatcher();
         patcher.apply(pAssets, cAssets, false);
         Vars.headless = false;
+
+        for (Block b : Vars.content.blocks()) {
+            if (b.name != null && b.name.startsWith("dp-")) {
+                b.init();
+            }
+            b.load();
+            b.loadIcon();
+        }
         for (UnitType u : Vars.content.units()) {
-            u.init();
+            if (u.name != null && u.name.startsWith("dp-")) {
+                u.init();
+            }
             u.load();
             u.loadIcon();
             if (u.shadowRegion == null) {
@@ -295,8 +323,9 @@ public class FastPreviewTool {
         techTree.setStorage(new BuildResourceStorage(buildSystem));
         PlayerItemSystem itemSystem = new PlayerItemSystem(tempAlphy, db, sessions, buildSystem);
         itemSystem.start();
-        ItemShopMenu shopMenu = new ItemShopMenu(itemSystem, buildSystem, db, sessions);
-        shopMenu.register();
+        ItemShopSystem shopSystem = new ItemShopSystem(itemSystem, buildSystem, null, techTree, db, sessions);
+        shopSystem.start();
+        ItemShopMenu shopMenu = shopSystem.getShopMenu();
 
         // Create preview player with nearby storage resources & orbital storage
         Player player = Player.create();
@@ -335,7 +364,7 @@ public class FastPreviewTool {
         db.addOrbitalItem(acc.id, "sharded", "silicon", 950);
         db.addOrbitalItem(acc.id, "sharded", "titanium", 720);
 
-        // 1. Render WORKBENCH Menu Preview (4/10 gray counter, glowing selected slot #0, clean 2-col icon rectangles)
+        // 1. Render WORKBENCH Menu Preview (player does NOT own wb-04 -> wb-04 salvage relic is hidden!)
         EquipmentData eqWb = itemSystem.getEquipment(player);
         eqWb.equipped.clear();
         eqWb.equipped.addAll("wb-01", "wb-06", "wb-09", "wb-14");
@@ -343,12 +372,12 @@ public class FastPreviewTool {
         NodeBuilder<?> wbNode = shopMenu.buildForTest(player, StationTier.WORKBENCH, false, 0, "", "");
         int wbBytes = renderMenuDialogToPng(wbNode, outDir.child("preview-workbench-menu.png"), "151722");
 
-        // 2. Render BAZAAR Menu Preview (6/10 RED over-4 counter, glowing slot #1, clicked item opening dsc panel!)
+        // 2. Render BAZAAR Menu Preview (player OWNS salvage relic bz-04 -> visible & opened in dsc WITHOUT 'Salvage only' text!)
         EquipmentData eqBz = itemSystem.getEquipment(player);
         eqBz.equipped.clear();
-        eqBz.equipped.addAll("bz-05", "bz-09", "bz-13", "wb-08", "bz-01", "bz-15");
+        eqBz.equipped.addAll("bz-05", "bz-04", "bz-13", "wb-08", "bz-01", "bz-15");
         itemSystem.saveEquipment(player, eqBz);
-        NodeBuilder<?> bzNode = shopMenu.buildForTest(player, StationTier.BAZAAR, false, 1, "bz-08", "");
+        NodeBuilder<?> bzNode = shopMenu.buildForTest(player, StationTier.BAZAAR, false, 1, "bz-04", "");
         int bzBytes = renderMenuDialogToPng(bzNode, outDir.child("preview-bazaar-menu.png"), "111824");
 
         // 3. Render CURSED ALTAR Menu Preview (6/10 RED counter, glowing slot #3, clicked Apotheosis Halo dsc!)
@@ -359,13 +388,15 @@ public class FastPreviewTool {
         NodeBuilder<?> caNode = shopMenu.buildForTest(player, StationTier.CURSED_ALTAR, false, 3, "ca-15", "");
         int caBytes = renderMenuDialogToPng(caNode, outDir.child("preview-altar-menu.png"), "1b1018");
 
-        // Remove menu player's temp unit & vault before building clean 4-unit world showcase
+        // Remove menu player & vault before building clean 4-unit WorldProcessor showcase
+        player.clearUnit();
+        player.remove();
         unit.remove();
         vaultTile.setNet(Blocks.air, Team.derelict, 0);
         Vars.indexer = new mindustry.ai.BlockIndexer();
 
-        // 4. Render Live Engine Units with Symmetrical Mounts, Center/Weapon/Engine Halos, Followers & Firing Subweapons!
-        renderUnitsWithEquippedItemsToPng(itemSystem, outDir.child("preview-items-on-units.png"));
+        // 4. Render Live WorldProcessor + Plugin Item System Showcase!
+        renderUnitsWithEquippedItemsToPng(itemSystem, shopSystem, sessions, outDir.child("preview-items-on-units.png"));
 
         long elapsed = System.currentTimeMillis() - t0;
         System.out.printf(
@@ -423,77 +454,92 @@ public class FastPreviewTool {
         return wire.length;
     }
 
-    private static void renderUnitsWithEquippedItemsToPng(PlayerItemSystem itemSystem, Fi outFile) {
-        if (Vars.renderer == null) {
-            Vars.renderer = new mindustry.core.Renderer();
-            Vars.renderer.enableEffects = true;
-        }
+    private static void renderUnitsWithEquippedItemsToPng(
+        PlayerItemSystem itemSystem, ItemShopSystem shopSystem, PlayerSessionManager sessions, Fi outFile
+    ) throws Exception {
         Groups.unit.clear();
         Groups.bullet.clear();
         Groups.draw.clear();
         itemSystem.clearAllRigs();
+        Vars.state.markers.clear();
+        if (Vars.ui == null) {
+            Vars.ui = new mindustry.core.UI();
+        }
 
-        float zoom = 5.6f;
-        float worldW = WIDTH / zoom;
-        float worldH = HEIGHT / zoom;
+        float zoom = 4.5f;
+        float worldW = WIDTH / zoom;   // ~302.2 world units (~37.8 tiles)
+        float worldH = HEIGHT / zoom;  // ~177.8 world units (~22.2 tiles)
 
-        Core.camera.position.set(worldW * 0.5f, worldH * 0.5f);
+        // Center camera away from map border so WorldProcessors at y=0 stay off-screen
+        float originX = 48f;
+        float originY = 48f;
+        Core.camera.position.set(originX + worldW * 0.5f, originY + worldH * 0.5f);
         Core.camera.width = worldW;
         Core.camera.height = worldH;
         Core.camera.update();
 
-        // Spawn 4 showcase units with all 4 new systems: MOUNT (symmetrical subtypes), HALO (center/weapons/engines),
-        // FOLLOW (floating standoff), and SUBWEAPON (actively aiming & firing real projectiles!)
-        Unit u1 = spawnShowcaseUnit(UnitTypes.dagger, Team.sharded, worldW * 0.14f, worldH * 0.44f, 82f, false);
-        // Dagger: Lead Buckler (SIDE_SHIELD mirrored), Silicon Sight (NOSE_PROW on-axis),
-        // Graphite Striker (SUBWEAPON twin pods firing!), Copper Chunk (FOLLOW behind)
-        Seq<String> load1 = Seq.with("wb-09", "wb-07", "wb-06", "wb-01");
+        // Place real dp-workbench, dp-bazaar, and dp-cursed-altar buildings in upper strip and generate their halved 5-tile (40f) ShapeMarkers!
+        Block wbBlock = Vars.content.block("dp-workbench");
+        Block bzBlock = Vars.content.block("dp-bazaar");
+        Block caBlock = Vars.content.block("dp-cursed-altar");
+        int stationTy = Math.round((originY + worldH - 50f) / 8f);
+        Vars.headless = true;
+        if (wbBlock != null) Vars.world.tile(Math.round((originX + 52f) / 8f), stationTy).setNet(wbBlock, Team.sharded, 0);
+        if (bzBlock != null) Vars.world.tile(Math.round((originX + worldW * 0.50f) / 8f), stationTy).setNet(bzBlock, Team.sharded, 0);
+        if (caBlock != null) Vars.world.tile(Math.round((originX + worldW - 52f) / 8f), stationTy).setNet(caBlock, Team.sharded, 0);
+        Vars.headless = false;
 
-        Unit u2 = spawnShowcaseUnit(UnitTypes.fortress, Team.sharded, worldW * 0.38f, worldH * 0.44f, 90f, false);
-        // Fortress: Titanium Aegis (SIDE_SHIELD mirrored), Nano Fabricator (HALO on BOTH WEAPONS!),
-        // Blast Cannon Pod (SUBWEAPON dorsal artillery firing!), Thorium Reactor Core (HALO on CENTER)
-        Seq<String> load2 = Seq.with("bz-09", "bz-14", "bz-07", "bz-10");
+        shopSystem.syncShopCircleMarkersNow();
 
-        Unit u3 = spawnShowcaseUnit(UnitTypes.horizon, Team.crux, worldW * 0.63f, worldH * 0.46f, 65f, true);
-        // Horizon: Astral Compass (HALO on ENGINES!), Phase Blink Drive (REAR_THRUSTER mirrored),
-        // Phase Lance (SUBWEAPON wing railguns firing!), Titanium Crate + Silicon Pack (2 symmetric FOLLOWs!)
-        Seq<String> load3 = Seq.with("bz-15", "bz-13", "bz-08", "bz-01", "bz-02");
+        // Spawn 4 live showcase players & units — their item visuals are driven 100% by real WorldProcessors!
+        // 1) Dagger (Active 4/10): Lead Buckler (SIDE_SHIELD mirrored), Silicon Sight (NOSE_PROW),
+        //    Graphite Striker (firing twin SUBWEAPONs), Copper Chunk (FOLLOW + LineMarker tether)
+        Player p1 = spawnShowcasePlayer(sessions, itemSystem, "p1-dagger", Team.sharded,
+            UnitTypes.dagger, originX + worldW * 0.13f, originY + worldH * 0.38f, 85f, false,
+            Seq.with("wb-09", "wb-07", "wb-06", "wb-01"));
 
-        Unit u4 = spawnShowcaseUnit(UnitTypes.mega, Team.crux, worldW * 0.87f, worldH * 0.44f, 90f, true);
-        // Mega: Apotheosis Halo (HALO on CENTER), Eye of Malice (HALO on all 4 WEAPONS!),
-        // Abyssal Gatling (SUBWEAPON twin gatlings firing!), Bloodthirst Scythe (WING_BLADE mirrored)
-        Seq<String> load4 = Seq.with("ca-15", "ca-07", "ca-05", "ca-04");
+        // 2) Fortress (Active 4/10): Titanium Aegis (SIDE_SHIELD mirrored), Nano Fabricator (WEAPONS diamond halos),
+        //    Blast Cannon Pod (dorsal SUBWEAPON firing), Thorium Reactor Core (CENTER hex halo)
+        Player p2 = spawnShowcasePlayer(sessions, itemSystem, "p2-fortress", Team.sharded,
+            UnitTypes.fortress, originX + worldW * 0.37f, originY + worldH * 0.38f, 90f, false,
+            Seq.with("bz-09", "bz-14", "bz-07", "bz-10"));
 
-        ComputedStats st1 = itemSystem.computeStats(load1);
-        ComputedStats st2 = itemSystem.computeStats(load2);
-        ComputedStats st3 = itemSystem.computeStats(load3);
-        ComputedStats st4 = itemSystem.computeStats(load4);
+        // 3) Horizon (Overburdened 7/10 — Items 5..7 forced to TAIL_FOLLOW with crimson LineMarkers!):
+        //    Slots 1..4: Astral Compass (ENGINES halo), Phase Blink Drive (REAR_THRUSTER), Phase Lance (firing SUBWEAPON), Titanium Crate (FOLLOW)
+        //    Slots 5..7: Leviathan Husk (MOUNT->TAIL), Apotheosis Halo (HALO->TAIL), Abyssal Gatling (SUBWEAPON->TAIL)
+        Player p3 = spawnShowcasePlayer(sessions, itemSystem, "p3-horizon", Team.crux,
+            UnitTypes.horizon, originX + worldW * 0.63f, originY + worldH * 0.43f, 82f, true,
+            Seq.with("bz-15", "bz-13", "bz-08", "bz-01", "ca-08", "ca-15", "ca-05"));
 
-        // Simulate 5 half-steps so every subweapon fires its opening salvo and real bullets
-        // are captured ~18-24 world units directly in front of each unit in open space!
+        // 4) Mega (Active 4/10): Apotheosis Halo (CENTER), Eye of Malice (4x WEAPONS halos),
+        //    Abyssal Gatling (twin SUBWEAPONs firing), Bloodthirst Scythe (WING_BLADE mirrored)
+        Player p4 = spawnShowcasePlayer(sessions, itemSystem, "p4-mega", Team.crux,
+            UnitTypes.mega, originX + worldW * 0.88f, originY + worldH * 0.38f, 90f, true,
+            Seq.with("ca-15", "ca-07", "ca-05", "ca-04"));
+
+        Player[] showcasePlayers = {p1, p2, p3, p4};
+
+        // Simulate 5 half-steps of real server plugin ticks + client WorldProcessor MLOG updates + bullet flight!
         Time.delta = 0.5f;
         for (int tick = 0; tick < 5; tick++) {
-            Time.time = tick * 3.0f;
+            Time.time = tick * 3.5f;
+            pinAndAimPlayer(p1, originX + worldW * 0.13f, originY + worldH * 0.38f, 85f, false);
+            pinAndAimPlayer(p2, originX + worldW * 0.37f, originY + worldH * 0.38f, 90f, false);
+            pinAndAimPlayer(p3, originX + worldW * 0.63f, originY + worldH * 0.43f, 82f, true);
+            pinAndAimPlayer(p4, originX + worldW * 0.88f, originY + worldH * 0.38f, 90f, true);
 
-            pinAndAimUnit(u1, worldW * 0.14f, worldH * 0.44f, 82f, false);
-            pinAndAimUnit(u2, worldW * 0.38f, worldH * 0.44f, 90f, false);
-            pinAndAimUnit(u3, worldW * 0.63f, worldH * 0.46f, 65f, true);
-            pinAndAimUnit(u4, worldW * 0.87f, worldH * 0.44f, 90f, true);
-
-            itemSystem.updateVisualRigForUnit("preview-1", u1, load1, st1);
-            itemSystem.updateVisualRigForUnit("preview-2", u2, load2, st2);
-            itemSystem.updateVisualRigForUnit("preview-3", u3, load3, st3);
-            itemSystem.updateVisualRigForUnit("preview-4", u4, load4, st4);
-
-            // Step subweapon AI & weapon mounts so real bullets spawn & travel forward
-            for (Unit u : Groups.unit) {
-                if (u == u1 || u == u2 || u == u3 || u == u4) continue;
-                u.controller().updateUnit();
-                if (u.mounts != null) {
-                    for (var m : u.mounts) {
-                        m.weapon.update(u, m);
-                    }
+            Vars.headless = true;
+            itemSystem.updateUnitsAndVisuals();
+            Vars.headless = false;
+            for (Player sp : showcasePlayers) {
+                LogicBuild proc = itemSystem.getWorldLogicManager().getProcessorForOwner(sp.uuid());
+                if (proc != null) {
+                    proc.update();
                 }
+            }
+            if (Vars.renderer == null) {
+                Vars.renderer = new mindustry.core.Renderer();
+                Vars.renderer.enableEffects = true;
             }
             for (Bullet b : Groups.bullet) {
                 b.update();
@@ -505,9 +551,19 @@ public class FastPreviewTool {
             }
         }
 
+        if (Groups.unit.size() != 4) {
+            throw new IllegalStateException("Expected exactly 4 host units (0 item units), got " + Groups.unit.size());
+        }
+
         Gl.viewport(0, 0, WIDTH, HEIGHT);
         Gl.clearColor(0.07f, 0.08f, 0.11f, 1f);
         Gl.clear(Gl.colorBufferBit | Gl.depthBufferBit);
+
+        // Set camera AFTER simulation loop because new Renderer() replaces Core.camera!
+        Core.camera.position.set(originX + worldW * 0.5f, originY + worldH * 0.5f);
+        Core.camera.width = worldW;
+        Core.camera.height = worldH;
+        Core.camera.update();
 
         Draw.scl = 0.25f;
         Draw.proj(Core.camera);
@@ -518,8 +574,12 @@ public class FastPreviewTool {
         TextureRegion floorA = Core.atlas.find("dark-panel-3", Core.atlas.find("stone1"));
         TextureRegion floorB = Core.atlas.find("dark-panel-4", floorA);
         TextureRegion metalFloor = Core.atlas.find("metal-floor", floorA);
-        for (int ty = 0; ty <= (int) (worldH / 8f) + 1; ty++) {
-            for (int tx = 0; tx <= (int) (worldW / 8f) + 1; tx++) {
+        int minTx = Math.max(0, (int) (originX / 8f) - 2);
+        int maxTx = Math.min(Vars.world.width() - 1, (int) ((originX + worldW) / 8f) + 2);
+        int minTy = Math.max(0, (int) (originY / 8f) - 2);
+        int maxTy = Math.min(Vars.world.height() - 1, (int) ((originY + worldH) / 8f) + 2);
+        for (int ty = minTy; ty <= maxTy; ty++) {
+            for (int tx = minTx; tx <= maxTx; tx++) {
                 TextureRegion fl = ((tx + ty) % 7 == 0) ? metalFloor : (((tx + ty) % 2 == 0) ? floorA : floorB);
                 Draw.color(0.78f, 0.81f, 0.88f, 1f);
                 Draw.rect(fl, tx * 8f + 4f, ty * 8f + 4f, 8f, 8f);
@@ -527,14 +587,21 @@ public class FastPreviewTool {
         }
         Draw.reset();
 
-        // 2. Shop buildings in upper showcase strip
+        // 2. Real placed shop buildings (dp-workbench, dp-bazaar, dp-cursed-altar)
         Draw.z(30f);
-        drawShopBuildingPreview("dp-workbench", "reinforced-block-2", 38f, worldH - 25f, 12f, Color.valueOf("ffd37f"));
-        drawShopBuildingPreview("dp-bazaar", "reinforced-block-3", worldW * 0.5f, worldH - 25f, 18f, Color.valueOf("7fe6ff"));
-        drawShopBuildingPreview("dp-cursed-altar", "reinforced-block-5", worldW - 40f, worldH - 25f, 22f, Color.valueOf("ff4b6e"));
+        Seq<Building> drawnBuilds = new Seq<>();
+        for (int ty = minTy; ty <= maxTy; ty++) {
+            for (int tx = minTx; tx <= maxTx; tx++) {
+                Tile t = Vars.world.tile(tx, ty);
+                if (t != null && t.build != null && !(t.build instanceof LogicBuild) && !drawnBuilds.contains(t.build)) {
+                    drawnBuilds.add(t.build);
+                    Draw.reset();
+                    t.build.draw();
+                }
+            }
+        }
 
-        // 3. Draw ALL real Mindustry units (host units + mounted sprites + HaloPart units + subweapon turrets),
-        // real fired Bullets, and real Fx halo effects via Mindustry's native Z-sorted draw pipeline!
+        // 3. Draw ONLY the 4 real host units + server-fired Bullets + ALL WorldProcessor & Shop ObjectiveMarkers!
         for (Drawc d : Groups.draw) {
             Draw.reset();
             d.draw();
@@ -548,6 +615,13 @@ public class FastPreviewTool {
             b.draw();
         }
 
+        // Reset Draw.scl = 1f for ObjectiveMarkers since TextureMarker/ShapeMarker/LineMarker coordinates are already in world units!
+        Draw.scl = 1f;
+        for (ObjectiveMarker m : Vars.state.markers.worldMarkers) {
+            Draw.reset();
+            m.draw(1f);
+        }
+
         Draw.sort(false);
         Draw.flush();
 
@@ -557,23 +631,32 @@ public class FastPreviewTool {
         Font font = Fonts.outline;
         font.getData().markupEnabled = true;
 
-        drawCaptionCard(u1.x * zoom, 76f,
-            "[#ffd37f]Dagger (Sym Mounts + Subweapon)[]\n[lightgray]Mirrored Lead Bucklers + Nose Sight (Mount)\nTwin Graphite Strikers firing + Copper Chunk (Follow)[]");
-        drawCaptionCard(u2.x * zoom, 76f,
-            "[#7fe6ff]Fortress (Weapon Halos + Dorsal Gun)[]\n[lightgray]Nano Halos on BOTH Weapons + Core Hex Halo\nMirrored Titanium Aegis + Dorsal Blast Cannon[]");
-        drawCaptionCard(u3.x * zoom, 76f,
-            "[#ff9f43]Horizon (Engine Halo + Wing Lances)[]\n[lightgray]Astral Halo on Engine + Twin Phase Blink Nacelles\nFiring Wing Phase Lances + 2 Standoff Followers[]");
-        drawCaptionCard(u4.x * zoom, 76f,
-            "[#ff4b6e]Mega (Center & Weapon Halos + Gatlings)[]\n[lightgray]Apotheosis Crown (Center) + 4 Malice Weapon Halos\nMirrored Scythes + Twin Firing Abyssal Gatlings[]");
+        drawCaptionCard((p1.unit().x - originX) * zoom, 56f,
+            "[#ffd37f]Dagger [gray](4/10 Active)[]\n[lightgray]WorldProc Mounts + Firing Twin Strikers\nCopper Chunk Follow + Tether LineMarker[]");
+        drawCaptionCard((p2.unit().x - originX) * zoom, 56f,
+            "[#7fe6ff]Fortress [gray](4/10 Active)[]\n[lightgray]Steady Weapon & Core ShapeMarker Halos\nMirrored Aegis + Firing Dorsal Blast Pod[]");
+        drawCaptionCard((p3.unit().x - originX) * zoom, 56f,
+            "[#ff9f43]Horizon [scarlet](7/10 Overburdened)[]\n[lightgray]Slots 1-4 Active | [#ff6b6b]Slots 5-7 Forced to Tail\nwith Crimson LineMarker Tethers![]");
+        drawCaptionCard((p4.unit().x - originX) * zoom, 56f,
+            "[#ff4b6e]Mega [gray](4/10 Active)[]\n[lightgray]Steady Center + 4x Weapon Polygon Halos\nMirrored Scythes + Twin Firing Gatlings[]");
 
-        drawBannerTitle("[white]Items on Units[]  [gray](Symmetrical Hull Mounts / Center, Weapon & Engine Halos / Standoff Follow / Firing Subweapons)[]");
+        drawBannerTitle("[white]v15 WorldProcessor + Plugin Items[]  [gray](0 Item Units | Steady 5-Tile Shop Rings | Local Mounts | Tail Connection Lines)[]");
 
         Draw.reset();
         Draw.flush();
         saveFramebufferPng(outFile);
     }
 
-    private static Unit spawnShowcaseUnit(UnitType type, Team team, float x, float y, float rot, boolean flying) {
+    private static Player spawnShowcasePlayer(
+        PlayerSessionManager sessions, PlayerItemSystem itemSystem, String uuid, Team team,
+        UnitType type, float x, float y, float rot, boolean flying, Seq<String> equipped
+    ) {
+        Player p = Player.create();
+        p.name = uuid;
+        p.con = new DummyCon(uuid);
+        p.team(team);
+        p.add();
+
         Unit u = type.create(team);
         u.set(x, y);
         u.rotation = rot;
@@ -584,45 +667,35 @@ public class FastPreviewTool {
             }
         }
         u.add();
-        return u;
+        p.unit(u);
+
+        sessions.getOrInitSession(p);
+        EquipmentData eq = itemSystem.getEquipment(p);
+        eq.equipped.clear();
+        eq.equipped.addAll(equipped);
+        itemSystem.saveEquipment(p, eq);
+        pinAndAimPlayer(p, x, y, rot, flying);
+        return p;
     }
 
-    private static void pinAndAimUnit(Unit u, float x, float y, float rot, boolean flying) {
+    private static void pinAndAimPlayer(Player p, float x, float y, float rot, boolean flying) {
+        Unit u = p.unit();
         u.set(x, y);
         u.rotation = rot;
         u.elevation = flying ? 1f : 0f;
         u.vel.setZero();
-        u.aimX = x + Angles.trnsx(rot, 60f);
-        u.aimY = y + Angles.trnsy(rot, 60f);
+        float aimX = x + Angles.trnsx(rot, 60f);
+        float aimY = y + Angles.trnsy(rot, 60f);
+        u.aimX = aimX;
+        u.aimY = aimY;
         u.isShooting = true;
-    }
-
-    private static void drawShopBuildingPreview(String spriteKey, String baseKey, float x, float y, float size, Color ringCol) {
-        Draw.color(0f, 0f, 0f, 0.35f);
-        Fill.rect(x + 1.2f, y - 1.2f, size, size);
-        Draw.reset();
-        TextureRegion base = Core.atlas.find(baseKey);
-        if (base.found()) Draw.rect(base, x, y, size, size);
-        TextureRegion top = Core.atlas.find(spriteKey + "-on", Core.atlas.find(spriteKey));
-        if (top.found()) Draw.rect(top, x, y, size, size);
-
-        Draw.color(ringCol, 0.65f);
-        Lines.stroke(0.75f);
-        for (int s = 0; s < 14; s++) {
-            float a1 = s * (360f / 14f);
-            float a2 = a1 + 14f;
-            Lines.line(
-                x + Angles.trnsx(a1, size * 0.78f + 4.5f),
-                y + Angles.trnsy(a1, size * 0.78f + 4.5f),
-                x + Angles.trnsx(a2, size * 0.78f + 4.5f),
-                y + Angles.trnsy(a2, size * 0.78f + 4.5f)
-            );
-        }
-        Draw.reset();
+        p.mouseX = aimX;
+        p.mouseY = aimY;
+        p.shooting = true;
     }
 
     private static void drawCaptionCard(float cx, float cy, String markupText) {
-        float w = 318f, h = 86f;
+        float w = 322f, h = 86f;
         Draw.color(0.05f, 0.06f, 0.09f, 0.88f);
         Fill.rect(cx, cy, w, h);
         Draw.color(Color.valueOf("45485a"));
@@ -632,13 +705,13 @@ public class FastPreviewTool {
 
         Font f = Fonts.outline;
         float oldScaleX = f.getScaleX(), oldScaleY = f.getScaleY();
-        f.getData().setScale(0.78f);
+        f.getData().setScale(0.76f);
         f.draw(markupText, cx - w / 2f + 6f, cy + h / 2f - 12f, w - 12f, Align.center, true);
         f.getData().setScale(oldScaleX, oldScaleY);
     }
 
     private static void drawBannerTitle(String markupText) {
-        float cx = WIDTH / 2f, cy = HEIGHT - 24f, w = 1080f, h = 34f;
+        float cx = WIDTH / 2f, cy = HEIGHT - 24f, w = 1140f, h = 34f;
         Draw.color(0.05f, 0.06f, 0.09f, 0.90f);
         Fill.rect(cx, cy, w, h);
         Draw.color(Pal.accent);
@@ -648,7 +721,7 @@ public class FastPreviewTool {
 
         Font f = Fonts.outline;
         float oldScaleX = f.getScaleX(), oldScaleY = f.getScaleY();
-        f.getData().setScale(0.90f);
+        f.getData().setScale(0.86f);
         f.draw(markupText, cx - w / 2f, cy + 7f, w, Align.center, false);
         f.getData().setScale(oldScaleX, oldScaleY);
     }

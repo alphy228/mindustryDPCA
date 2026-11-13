@@ -34,7 +34,7 @@ import mindustry.world.blocks.campaign.LaunchPad.LaunchPadBuild;
 import static mindustry.Vars.*;
 
 /**
- * Player-owned Launch Pad manager (`launch-pad` & {@code advanced-launch-pad}):
+ * Player-owned Launch Pad manager (`launch-pad` 3x3 only; v8 `advanced-launch-pad` removed):
  * <ul>
  *   <li>Tracks individual player ownership per placed Launch Pad (not shared across teammates).</li>
  *   <li>Renders a persistent in-world {@link WorldLabel} marker on each Launch Pad showing its owner.</li>
@@ -83,9 +83,15 @@ public class LaunchPadSystem {
         if (started) return;
         started = true;
 
-        // Ensure vanilla 3x3 launch-pad is also player-buildable alongside advanced-launch-pad
+        // Keep only the 3x3 launch-pad player-buildable; hide v8 advanced-launch-pad and landing-pad
         if (Blocks.launchPad != null) {
             Blocks.launchPad.buildVisibility = mindustry.world.meta.BuildVisibility.shown;
+        }
+        if (Blocks.advancedLaunchPad != null) {
+            Blocks.advancedLaunchPad.buildVisibility = mindustry.world.meta.BuildVisibility.hidden;
+        }
+        if (Blocks.landingPad != null) {
+            Blocks.landingPad.buildVisibility = mindustry.world.meta.BuildVisibility.hidden;
         }
 
         if (netServer != null && netServer.admins != null) {
@@ -184,9 +190,8 @@ public class LaunchPadSystem {
 
     public static boolean isLaunchPadBlock(@Nullable Block block) {
         if (block == null) return false;
-        return block == Blocks.launchPad
-            || block == Blocks.advancedLaunchPad
-            || block instanceof mindustry.world.blocks.campaign.LaunchPad;
+        if (block == Blocks.advancedLaunchPad || block == Blocks.landingPad) return false;
+        return block == Blocks.launchPad || "launch-pad".equals(block.name);
     }
 
     public void assignOwner(LaunchPadBuild padBuild, Player player) {

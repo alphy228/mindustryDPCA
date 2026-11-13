@@ -203,6 +203,7 @@ public class ItemShopMenu {
         if (invRes.handled()) {
             s.selectedInvSlot = invRes.selectedSlot();
             s.statusMsg = invRes.statusMessage();
+            clearUnownedSalvageSelection(player, s);
             pushUpdates(
                 player,
                 s,
@@ -249,8 +250,11 @@ public class ItemShopMenu {
             String itemId = action.substring("select:".length());
             if ("close".equals(itemId) || itemId.equals(s.selectedShopItemId)) {
                 s.selectedShopItemId = "";
-            } else if (itemSystem.getCatalog().findItem(itemId) != null) {
-                s.selectedShopItemId = itemId;
+            } else {
+                ShopItemDef candidate = itemSystem.getCatalog().findItem(itemId);
+                if (candidate != null && isItemVisibleInShop(candidate, itemSystem.getEquipment(player))) {
+                    s.selectedShopItemId = itemId;
+                }
             }
             s.statusMsg = "";
             pushUpdates(player, s, true, false, true, false);
@@ -422,6 +426,10 @@ public class ItemShopMenu {
         EquipmentData eq = itemSystem.getEquipment(player);
         ObjectIntMap<Item> mapRes = buildSystem.getAvailableSnapshot(player);
         ShopItemDef selectedItem = s.selectedShopItemId.isEmpty() ? null : cat.findItem(s.selectedShopItemId);
+        if (selectedItem != null && !isItemVisibleInShop(selectedItem, eq)) {
+            selectedItem = null;
+            s.selectedShopItemId = "";
+        }
         float scrollH = (selectedItem != null) ? CAT_SCROLL_H_WITH_DSC : CAT_SCROLL_H_FULL;
 
         // Row C: 4 Scrollable Columns, each containing a 2-column grid of icon-only rectangles
@@ -523,8 +531,8 @@ public class ItemShopMenu {
         TableBuilder list = table().align("topLeft").margin(2f);
 
         if (station == StationTier.BAZAAR) {
-            Seq<ShopItemDef> tier1 = filterItems(cat.itemsForTierAndCategory(StationTier.WORKBENCH, category), searchQuery, cat);
-            Seq<ShopItemDef> tier2 = filterItems(cat.itemsForTierAndCategory(StationTier.BAZAAR, category), searchQuery, cat);
+            Seq<ShopItemDef> tier1 = filterItems(cat.itemsForTierAndCategory(StationTier.WORKBENCH, category), eq, searchQuery, cat);
+            Seq<ShopItemDef> tier2 = filterItems(cat.itemsForTierAndCategory(StationTier.BAZAAR, category), eq, searchQuery, cat);
 
             if (!tier1.isEmpty()) {
                 list.add(tierDivider("I", "eab678").padRight(16f)).row();
@@ -535,7 +543,7 @@ public class ItemShopMenu {
                 list.add(buildTwoColIconGrid(tier2, eq, mapRes, selectedShopItemId).padRight(16f)).row();
             }
         } else {
-            Seq<ShopItemDef> items = filterItems(cat.itemsForTierAndCategory(station, category), searchQuery, cat);
+            Seq<ShopItemDef> items = filterItems(cat.itemsForTierAndCategory(station, category), eq, searchQuery, cat);
             if (!items.isEmpty()) {
                 list.add(buildTwoColIconGrid(items, eq, mapRes, selectedShopItemId).padRight(16f)).row();
             }
@@ -671,8 +679,6 @@ public class ItemShopMenu {
                     .height(28f)
                     .padRight(6f)
             );
-        } else {
-            btnRow.add(label("[gray]Salvage only[]").padRight(8f));
         }
 
         btnRow.add(
@@ -691,9 +697,28 @@ public class ItemShopMenu {
         return box;
     }
 
-    private static Seq<ShopItemDef> filterItems(Seq<ShopItemDef> items, String searchQuery, Catalog cat) {
-        if (searchQuery == null || searchQuery.isBlank()) return items;
-        return items.select(i -> i.matchesSearch(searchQuery, cat));
+    private boolean isItemVisibleInShop(@Nullable ShopItemDef item, EquipmentData eq) {
+        if (item == null) return false;
+        if (item.craftable) return true;
+        return itemSystem.countOwnedTotal(eq, item.id) > 0;
+    }
+
+    private void clearUnownedSalvageSelection(Player player, Session s) {
+        if (s.selectedShopItemId == null || s.selectedShopItemId.isEmpty()) return;
+        ShopItemDef selected = itemSystem.getCatalog().findItem(s.selectedShopItemId);
+        if (selected == null || !isItemVisibleInShop(selected, itemSystem.getEquipment(player))) {
+            s.selectedShopItemId = "";
+        }
+    }
+
+    private Seq<ShopItemDef> filterItems(
+        Seq<ShopItemDef> items,
+        EquipmentData eq,
+        String searchQuery,
+        Catalog cat
+    ) {
+        boolean hasSearch = searchQuery != null && !searchQuery.isBlank();
+        return items.select(i -> isItemVisibleInShop(i, eq) && (!hasSearch || i.matchesSearch(searchQuery, cat)));
     }
 
     private static TableBuilder tierDivider(String title, String hex) {

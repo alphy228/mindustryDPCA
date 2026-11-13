@@ -112,10 +112,16 @@ public final class ShopConfigIO {
                 item.mountAngleOffset = v.has("mountAngleOffset") ? v.getFloat("mountAngleOffset", 0f) : Float.NaN;
 
                 item.haloAnchor = HaloAnchor.parse(v.getString("haloAnchor", "CENTER"));
-                item.haloEffect = v.getString("haloEffect", "dynamicWave");
+                item.haloEffect = v.getString("haloEffect", "none");
                 item.haloColorHex = v.getString("haloColorHex", "");
                 item.haloRadius = v.getFloat("haloRadius", 12f);
                 item.haloInterval = v.getFloat("haloInterval", 26f);
+                item.haloSides = Math.max(3, Math.min(24, v.getInt("haloSides", 6)));
+
+                item.subweaponPreset = v.getString("subweaponPreset", "kinetic");
+                item.subweaponReload = Math.max(3f, v.getFloat("subweaponReload", 16f));
+                item.subweaponDamage = Math.max(1f, v.getFloat("subweaponDamage", 11f));
+                item.subweaponRange = Math.max(40f, v.getFloat("subweaponRange", 160f));
 
                 item.followDistance = v.getFloat("followDistance", 10.5f);
 
@@ -213,8 +219,15 @@ public final class ShopConfigIO {
                 if (it.mountForwardOffset != 0f) sb.append("    mountForwardOffset: ").append(fmt(it.mountForwardOffset)).append("\n");
                 if (it.mountSideOffset != 0f) sb.append("    mountSideOffset: ").append(fmt(it.mountSideOffset)).append("\n");
                 if (!Float.isNaN(it.mountAngleOffset)) sb.append("    mountAngleOffset: ").append(fmt(it.mountAngleOffset)).append("\n");
+                if (it.attachMode == AttachMode.SUBWEAPON) {
+                    sb.append("    subweaponPreset: ").append(quote(it.subweaponPreset)).append("\n");
+                    sb.append("    subweaponReload: ").append(fmt(it.subweaponReload)).append("\n");
+                    sb.append("    subweaponDamage: ").append(fmt(it.subweaponDamage)).append("\n");
+                    sb.append("    subweaponRange: ").append(fmt(it.subweaponRange)).append("\n");
+                }
             } else if (it.attachMode == AttachMode.HALO) {
                 sb.append("    haloAnchor: ").append(it.haloAnchor.name()).append("\n");
+                sb.append("    haloSides: ").append(it.haloSides).append("\n");
                 sb.append("    haloEffect: ").append(quote(it.haloEffect)).append("\n");
                 if (it.haloColorHex != null && !it.haloColorHex.isEmpty()) {
                     sb.append("    haloColorHex: ").append(quote(it.haloColorHex)).append("\n");
@@ -318,10 +331,10 @@ public final class ShopConfigIO {
             StationTier.WORKBENCH, ShopCategory.ATTACK, "copper", "eab678", AttachMode.MOUNT, true, true,
             0f, 0.12f, 0f, 0f, 0f, 0f, 0f, res("copper", 110, "lead", 60), items()),
             MountSubtype.WING_BLADE));
-        add(c, mount(item("wb-06", "Graphite Striker", "Twin hull-mounted autocannon pods firing kinetic bolts.",
+        add(c, subweapon(item("wb-06", "Graphite Striker", "Twin hull-mounted autocannon pods firing kinetic bolts.",
             StationTier.WORKBENCH, ShopCategory.ATTACK, "graphite", "95abd9", AttachMode.SUBWEAPON, true, true,
             0f, 0f, 0f, 0.12f, 0f, 0f, 0f, res("graphite", 65, "copper", 90), items()),
-            MountSubtype.SIDE_POD));
+            MountSubtype.SIDE_POD, "kinetic", 16f, 10f, 150f));
         add(c, mount(item("wb-07", "Silicon Sight", "Prow-mounted optical rangefinder improving damage and fire rate.",
             StationTier.WORKBENCH, ShopCategory.ATTACK, "silicon", "8e94a4", AttachMode.MOUNT, true, true,
             0f, 0.10f, 0f, 0.08f, 0f, 0f, 0f, res("silicon", 70, "metaglass", 35), items()),
@@ -343,7 +356,7 @@ public final class ShopConfigIO {
         add(c, halo(item("wb-11", "Mending Vial", "Pressurized repair gel projecting a restorative core halo.",
             StationTier.WORKBENCH, ShopCategory.DEFENSE, "silicon", "84f491", AttachMode.HALO, true, true,
             0.08f, 0f, 0f, 0f, 0f, 0f, 2.5f, res("silicon", 60, "lead", 80, "copper", 80), items()),
-            HaloAnchor.CENTER, "healWaveDynamic", 10f, 30f));
+            HaloAnchor.CENTER, 6, "none", 10f, 30f));
         add(c, mount(item("wb-12", "Bastion Carapace", "Reinforced Lead Bucklers layered with dense graphite ribs.",
             StationTier.WORKBENCH, ShopCategory.DEFENSE, "graphite", "eab678", AttachMode.MOUNT, true, true,
             0.30f, 0f, 0f, 0f, 0f, 4f, 0f, res("graphite", 80, "metaglass", 45), items("wb-09", 1)),
@@ -381,22 +394,22 @@ public final class ShopConfigIO {
             MountSubtype.SPINE_CORE));
 
         // Attack (4)
-        add(c, mount(item("bz-05", "Plastanium Repeater", "Twin rotary subweapon pods unloading rapid plastanium flechettes.",
+        add(c, subweapon(item("bz-05", "Plastanium Repeater", "Twin rotary subweapon pods unloading rapid plastanium flechettes.",
             StationTier.BAZAAR, ShopCategory.ATTACK, "plastanium", "cbd97e", AttachMode.SUBWEAPON, true, true,
             0f, 0.12f, 0f, 0.22f, 0f, 0f, 0f, res("plastanium", 110, "silicon", 140, "titanium", 90), items()),
-            MountSubtype.SIDE_POD));
+            MountSubtype.SIDE_POD, "blaster", 12f, 13f, 170f));
         add(c, mount(item("bz-06", "Surge Sabre", "Twin Fang Array reforged with high-voltage surge wing blades.",
             StationTier.BAZAAR, ShopCategory.ATTACK, "surge-alloy", "f3e979", AttachMode.MOUNT, true, true,
             0f, 0.32f, 0f, 0.10f, 0f, 0f, 0f, res("surge-alloy", 80, "silicon", 140), items("wb-08", 1)),
             MountSubtype.WING_BLADE));
-        add(c, mount(item("bz-07", "Blast Cannon Pod", "Dorsal artillery subweapon firing high-explosive blast shells.",
+        add(c, subweapon(item("bz-07", "Blast Cannon Pod", "Dorsal artillery subweapon firing high-explosive blast shells.",
             StationTier.BAZAAR, ShopCategory.ATTACK, "blast-compound", "ff795e", AttachMode.SUBWEAPON, true, true,
             0f, 0.26f, 0f, 0.10f, 0f, 0f, 0f, res("blast-compound", 90, "titanium", 120, "graphite", 100), items()),
-            MountSubtype.DORSAL_TURRET));
-        add(c, mount(item("bz-08", "Phase Lance", "Wing-mounted phase lance subweapons firing armor-piercing bolts.",
+            MountSubtype.DORSAL_TURRET, "mortar", 46f, 38f, 225f));
+        add(c, subweapon(item("bz-08", "Phase Lance", "Wing-mounted phase lance subweapons firing armor-piercing bolts.",
             StationTier.BAZAAR, ShopCategory.ATTACK, "phase-fabric", "f4ba6e", AttachMode.SUBWEAPON, true, true,
             0f, 0.38f, 0f, 0.15f, 0f, 0f, 0f, res("phase-fabric", 95, "thorium", 130, "silicon", 150), items()),
-            MountSubtype.WING_POD));
+            MountSubtype.WING_POD, "pierce", 20f, 24f, 190f));
 
         // Defense (4)
         add(c, mount(item("bz-09", "Titanium Aegis", "Bastion Carapace reinforced with heavy titanium flank kite plates.",
@@ -406,15 +419,15 @@ public final class ShopConfigIO {
         add(c, halo(item("bz-10", "Thorium Reactor Core", "Miniature thorium core radiating a hexagonal reactor halo.",
             StationTier.BAZAAR, ShopCategory.DEFENSE, "thorium", "f9a3c7", AttachMode.HALO, true, true,
             0.45f, 0f, 0f, 0f, 0f, 2f, 6.0f, res("thorium", 160, "silicon", 130, "metaglass", 80), items()),
-            HaloAnchor.CENTER, "dynamicWave", 12f, 28f));
+            HaloAnchor.CENTER, 6, "none", 12f, 28f));
         add(c, mount(item("bz-11", "Plastanium Mesh", "Impact-absorbing honeycomb shoulder armor shells.",
             StationTier.BAZAAR, ShopCategory.DEFENSE, "plastanium", "a8d474", AttachMode.MOUNT, true, true,
             0.32f, 0f, 0f, 0f, 0f, 8f, 0f, res("plastanium", 130, "titanium", 120, "graphite", 90), items()),
             MountSubtype.SHOULDER_PAD));
-        add(c, halo(item("bz-12", "Regen Halo", "Projector ring bathing the unit center in rapid repair waves.",
+        add(c, halo(item("bz-12", "Regen Halo", "Projector ring bathing the unit center in a steady repair halo.",
             StationTier.BAZAAR, ShopCategory.DEFENSE, "plastanium", "84f491", AttachMode.HALO, true, true,
             0.20f, 0f, 0f, 0f, 0f, 0f, 12.0f, res("plastanium", 100, "phase-fabric", 65, "silicon", 140), items()),
-            HaloAnchor.CENTER, "healWaveDynamic", 14f, 24f));
+            HaloAnchor.CENTER, 8, "none", 14f, 24f));
 
         // Utility (3)
         add(c, mount(item("bz-13", "Phase Blink Drive", "Glass Thruster upgraded into twin phase-folded rear nacelles.",
@@ -424,20 +437,20 @@ public final class ShopConfigIO {
         add(c, halo(item("bz-14", "Nano Fabricator", "Autonomous nanobot halos energizing every weapon mount.",
             StationTier.BAZAAR, ShopCategory.UTILITY, "plastanium", "84f491", AttachMode.HALO, true, true,
             0f, 0f, 0f, 0f, 0.55f, 0f, 4.0f, res("plastanium", 110, "silicon", 180, "titanium", 100), items()),
-            HaloAnchor.WEAPONS, "shieldApply", 6.0f, 26f));
+            HaloAnchor.WEAPONS, 4, "none", 6.0f, 26f));
         add(c, halo(item("bz-15", "Astral Compass", "Engine-core overdrive halos boosting flight speed and building.",
             StationTier.BAZAAR, ShopCategory.UTILITY, "surge-alloy", "7fe6ff", AttachMode.HALO, true, true,
             0f, 0f, 0.20f, 0f, 0.35f, 0f, 0f, res("surge-alloy", 75, "phase-fabric", 60, "silicon", 150), items()),
-            HaloAnchor.ENGINES, "dynamicWave", 6.5f, 22f));
+            HaloAnchor.ENGINES, 4, "none", 6.5f, 22f));
 
         // =========================================================================
         // TIER 3: CURSED ALTAR (15 Placeholder Items: 3 Resource, 4 Attack, 4 Defense, 4 Utility)
         // =========================================================================
         // Resource (3)
-        add(c, halo(item("ca-01", "Philosopher's Husk", "Condensed forbidden matter radiating a spiked crimson core halo.",
+        add(c, halo(item("ca-01", "Philosopher's Husk", "Condensed forbidden matter radiating a crimson core halo.",
             StationTier.CURSED_ALTAR, ShopCategory.RESOURCE, "surge-alloy", "d9385a", AttachMode.HALO, true, false,
             0.25f, 0.25f, 0f, 0f, 0f, 0f, 0f, res("surge-alloy", 500, "phase-fabric", 500, "thorium", 1000), items()),
-            HaloAnchor.CENTER, "dynamicSpikes", 14f, 26f));
+            HaloAnchor.CENTER, 5, "none", 14f, 26f));
         add(c, follow(item("ca-02", "Void Reliquary", "Abyssal coffer floating silently at fixed standoff behind its bearer.",
             StationTier.CURSED_ALTAR, ShopCategory.RESOURCE, "thorium", "bf92f9", AttachMode.FOLLOW, true, false,
             0.30f, 0f, 0f, 0f, 0.40f, 4f, 0f, res("plastanium", 800, "silicon", 1200, "titanium", 1000), items()), 12.0f));
@@ -450,10 +463,10 @@ public final class ShopConfigIO {
             StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "blast-compound", "ff4b6e", AttachMode.MOUNT, true, false,
             -0.15f, 0.75f, 0f, 0.15f, 0f, 0f, 0f, res("surge-alloy", 450, "blast-compound", 600), items()),
             MountSubtype.WING_BLADE));
-        add(c, mount(item("ca-05", "Abyssal Gatling", "Twin demonic rotary subweapons unleashing incendiary barrages.",
+        add(c, subweapon(item("ca-05", "Abyssal Gatling", "Twin demonic rotary subweapons unleashing incendiary barrages.",
             StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "pyratite", "ff6b5b", AttachMode.SUBWEAPON, true, false,
             0f, 0.30f, -0.10f, 0.65f, 0f, 0f, 0f, res("pyratite", 650, "surge-alloy", 400, "silicon", 900), items()),
-            MountSubtype.SIDE_POD));
+            MountSubtype.SIDE_POD, "incendiary", 7f, 18f, 200f));
         add(c, mount(item("ca-06", "Ruinblade", "Corrupted Surge Sabres mounted symmetrically across the hull.",
             StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "surge-alloy", "ff2e55", AttachMode.MOUNT, true, false,
             0f, 0.90f, 0f, 0.20f, -0.20f, 0f, 0f, res("surge-alloy", 600, "thorium", 800), items("bz-06", 1)),
@@ -461,17 +474,17 @@ public final class ShopConfigIO {
         add(c, halo(item("ca-07", "Eye of Malice", "Crimson sigil halos wreathed around every weapon mount.",
             StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "phase-fabric", "ff5e7e", AttachMode.HALO, true, false,
             -0.12f, 0.55f, 0f, 0.45f, 0f, 0f, 0f, res("phase-fabric", 550, "silicon", 1000, "spore-pod", 600), items()),
-            HaloAnchor.WEAPONS, "hitSquaresColor", 6.5f, 22f));
+            HaloAnchor.WEAPONS, 4, "none", 6.5f, 22f));
 
         // Defense (4)
         add(c, mount(item("ca-08", "Leviathan Husk", "Colossal obsidian flank carapaces doubling hull health and armor.",
             StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "thorium", "ff4b6e", AttachMode.MOUNT, true, false,
             1.20f, 0f, -0.12f, 0f, 0f, 18f, 0f, res("thorium", 1200, "plastanium", 800, "titanium", 1200), items()),
             MountSubtype.SIDE_SHIELD));
-        add(c, halo(item("ca-09", "Undying Heart", "Pulsing crimson core halo regenerating tremendous health.",
+        add(c, halo(item("ca-09", "Undying Heart", "Crimson core halo regenerating tremendous health.",
             StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "phase-fabric", "ff2e55", AttachMode.HALO, true, false,
             0.60f, -0.15f, 0f, 0f, 0f, 0f, 35.0f, res("phase-fabric", 650, "plastanium", 700, "spore-pod", 800), items()),
-            HaloAnchor.CENTER, "shieldApply", 13f, 20f));
+            HaloAnchor.CENTER, 6, "none", 13f, 20f));
         add(c, mount(item("ca-10", "Dread Bulwark", "Titanium Aegis fused with cursed spikes for extreme flank armor.",
             StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "surge-alloy", "ffd37f", AttachMode.MOUNT, true, false,
             0.90f, 0f, 0f, -0.15f, 0f, 25f, 0f, res("surge-alloy", 550, "thorium", 900), items("bz-09", 1)),
@@ -479,7 +492,7 @@ public final class ShopConfigIO {
         add(c, halo(item("ca-11", "Martyr's Crown", "Iron-ember halo crown sustaining the bearer through heavy fire.",
             StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "pyratite", "ff6b5b", AttachMode.HALO, true, false,
             0.80f, 0f, 0f, 0f, 0f, 8f, 20.0f, res("pyratite", 700, "thorium", 800, "metaglass", 900), items()),
-            HaloAnchor.CENTER, "pointShockwave", 15f, 30f));
+            HaloAnchor.CENTER, 8, "none", 15f, 30f));
 
         // Utility (4)
         add(c, mount(item("ca-12", "Wraith Stride", "Phase Blink Drive twisted into spectral crimson tail wings.",
@@ -498,7 +511,7 @@ public final class ShopConfigIO {
             0.50f, 0.50f, 0.30f, 0.25f, 0.50f, 12f, 15.0f,
             res("surge-alloy", 1000, "phase-fabric", 1000),
             items("ca-04", 1, "ca-08", 1, "ca-12", 1)),
-            HaloAnchor.CENTER, "dynamicSpikes", 18f, 22f));
+            HaloAnchor.CENTER, 8, "none", 18f, 22f));
 
         // =========================================================================
         // BAZAAR ORBITAL SHIP TRADES (Spend persistent Launch Pad orbital storage)
@@ -547,8 +560,25 @@ public final class ShopConfigIO {
         return d;
     }
 
-    private static ShopItemDef halo(ShopItemDef d, HaloAnchor anchor, String fx, float radius, float interval) {
+    private static ShopItemDef subweapon(
+        ShopItemDef d,
+        MountSubtype subtype,
+        String preset,
+        float reload,
+        float damage,
+        float range
+    ) {
+        d.mountSubtype = subtype;
+        d.subweaponPreset = preset;
+        d.subweaponReload = reload;
+        d.subweaponDamage = damage;
+        d.subweaponRange = range;
+        return d;
+    }
+
+    private static ShopItemDef halo(ShopItemDef d, HaloAnchor anchor, int sides, String fx, float radius, float interval) {
         d.haloAnchor = anchor;
+        d.haloSides = sides;
         d.haloEffect = fx;
         d.haloRadius = radius;
         d.haloInterval = interval;

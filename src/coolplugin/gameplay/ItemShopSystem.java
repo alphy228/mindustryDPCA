@@ -2,8 +2,9 @@ package coolplugin.gameplay;
 
 import arc.Events;
 import arc.graphics.Color;
-import arc.math.Angles;
-import arc.math.geom.Vec2;
+import arc.struct.IntIntMap;
+import arc.struct.IntSet;
+import arc.struct.Seq;
 import arc.util.CommandHandler;
 import arc.util.Interval;
 import arc.util.Log;
@@ -14,14 +15,17 @@ import coolplugin.database.PlayerDatabase;
 import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.ShopItemDef.StationTier;
 import coolplugin.techtree.TechTreeService;
-import mindustry.content.Fx;
 import mindustry.game.EventType.ConfigEvent;
 import mindustry.game.EventType.Trigger;
+import mindustry.game.EventType.WorldLoadEvent;
+import mindustry.game.MapObjectives.ShapeMarker;
 import mindustry.gen.Building;
 import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Player;
 import mindustry.gen.Unit;
+import mindustry.graphics.Layer;
+import mindustry.logic.LMarkerControl;
 import mindustry.world.Block;
 import mindustry.world.blocks.logic.SwitchBlock.SwitchBuild;
 
@@ -32,23 +36,26 @@ import static mindustry.Vars.*;
 /**
  * World interaction controller for Item Shop buildings ({@code dp-workbench}, {@code dp-bazaar}, {@code dp-cursed-altar}):
  * <ul>
- *   <li>Renders a visible 10-tile ({@code 80f} world units) dashed circular area around every placed shop building.</li>
- *   <li>When a player flips a shop's {@code SwitchBlock} while within its 10-tile circle, opens that station's menu
- *       and resets the switch cleanly.</li>
+ *   <li>Renders a steady, non-pulsing 5-tile ({@code 40f} world units) circular area around every placed shop building.</li>
+ *   <li>When a player flips a shop's {@code SwitchBlock} while within its 5-tile circle, opens that station's menu
+ *       and resets the switch cleanly; outside the circle, silently resets the switch without warning spam.</li>
  *   <li>Registers server console command {@code openmenu <player> [workbench|bazaar|altar|faction|tech]}
  *       to force-open any menu for an online player.</li>
  * </ul>
  */
 public class ItemShopSystem {
 
-    public static final float SHOP_RADIUS_TILES = 10f;
+    public static final float SHOP_RADIUS_TILES = 5f;
     public static final float SHOP_RADIUS_WORLD = SHOP_RADIUS_TILES * tilesize;
-    private static final float CIRCLE_RENDER_INTERVAL_TICKS = 18f;
-    private static final int CIRCLE_SEGMENTS = 16;
 
-    private static final Color COL_WORKBENCH = Color.valueOf("ffd37f");
-    private static final Color COL_BAZAAR = Color.valueOf("7fe6ff");
-    private static final Color COL_CURSED = Color.valueOf("ff4b6e");
+    private static final float CIRCLE_SYNC_INTERVAL_TICKS = 30f;
+    private static final int CIRCLE_MARKER_BASE_ID = 4000;
+    private static final int CIRCLE_MARKER_MAX_COUNT = 512;
+    private static final int CIRCLE_SIDES = 56;
+
+    private static final Color COL_WORKBENCH = Color.valueOf("ffd37f99");
+    private static final Color COL_BAZAAR = Color.valueOf("7fe6ff99");
+    private static final Color COL_CURSED = Color.valueOf("ff4b6e99");
 
     private final PlayerItemSystem itemSystem;
     private final BuildSystem buildSystem;
@@ -59,7 +66,13 @@ public class ItemShopSystem {
     private final PlayerSessionManager sessionManager;
     private final ItemShopMenu shopMenu;
     private final Interval timer = new Interval(1);
-    private float phaseDeg = 0f;
+
+    /** Building tile.pos() -> assigned MapMarkers ID for its steady 5-tile circle. */
+    private final IntIntMap shopCircleMarkers = new IntIntMap();
+    private final IntSet usedMarkerIds = new IntSet();
+    private final IntSet seenShopPositions = new IntSet();
+    private final Seq<Integer> stalePositions = new Seq<>();
+
     private boolean started = false;
 
     public ItemShopSystem(
@@ -101,8 +114,12 @@ public class ItemShopSystem {
         started = true;
         shopMenu.register();
 
+        Events.on(WorldLoadEvent.class, e -> {
+            shopCircleMarkers.clear();
+            usedMarkerIds.clear();
+        });
         Events.on(ConfigEvent.class, this::handleSwitchFlip);
-        Events.run(Trigger.update, this::updateCircleVisuals);
+        Events.run(Trigger.update, this::updateCircleMarkers);
     }
 
     public void registerServerCommands(CommandHandler handler) {
@@ -160,7 +177,7 @@ public class ItemShopSystem {
         }
 
         Player online = findOnlinePlayer(query);
-        AccountRecord targetAccount = null;
+        AccountRecord targetAccount;
 
         if (online != null) {
             targetAccount = sessionManager.getOrInitSession(online);
@@ -272,19 +289,15 @@ public class ItemShopSystem {
         return u.within(shopBuilding.x, shopBuilding.y, SHOP_RADIUS_WORLD);
     }
 
-    private void handleSwitchFlip(ConfigEvent event) {
-        if (event == null || event.player == null || event.tile == null) return;
-        StationTier tier = resolveShopTier(event.tile.block);
+    /** Public test & runtime hook processing a player's switch flip on a shop building. */
+    public void handleShopBuildingToggle(Player player, Building shopBuild) {
+        if (player == null || shopBuild == null) return;
+        StationTier tier = resolveShopTier(shopBuild.block);
         if (tier == null) return;
 
-        Building shopBuild = event.tile;
-        Player player = event.player;
-
         if (!isWithinShopArea(player, shopBuild)) {
+            // Silently reset switch without annoying player chat warning!
             resetSwitchState(shopBuild);
-            player.sendMessage(
-                "[scarlet]Step inside the 10-tile circle around [white]" + tier.title + "[scarlet] to open its menu.[]"
-            );
             return;
         }
 
@@ -297,6 +310,11 @@ public class ItemShopSystem {
         });
     }
 
+    private void handleSwitchFlip(ConfigEvent event) {
+        if (event == null || event.player == null || event.tile == null) return;
+        handleShopBuildingToggle(event.player, event.tile);
+    }
+
     private static void resetSwitchState(Building shopBuild) {
         if (shopBuild instanceof SwitchBuild sw && sw.enabled) {
             sw.enabled = false;
@@ -304,44 +322,78 @@ public class ItemShopSystem {
         }
     }
 
-    private void updateCircleVisuals() {
-        if (state == null || !state.isGame() || state.isPaused() || Groups.build == null || Groups.player == null) {
-            return;
-        }
-        if (!timer.get(0, CIRCLE_RENDER_INTERVAL_TICKS)) return;
-        if (Groups.player.isEmpty()) return;
+    /** Reconciles steady, non-pulsing 5-tile {@link ShapeMarker} rings around placed shop stations. */
+    public void syncShopCircleMarkersNow() {
+        if (state == null || state.markers == null || Groups.build == null) return;
 
-        phaseDeg = (phaseDeg + 4f) % 360f;
-        float stepDeg = 360f / CIRCLE_SEGMENTS;
-        float dashDeg = stepDeg * 0.58f;
-
+        seenShopPositions.clear();
         for (Building b : Groups.build) {
             StationTier tier = resolveShopTier(b.block);
-            if (tier == null || !b.isValid()) continue;
+            if (tier == null || !b.isValid() || b.tile == null) continue;
 
-            Color ringColor = switch (tier) {
-                case WORKBENCH -> COL_WORKBENCH;
-                case BAZAAR -> COL_BAZAAR;
-                case CURSED_ALTAR -> COL_CURSED;
-            };
+            int pos = b.tile.pos();
+            seenShopPositions.add(pos);
+            int existingId = shopCircleMarkers.get(pos, -1);
+            if (existingId != -1 && state.markers.has(existingId)) {
+                continue;
+            }
 
-            for (Player p : Groups.player) {
-                if (p == null || p.con == null || !p.con.isConnected()) continue;
-                // Only stream circle FX to players whose camera/unit is reasonably close
-                Unit u = PlayerUnitSystem.ownedUnit(p);
-                if (u != null && u.isValid() && !u.within(b.x, b.y, 48f * tilesize)) continue;
+            int markerId = existingId != -1 ? existingId : allocateCircleMarkerId();
+            if (markerId == -1) continue;
 
-                for (int s = 0; s < CIRCLE_SEGMENTS; s++) {
-                    float a1 = phaseDeg + s * stepDeg;
-                    float a2 = a1 + dashDeg;
-                    float x1 = b.x + Angles.trnsx(a1, SHOP_RADIUS_WORLD);
-                    float y1 = b.y + Angles.trnsy(a1, SHOP_RADIUS_WORLD);
-                    float x2 = b.x + Angles.trnsx(a2, SHOP_RADIUS_WORLD);
-                    float y2 = b.y + Angles.trnsy(a2, SHOP_RADIUS_WORLD);
-                    Call.effect(p.con, Fx.pointBeam, x1, y1, 0f, ringColor, new Vec2(x2, y2));
-                }
+            ShapeMarker ring = buildSteadyRingMarker(b.x, b.y, tier);
+            shopCircleMarkers.put(pos, markerId);
+            Call.createMarker(markerId, ring);
+        }
+
+        stalePositions.clear();
+        for (IntIntMap.Entry entry : shopCircleMarkers.entries()) {
+            if (!seenShopPositions.contains(entry.key)) {
+                stalePositions.add(entry.key);
             }
         }
+        for (int i = 0; i < stalePositions.size; i++) {
+            int pos = stalePositions.get(i);
+            int markerId = shopCircleMarkers.remove(pos, -1);
+            if (markerId != -1) {
+                usedMarkerIds.remove(markerId);
+                Call.removeMarker(markerId);
+            }
+        }
+    }
+
+    private void updateCircleMarkers() {
+        if (state == null || !state.isGame() || state.isPaused() || Groups.build == null) {
+            return;
+        }
+        if (!timer.get(0, CIRCLE_SYNC_INTERVAL_TICKS)) return;
+        syncShopCircleMarkersNow();
+    }
+
+    private int allocateCircleMarkerId() {
+        for (int i = 0; i < CIRCLE_MARKER_MAX_COUNT; i++) {
+            int candidate = CIRCLE_MARKER_BASE_ID + i;
+            if (!usedMarkerIds.contains(candidate)) {
+                usedMarkerIds.add(candidate);
+                return candidate;
+            }
+        }
+        return -1;
+    }
+
+    private static ShapeMarker buildSteadyRingMarker(float wx, float wy, StationTier tier) {
+        ShapeMarker m = new ShapeMarker(wx, wy, SHOP_RADIUS_WORLD, 0f);
+        m.sides = CIRCLE_SIDES;
+        m.fill = false;
+        m.outline = false;
+        m.stroke = 1.15f;
+        m.control(LMarkerControl.drawLayer, Layer.blockOver, 0, 0);
+        m.color = switch (tier) {
+            case WORKBENCH -> COL_WORKBENCH.cpy();
+            case BAZAAR -> COL_BAZAAR.cpy();
+            case CURSED_ALTAR -> COL_CURSED.cpy();
+        };
+        return m;
     }
 
     private static @Nullable Player findOnlinePlayer(String query) {

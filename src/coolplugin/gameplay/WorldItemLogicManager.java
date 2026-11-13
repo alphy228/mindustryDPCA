@@ -3,25 +3,28 @@ package coolplugin.gameplay;
 import arc.Events;
 import arc.graphics.Color;
 import arc.math.Mathf;
-import arc.math.geom.Point2;
+import arc.struct.IntSeq;
 import arc.struct.IntSet;
 import arc.struct.ObjectIntMap;
 import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Log;
 import arc.util.Nullable;
+import coolplugin.gameplay.BuildSystem.DestroyedCoreSite;
 import coolplugin.gameplay.ShopConfigIO.Catalog;
 import coolplugin.gameplay.ShopItemDef.AttachMode;
 import coolplugin.gameplay.ShopItemDef.HaloAnchor;
 import coolplugin.gameplay.ShopItemDef.MountSubtype;
+import coolplugin.techtree.TechTreeService;
 import mindustry.Vars;
 import mindustry.content.Blocks;
 import mindustry.entities.units.WeaponMount;
 import mindustry.game.EventType.WorldLoadEvent;
+import mindustry.game.Rules;
 import mindustry.game.Team;
-import mindustry.gen.Building;
 import mindustry.gen.Call;
 import mindustry.gen.Groups;
+import mindustry.gen.Player;
 import mindustry.gen.Unit;
 import mindustry.logic.LVar;
 import mindustry.net.Administration.ActionType;
@@ -43,11 +46,15 @@ import static mindustry.Vars.*;
  *   <li>Items are rendered via {@code MapObjectives} markers ({@code TextureMarker}, {@code ShapeMarker},
  *       {@code LineMarker}) rather than {@link Unit} entities, so items are never hoverable and never
  *       duplicate carrier units when reordering inventory slots (e.g. clicking {@code Top}).</li>
+ *   <li>Processors are placed on top-right border tiles strictly outside {@link BuildSystem#inReserved}
+ *       and core sites so client-only core refreshes ({@code CORE_REFRESH_INTERVAL = 300f}) never overwrite
+ *       any client {@code WorldProcessor}.</li>
  *   <li>Active slots {@code 0..3} render {@link AttachMode#MOUNT}, {@link AttachMode#SUBWEAPON},
  *       {@link AttachMode#HALO}, and {@link AttachMode#FOLLOW}.</li>
  *   <li>Overburdened slots {@code 4..9} ("items outside the four") always use tail-following behind the
- *       player unit's tail, and every tail-attached item renders a {@code LineMarker} connection tether
- *       between the player unit and the item.</li>
+ *       player unit's tail, and every line-connected item runs genuine 2D spring-rope + momentum/inertia +
+ *       slack/taut + pairwise collision/jostle + hull-deflection follow physics with a {@code LineMarker}
+ *       connection tether.</li>
  * </ul>
  */
 public final class WorldItemLogicManager {
@@ -86,6 +93,7 @@ public final class WorldItemLogicManager {
         String compiledSignature = "";
         int boundUnitId = -1;
         int syncTickCounter = 0;
+        int initialSyncBurstsRemaining = 0;
         final Seq<CompiledVisualEntry> entries = new Seq<>();
         String lastMlogCode = "";
 
@@ -95,12 +103,18 @@ public final class WorldItemLogicManager {
         }
     }
 
+    private final @Nullable BuildSystem buildSystem;
     private final ObjectMap<String, ProcessorSlot> slotsByOwner = new ObjectMap<>();
     private final Seq<ProcessorSlot> allSlots = new Seq<>(MAX_PROCESSOR_SLOTS);
     private final IntSet managedProcessorPositions = new IntSet();
     private boolean started = false;
 
     public WorldItemLogicManager() {
+        this(null);
+    }
+
+    public WorldItemLogicManager(@Nullable BuildSystem buildSystem) {
+        this.buildSystem = buildSystem;
         for (int i = 0; i < MAX_PROCESSOR_SLOTS; i++) {
             allSlots.add(new ProcessorSlot(i));
         }
@@ -141,6 +155,7 @@ public final class WorldItemLogicManager {
             slot.compiledSignature = "";
             slot.boundUnitId = -1;
             slot.syncTickCounter = 0;
+            slot.initialSyncBurstsRemaining = 0;
             slot.entries.clear();
             slot.lastMlogCode = "";
         }
@@ -151,6 +166,16 @@ public final class WorldItemLogicManager {
 
     public void syncRig(
         String ownerKey,
+        Unit unit,
+        Seq<String> equippedIds,
+        Catalog catalog
+    ) {
+        syncRig(ownerKey, null, unit, equippedIds, catalog);
+    }
+
+    public void syncRig(
+        String ownerKey,
+        @Nullable String ownerPlayerName,
         Unit unit,
         Seq<String> equippedIds,
         Catalog catalog
@@ -172,18 +197,19 @@ public final class WorldItemLogicManager {
         LogicBuild procBuild = ensureProcessorPlaced(slot);
         if (procBuild == null) return;
 
-        String signature = buildRigSignature(unit, equippedIds);
+        String signature = buildRigSignature(unit, ownerPlayerName, equippedIds);
         boolean codeChanged = !signature.equals(slot.compiledSignature)
             || procBuild.code == null
             || procBuild.code.isEmpty();
 
         if (codeChanged) {
             slot.entries.clear();
-            String mlog = compileRigMlog(slot.baseMarkerId, unit, equippedIds, catalog, slot.entries);
+            String mlog = compileRigMlog(slot.baseMarkerId, ownerPlayerName, unit, equippedIds, catalog, slot.entries);
             slot.compiledSignature = signature;
             slot.lastMlogCode = mlog;
             slot.boundUnitId = unit.id;
             slot.syncTickCounter = 0;
+            slot.initialSyncBurstsRemaining = 4;
             pushCodeAndUnit(procBuild, mlog, unit);
             return;
         }
@@ -192,10 +218,18 @@ public final class WorldItemLogicManager {
         if (slot.boundUnitId != unit.id) {
             slot.boundUnitId = unit.id;
             slot.syncTickCounter = 0;
+            slot.initialSyncBurstsRemaining = 4;
             broadcastHostUnitSync(procBuild, unit);
+        } else if (slot.initialSyncBurstsRemaining > 0) {
+            slot.syncTickCounter++;
+            if (slot.syncTickCounter >= 3) {
+                slot.syncTickCounter = 0;
+                slot.initialSyncBurstsRemaining--;
+                broadcastHostUnitSync(procBuild, unit);
+            }
         } else {
             slot.syncTickCounter++;
-            if (slot.syncTickCounter >= 30) {
+            if (slot.syncTickCounter >= 15) {
                 slot.syncTickCounter = 0;
                 broadcastHostUnitSync(procBuild, unit);
             }
@@ -213,6 +247,7 @@ public final class WorldItemLogicManager {
         slot.compiledSignature = "";
         slot.boundUnitId = -1;
         slot.syncTickCounter = 0;
+        slot.initialSyncBurstsRemaining = 0;
         slot.entries.clear();
         slot.lastMlogCode = clearMlog;
 
@@ -257,6 +292,12 @@ public final class WorldItemLogicManager {
     public int getBaseMarkerIdForOwner(String ownerKey) {
         ProcessorSlot slot = slotsByOwner.get(ownerKey);
         return slot == null ? -1 : slot.baseMarkerId;
+    }
+
+    public boolean isManagedProcessorTile(int x, int y) {
+        if (world == null) return false;
+        Tile t = world.tile(x, y);
+        return t != null && managedProcessorPositions.contains(t.pos());
     }
 
     // ------------------------------------------------------------------ WorldProcessor placement & live sync
@@ -310,16 +351,20 @@ public final class WorldItemLogicManager {
         return null;
     }
 
+    /**
+     * Scans from the TOP-RIGHT border downward, strictly avoiding {@link BuildSystem#inReserved(int, int)}
+     * ({@code (2, 2)} client-only core area refreshed every 5s) and any destroyed core sites!
+     */
     private @Nullable Tile findAvailableBorderTile() {
         if (world == null || world.width() <= 0 || world.height() <= 0) return null;
         int w = world.width();
         int h = world.height();
 
-        // Pass 1: clean air border tiles away from buildings and custom spawnpoint overlays
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
+        // Pass 1: clean air border tiles starting at top-right (w-1, h-1), far away from (2, 2) client core!
+        for (int y = h - 1; y >= 0; y--) {
+            for (int x = w - 1; x >= 0; x--) {
                 if (x > 1 && x < w - 2 && y > 1 && y < h - 2) {
-                    x = w - 3;
+                    x = 2;
                     continue;
                 }
                 Tile t = world.tile(x, y);
@@ -329,21 +374,27 @@ public final class WorldItemLogicManager {
             }
         }
 
-        // Pass 2: any air tile on the map without a building or spawnpoint overlay
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
+        // Pass 2: static border wall tile along top/right edge (outside BuildSystem reserved zone & buildings)
+        for (int y = h - 1; y >= 0; y--) {
+            for (int x = w - 1; x >= 0; x--) {
+                if (x > 1 && x < w - 2 && y > 1 && y < h - 2) {
+                    x = 2;
+                    continue;
+                }
                 Tile t = world.tile(x, y);
-                if (isIdealProcessorTile(t, true)) {
+                if (isIdealProcessorTile(t, false)) {
                     return t;
                 }
             }
         }
 
-        // Pass 3: border tile even if covered by static terrain wall (never overwrite active buildings)
-        for (int x = 0; x < w; x++) {
-            Tile t = world.tile(x, 0);
-            if (isIdealProcessorTile(t, false)) {
-                return t;
+        // Pass 3: any non-reserved air tile on the map
+        for (int y = h - 1; y >= 0; y--) {
+            for (int x = w - 1; x >= 0; x--) {
+                Tile t = world.tile(x, y);
+                if (isIdealProcessorTile(t, true)) {
+                    return t;
+                }
             }
         }
         return null;
@@ -351,7 +402,20 @@ public final class WorldItemLogicManager {
 
     private boolean isIdealProcessorTile(@Nullable Tile t, boolean requireAirBlock) {
         if (t == null || t.build != null) return false;
+        // CRITICAL: Never place inside BuildSystem's client-only core zone around (2, 2) (which refreshes every 5s!)
+        if (BuildSystem.inReserved(t.x, t.y) || (t.x <= 8 && t.y <= 8)) {
+            return false;
+        }
         if (managedProcessorPositions.contains(t.pos())) return false;
+        if (buildSystem != null) {
+            Seq<DestroyedCoreSite> sites = buildSystem.getDestroyedCoreSites();
+            for (int i = 0; i < sites.size; i++) {
+                DestroyedCoreSite s = sites.get(i);
+                if (Math.abs(t.x - s.x) <= 4 && Math.abs(t.y - s.y) <= 4) {
+                    return false;
+                }
+            }
+        }
         if (requireAirBlock && t.block() != Blocks.air) return false;
         Block overlay = t.overlay();
         if (overlay != null && overlay.name != null && overlay.name.contains("spawnpoint")) {
@@ -364,7 +428,7 @@ public final class WorldItemLogicManager {
         return true;
     }
 
-    private static void pushCodeAndUnit(LogicBuild procBuild, String mlogCode, @Nullable Unit unit) {
+    private void pushCodeAndUnit(LogicBuild procBuild, String mlogCode, @Nullable Unit unit) {
         procBuild.ipt = 1000;
         procBuild.updateCode(mlogCode, false, null);
         LVar hostVar = bindHostUnitOnServer(procBuild, unit);
@@ -382,19 +446,35 @@ public final class WorldItemLogicManager {
 
         if (Vars.net != null && Vars.net.server() && Groups.player != null && !Groups.player.isEmpty()) {
             byte[] compressed = LogicBlock.compress(mlogCode, procBuild.relativeConnections());
+            TechTreeService techTree = buildSystem != null ? buildSystem.getTechTree() : null;
             boolean prevAllow = state != null && state.rules != null && state.rules.allowEditWorldProcessors;
+
             if (!prevAllow && state != null && state.rules != null) {
                 state.rules.allowEditWorldProcessors = true;
-                Call.setRules(state.rules);
+                sendRulesPreservingTechTree(techTree, true);
             }
             Call.tileConfig(null, procBuild, compressed);
             if (!prevAllow && state != null && state.rules != null) {
                 state.rules.allowEditWorldProcessors = false;
-                Call.setRules(state.rules);
+                sendRulesPreservingTechTree(techTree, false);
             }
             if (hostVar != null) {
                 Call.syncVariable(procBuild, hostVar.id, unit);
             }
+        }
+    }
+
+    private static void sendRulesPreservingTechTree(@Nullable TechTreeService techTree, boolean allowEditWorldProc) {
+        if (state == null || state.rules == null) return;
+        if (techTree != null && Groups.player != null) {
+            for (Player p : Groups.player) {
+                if (p == null || p.con == null || !p.con.isConnected()) continue;
+                Rules r = techTree.buildPlayerRules(p);
+                r.allowEditWorldProcessors = allowEditWorldProc;
+                Call.setRules(p.con, r);
+            }
+        } else {
+            Call.setRules(state.rules);
         }
     }
 
@@ -439,14 +519,22 @@ public final class WorldItemLogicManager {
         Catalog catalog,
         Seq<CompiledVisualEntry> outEntries
     ) {
+        return compileRigMlog(baseMarkerId, null, unit, equippedIds, catalog, outEntries);
+    }
+
+    public static String compileRigMlog(
+        int baseMarkerId,
+        @Nullable String ownerPlayerName,
+        Unit unit,
+        Seq<String> equippedIds,
+        Catalog catalog,
+        Seq<CompiledVisualEntry> outEntries
+    ) {
         outEntries.clear();
         int n = Math.min(PlayerItemSystem.MAX_EQUIPPED_SLOTS, equippedIds.size);
         float hullRadius = Math.max(4f, unit.hitSize * 0.5f);
         float spriteTiles = Mathf.clamp((5.4f + unit.hitSize * 0.14f) / tilesize, 0.72f, 1.32f);
 
-        // Count total tail-following items:
-        // - Active FOLLOW items in slots 0..3
-        // - ALL overburdened items in slots 4..9 ("items outside the four should be always tail following")
         int tailTotal = 0;
         for (int i = 0; i < n; i++) {
             ShopItemDef def = catalog.findItem(equippedIds.get(i));
@@ -461,13 +549,15 @@ public final class WorldItemLogicManager {
         int tailIndex = 0;
         boolean needsAimSensors = false;
         ObjectIntMap<MountSubtype> subtypeCounts = new ObjectIntMap<>();
+        IntSeq tailEntryIndices = new IntSeq();
+        Seq<Float> tailRopeLengthsTiles = new Seq<>();
 
         for (int i = 0; i < n; i++) {
             ShopItemDef def = catalog.findItem(equippedIds.get(i));
             if (def == null) continue;
 
             boolean overloaded = i >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
-            // Items outside the first 4 slots ALWAYS become tail-following with connection lines!
+            // Items outside the first 4 slots ALWAYS become tail-following with physical spring-tether physics!
             if (overloaded || def.attachMode == AttachMode.FOLLOW) {
                 if (nextMarkerOffset + 2 > MARKERS_PER_SLOT) break;
                 int lineId = baseMarkerId + (nextMarkerOffset++);
@@ -475,12 +565,17 @@ public final class WorldItemLogicManager {
 
                 int myTailIdx = tailIndex++;
                 float relAngle = computeTailFormationAngle(myTailIdx, tailTotal);
-                float standoffWorld = hullRadius + Math.max(11.5f, def.followDistance) + (myTailIdx / 2) * 7.5f;
-                float localFwd = -standoffWorld * Mathf.cosDeg(relAngle);
-                float localSide = -standoffWorld * Mathf.sinDeg(relAngle);
+                float ropeWorld = Math.max(10.5f, def.followDistance * 0.90f)
+                    + (myTailIdx / 2) * 7.2f
+                    + (myTailIdx % 2) * 1.8f;
+                float standoffFromCenterWorld = hullRadius * 0.62f + ropeWorld;
+                float localFwd = -standoffFromCenterWorld * Mathf.cosDeg(relAngle);
+                float localSide = -standoffFromCenterWorld * Mathf.sinDeg(relAngle);
 
+                tailEntryIndices.add(outEntries.size);
+                tailRopeLengthsTiles.add(ropeWorld / tilesize);
                 outEntries.add(new CompiledVisualEntry(
-                    def, i, RenderedKind.TAIL_FOLLOW, overloaded, texId, lineId, localFwd, localSide, 0f
+                    def, i, RenderedKind.TAIL_FOLLOW, overloaded, texId, lineId, localFwd, localSide, relAngle
                 ));
                 continue;
             }
@@ -544,7 +639,7 @@ public final class WorldItemLogicManager {
         }
 
         int endSweepId = baseMarkerId + MARKERS_PER_SLOT;
-        StringBuilder sb = new StringBuilder(4096);
+        StringBuilder sb = new StringBuilder(6144);
 
         sb.append("setrate 1000\n");
         sb.append("jump mainLoop equal inited 1\n");
@@ -615,19 +710,30 @@ public final class WorldItemLogicManager {
         sb.append("set vis 0\n");
         sb.append("set inited 1\n");
 
-        // 3. 60-FPS per-frame local tracking loop (0 ms ping on each client!)
+        // 3. 60-FPS per-frame local tracking & follow-physics loop (0 ms ping on each client!)
         sb.append("mainLoop:\n");
-        sb.append("sync hostUnit\n");
-        sb.append("sensor dead hostUnit @dead\n");
-        sb.append("jump hideAll notEqual dead 0\n");
+        sb.append("setrate 1000\n");
+        sb.append("set u hostUnit\n");
+        sb.append("sensor dead u @dead\n");
+        sb.append("jump unitReady equal dead 0\n");
+        String safeOwnerName = sanitizeMlogString(ownerPlayerName);
+        if (safeOwnerName != null) {
+            sb.append("jump hideAll notEqual @clientName \"").append(safeOwnerName).append("\"\n");
+            sb.append("set u @clientUnit\n");
+            sb.append("sensor dead u @dead\n");
+            sb.append("jump hideAll notEqual dead 0\n");
+        } else {
+            sb.append("jump hideAll always 0 0\n");
+        }
+        sb.append("unitReady:\n");
 
-        sb.append("sensor ux hostUnit @x\n");
-        sb.append("sensor uy hostUnit @y\n");
-        sb.append("sensor urot hostUnit @rotation\n");
-        sb.append("sensor flying hostUnit @flying\n");
+        sb.append("sensor ux u @x\n");
+        sb.append("sensor uy u @y\n");
+        sb.append("sensor urot u @rotation\n");
+        sb.append("sensor flying u @flying\n");
         if (needsAimSensors) {
-            sb.append("sensor sx hostUnit @shootX\n");
-            sb.append("sensor sy hostUnit @shootY\n");
+            sb.append("sensor sx u @shootX\n");
+            sb.append("sensor sy u @shootY\n");
         }
 
         sb.append("set baseLayer 60.45\n");
@@ -639,16 +745,19 @@ public final class WorldItemLogicManager {
         sb.append("op cos ucos urot 0\n");
         sb.append("op sin usin urot 0\n");
 
+        float tailAnchorTiles = (hullRadius * 0.62f) / tilesize;
         if (tailTotal > 0) {
-            float tailAnchorTiles = (hullRadius * 0.68f) / tilesize;
             sb.append("op mul tax ").append(f(tailAnchorTiles)).append(" ucos\n");
             sb.append("op mul tay ").append(f(tailAnchorTiles)).append(" usin\n");
             sb.append("op sub anchorX ux tax\n");
             sb.append("op sub anchorY uy tay\n");
         }
 
-        // Reveal markers & snap tail items onto formation on first visible frame
+        // Reveal markers & initialize spring-tether positions + zero velocities on first visible frame
         sb.append("jump skipReveal equal vis 1\n");
+        if (tailTotal > 0) {
+            sb.append("set lastTick @tick\n");
+        }
         for (int e = 0; e < outEntries.size; e++) {
             CompiledVisualEntry ce = outEntries.get(e);
             if (ce.connectionLineMarkerId != -1) {
@@ -658,20 +767,29 @@ public final class WorldItemLogicManager {
             if (ce.kind == RenderedKind.TAIL_FOLLOW) {
                 float fwdT = ce.localForwardWorld / tilesize;
                 float sideT = ce.localSideWorld / tilesize;
-                sb.append("op mul t1 ").append(f(fwdT)).append(" ucos\n");
-                sb.append("op mul t2 ").append(f(sideT)).append(" usin\n");
-                sb.append("op sub tx").append(e).append(" t1 t2\n");
-                sb.append("op add tx").append(e).append(" ux tx").append(e).append("\n");
-                sb.append("op mul t1 ").append(f(fwdT)).append(" usin\n");
-                sb.append("op mul t2 ").append(f(sideT)).append(" ucos\n");
-                sb.append("op add ty").append(e).append(" t1 t2\n");
-                sb.append("op add ty").append(e).append(" uy ty").append(e).append("\n");
+                emitRigidTransform(sb, fwdT, sideT, "tx" + e, "ty" + e);
+                sb.append("set vx").append(e).append(" 0\n");
+                sb.append("set vy").append(e).append(" 0\n");
             }
         }
         sb.append("set vis 1\n");
         sb.append("skipReveal:\n");
 
-        // Update every compiled visual entry at 60 FPS
+        // Compute frame-rate independent dt (in ticks, 1.0 at 60 FPS) & damping for physical tethers
+        if (tailTotal > 0) {
+            sb.append("op sub dt @tick lastTick\n");
+            sb.append("set lastTick @tick\n");
+            sb.append("jump dtLoOk greaterThan dt 0.02\n");
+            sb.append("set dt 1\n");
+            sb.append("dtLoOk:\n");
+            sb.append("jump dtHiOk lessThanEq dt 2.2\n");
+            sb.append("set dt 2.2\n");
+            sb.append("dtHiOk:\n");
+            sb.append("op pow drag 0.89 dt\n");
+        }
+
+        // Step A: Update rigid mounts, aiming subweapons, halos, and tether spring-rope forces for tail items
+        int tailCursor = 0;
         for (int e = 0; e < outEntries.size; e++) {
             CompiledVisualEntry ce = outEntries.get(e);
             float fwdT = ce.localForwardWorld / tilesize;
@@ -711,54 +829,194 @@ public final class WorldItemLogicManager {
                     sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" hLayer 0 0\n");
                 }
                 case TAIL_FOLLOW -> {
-                    emitRigidTransform(sb, fwdT, sideT, "gx", "gy");
+                    float ropeLenT = tailRopeLengthsTiles.get(tailCursor);
+                    int myTailIdx = tailCursor++;
                     String tx = "tx" + e;
                     String ty = "ty" + e;
-                    sb.append("op sub dx gx ").append(tx).append("\n");
-                    sb.append("op sub dy gy ").append(ty).append("\n");
-                    sb.append("op len d dx dy\n");
-                    sb.append("jump tSnap").append(e).append(" greaterThan d 7.5\n");
-                    sb.append("op mul dx dx 0.18\n");
-                    sb.append("op mul dy dy 0.18\n");
-                    sb.append("op add ").append(tx).append(" ").append(tx).append(" dx\n");
-                    sb.append("op add ").append(ty).append(" ").append(ty).append(" dy\n");
-                    sb.append("jump tMoved").append(e).append(" always 0 0\n");
+                    String vx = "vx" + e;
+                    String vy = "vy" + e;
+
+                    // Vector from towed item -> player unit's rear hitch anchor
+                    sb.append("op sub rx anchorX ").append(tx).append("\n");
+                    sb.append("op sub ry anchorY ").append(ty).append("\n");
+                    sb.append("op len rDist rx ry\n");
+                    sb.append("jump tSnap").append(e).append(" greaterThan rDist 15\n");
+
+                    // 1) Elastic rope tension ONLY when taut (rDist > ropeLenT); slack when <= ropeLenT!
+                    sb.append("jump tSlack").append(e).append(" lessThanEq rDist ").append(f(ropeLenT)).append("\n");
+                    sb.append("op sub stretch rDist ").append(f(ropeLenT)).append("\n");
+                    sb.append("op div invR 1 rDist\n");
+                    sb.append("op mul rnx rx invR\n");
+                    sb.append("op mul rny ry invR\n");
+                    sb.append("op mul fPull stretch 0.092\n");
+                    sb.append("op mul fPull fPull dt\n");
+                    sb.append("op mul dvx rnx fPull\n");
+                    sb.append("op mul dvy rny fPull\n");
+                    sb.append("op add ").append(vx).append(" ").append(vx).append(" dvx\n");
+                    sb.append("op add ").append(vy).append(" ").append(vy).append(" dvy\n");
+
+                    // Taut-leash max-stretch constraint so fast boosting units whip-tow cleanly
+                    sb.append("jump tSlack").append(e).append(" lessThanEq stretch 1.45\n");
+                    sb.append("op sub over stretch 1.45\n");
+                    sb.append("op mul cpx rnx over\n");
+                    sb.append("op mul cpy rny over\n");
+                    sb.append("op add ").append(tx).append(" ").append(tx).append(" cpx\n");
+                    sb.append("op add ").append(ty).append(" ").append(ty).append(" cpy\n");
+                    sb.append("op mul vn1 ").append(vx).append(" rnx\n");
+                    sb.append("op mul vn2 ").append(vy).append(" rny\n");
+                    sb.append("op add vn vn1 vn2\n");
+                    sb.append("jump tSlack").append(e).append(" greaterThanEq vn 0\n");
+                    sb.append("op mul vn vn 0.65\n");
+                    sb.append("op mul dvx rnx vn\n");
+                    sb.append("op mul dvy rny vn\n");
+                    sb.append("op sub ").append(vx).append(" ").append(vx).append(" dvx\n");
+                    sb.append("op sub ").append(vy).append(" ").append(vy).append(" dvy\n");
+                    sb.append("tSlack").append(e).append(":\n");
+
+                    // 2) Subtle wake drift + organic out-of-phase hover sway (gentle so inertia dominates!)
+                    emitRigidTransform(sb, fwdT, sideT, "wx", "wy");
+                    sb.append("op sub wdx wx ").append(tx).append("\n");
+                    sb.append("op sub wdy wy ").append(ty).append("\n");
+                    sb.append("op mul wScl 0.0048 dt\n");
+                    sb.append("op mul wdx wdx wScl\n");
+                    sb.append("op mul wdy wdy wScl\n");
+                    float phaseDeg = myTailIdx * 67f;
+                    sb.append("op mul bang @tick 3.6\n");
+                    sb.append("op add bang bang ").append(f(phaseDeg)).append("\n");
+                    sb.append("op cos bcos bang 0\n");
+                    sb.append("op sin bsin bang 0\n");
+                    sb.append("op mul bScl 0.0018 dt\n");
+                    sb.append("op mul bfx bcos bScl\n");
+                    sb.append("op mul bfy bsin bScl\n");
+                    sb.append("op add ").append(vx).append(" ").append(vx).append(" wdx\n");
+                    sb.append("op add ").append(vy).append(" ").append(vy).append(" wdy\n");
+                    sb.append("op add ").append(vx).append(" ").append(vx).append(" bfx\n");
+                    sb.append("op add ").append(vy).append(" ").append(vy).append(" bfy\n");
+                    sb.append("jump tForceDone").append(e).append(" always 0 0\n");
+
+                    // Cross-map teleport snap
                     sb.append("tSnap").append(e).append(":\n");
-                    sb.append("set ").append(tx).append(" gx\n");
-                    sb.append("set ").append(ty).append(" gy\n");
-                    sb.append("tMoved").append(e).append(":\n");
-
-                    // Keep minimum standoff from unit center so towed items never collapse onto the hull
-                    float minStandTiles = Math.max(0.95f, (hullRadius + 5.5f) / tilesize);
-                    sb.append("op sub udx ").append(tx).append(" ux\n");
-                    sb.append("op sub udy ").append(ty).append(" uy\n");
-                    sb.append("op len ud udx udy\n");
-                    sb.append("jump tClampDone").append(e).append(" greaterThanEq ud ").append(f(minStandTiles)).append("\n");
-                    sb.append("jump tClampDone").append(e).append(" lessThan ud 0.01\n");
-                    sb.append("op div scl ").append(f(minStandTiles)).append(" ud\n");
-                    sb.append("op mul udx udx scl\n");
-                    sb.append("op mul udy udy scl\n");
-                    sb.append("op add ").append(tx).append(" ux udx\n");
-                    sb.append("op add ").append(ty).append(" uy udy\n");
-                    sb.append("tClampDone").append(e).append(":\n");
-
-                    // Orient towed item along its connection tether toward the player unit's tail anchor
-                    sb.append("op sub ldx anchorX ").append(tx).append("\n");
-                    sb.append("op sub ldy anchorY ").append(ty).append("\n");
-                    sb.append("op angle trot ldx ldy\n");
-                    sb.append("op sub trot trot 90\n");
-
-                    // Update connection line (player unit tail -> tail-attached item) & item sprite
-                    sb.append("setmarker pos ").append(ce.connectionLineMarkerId).append(" anchorX anchorY 0\n");
-                    sb.append("setmarker endPos ").append(ce.connectionLineMarkerId).append(" ")
-                        .append(tx).append(" ").append(ty).append(" 0\n");
-                    sb.append("setmarker drawLayer ").append(ce.connectionLineMarkerId).append(" underLayer 0 0\n");
-
-                    sb.append("setmarker pos ").append(ce.primaryMarkerId).append(" ")
-                        .append(tx).append(" ").append(ty).append(" 0\n");
-                    sb.append("setmarker rotation ").append(ce.primaryMarkerId).append(" trot 0 0\n");
-                    sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" baseLayer 0 0\n");
+                    emitRigidTransform(sb, fwdT, sideT, tx, ty);
+                    sb.append("set ").append(vx).append(" 0\n");
+                    sb.append("set ").append(vy).append(" 0\n");
+                    sb.append("tForceDone").append(e).append(":\n");
                 }
+            }
+        }
+
+        // Step B: Pairwise elastic item-to-item collision/jostling among line-connected items!
+        if (tailEntryIndices.size >= 2) {
+            float minSepTiles = Math.max(0.88f, spriteTiles * 1.12f);
+            for (int i = 0; i < tailEntryIndices.size; i++) {
+                int ea = tailEntryIndices.get(i);
+                int maxJ = Math.min(tailEntryIndices.size - 1, i + 3);
+                for (int j = i + 1; j <= maxJ; j++) {
+                    int eb = tailEntryIndices.get(j);
+                    String lblSkip = "pSkip_" + ea + "_" + eb;
+                    String lblNudge = "pNudge_" + ea + "_" + eb;
+                    sb.append("op sub pdx tx").append(ea).append(" tx").append(eb).append("\n");
+                    sb.append("op abs adx pdx 0\n");
+                    sb.append("jump ").append(lblSkip).append(" greaterThanEq adx ").append(f(minSepTiles)).append("\n");
+                    sb.append("op sub pdy ty").append(ea).append(" ty").append(eb).append("\n");
+                    sb.append("op abs ady pdy 0\n");
+                    sb.append("jump ").append(lblSkip).append(" greaterThanEq ady ").append(f(minSepTiles)).append("\n");
+                    sb.append("op len pd pdx pdy\n");
+                    sb.append("jump ").append(lblSkip).append(" greaterThanEq pd ").append(f(minSepTiles)).append("\n");
+                    sb.append("jump ").append(lblNudge).append(" lessThan pd 0.02\n");
+                    sb.append("op sub pov ").append(f(minSepTiles)).append(" pd\n");
+                    sb.append("op div pinv pov pd\n");
+                    sb.append("op mul pimp pinv 0.065\n");
+                    sb.append("op mul pimp pimp dt\n");
+                    sb.append("op mul pvx pdx pimp\n");
+                    sb.append("op mul pvy pdy pimp\n");
+                    sb.append("op add vx").append(ea).append(" vx").append(ea).append(" pvx\n");
+                    sb.append("op add vy").append(ea).append(" vy").append(ea).append(" pvy\n");
+                    sb.append("op sub vx").append(eb).append(" vx").append(eb).append(" pvx\n");
+                    sb.append("op sub vy").append(eb).append(" vy").append(eb).append(" pvy\n");
+                    sb.append("op mul psep pinv 0.16\n");
+                    sb.append("op mul psx pdx psep\n");
+                    sb.append("op mul psy pdy psep\n");
+                    sb.append("op add tx").append(ea).append(" tx").append(ea).append(" psx\n");
+                    sb.append("op add ty").append(ea).append(" ty").append(ea).append(" psy\n");
+                    sb.append("op sub tx").append(eb).append(" tx").append(eb).append(" psx\n");
+                    sb.append("op sub ty").append(eb).append(" ty").append(eb).append(" psy\n");
+                    sb.append("jump ").append(lblSkip).append(" always 0 0\n");
+                    sb.append(lblNudge).append(":\n");
+                    sb.append("op add vx").append(ea).append(" vx").append(ea).append(" 0.02\n");
+                    sb.append("op sub vx").append(eb).append(" vx").append(eb).append(" 0.02\n");
+                    sb.append(lblSkip).append(":\n");
+                }
+            }
+        }
+
+        // Step C: Drag damping, velocity integration, tangential hull deflection & marker updates for tail items
+        if (tailEntryIndices.size > 0) {
+            float minStandTiles = Math.max(0.95f, (hullRadius + 5.2f) / tilesize);
+            for (int i = 0; i < tailEntryIndices.size; i++) {
+                int e = tailEntryIndices.get(i);
+                CompiledVisualEntry ce = outEntries.get(e);
+                String tx = "tx" + e;
+                String ty = "ty" + e;
+                String vx = "vx" + e;
+                String vy = "vy" + e;
+
+                sb.append("op mul ").append(vx).append(" ").append(vx).append(" drag\n");
+                sb.append("op mul ").append(vy).append(" ").append(vy).append(" drag\n");
+                sb.append("op len vlen ").append(vx).append(" ").append(vy).append("\n");
+                sb.append("jump vCap").append(e).append(" lessThanEq vlen 0.90\n");
+                sb.append("op div vscl 0.90 vlen\n");
+                sb.append("op mul ").append(vx).append(" ").append(vx).append(" vscl\n");
+                sb.append("op mul ").append(vy).append(" ").append(vy).append(" vscl\n");
+                sb.append("vCap").append(e).append(":\n");
+
+                sb.append("op mul stepX ").append(vx).append(" dt\n");
+                sb.append("op mul stepY ").append(vy).append(" dt\n");
+                sb.append("op add ").append(tx).append(" ").append(tx).append(" stepX\n");
+                sb.append("op add ").append(ty).append(" ").append(ty).append(" stepY\n");
+
+                // Soft tangential hull deflection so coasting items glide around the player unit instead of clipping!
+                sb.append("op sub udx ").append(tx).append(" ux\n");
+                sb.append("op sub udy ").append(ty).append(" uy\n");
+                sb.append("op len ud udx udy\n");
+                sb.append("jump tHullOk").append(e).append(" greaterThanEq ud ").append(f(minStandTiles)).append("\n");
+                sb.append("jump tHullOk").append(e).append(" lessThan ud 0.01\n");
+                sb.append("op div uinv 1 ud\n");
+                sb.append("op mul unx udx uinv\n");
+                sb.append("op mul uny udy uinv\n");
+                sb.append("op mul cux unx ").append(f(minStandTiles)).append("\n");
+                sb.append("op mul cuy uny ").append(f(minStandTiles)).append("\n");
+                sb.append("op add ").append(tx).append(" ux cux\n");
+                sb.append("op add ").append(ty).append(" uy cuy\n");
+                sb.append("op mul uvn1 ").append(vx).append(" unx\n");
+                sb.append("op mul uvn2 ").append(vy).append(" uny\n");
+                sb.append("op add uvn uvn1 uvn2\n");
+                sb.append("jump tHullOk").append(e).append(" greaterThanEq uvn 0\n");
+                sb.append("op mul uvn uvn 1.25\n");
+                sb.append("op mul dvx unx uvn\n");
+                sb.append("op mul dvy uny uvn\n");
+                sb.append("op sub ").append(vx).append(" ").append(vx).append(" dvx\n");
+                sb.append("op sub ").append(vy).append(" ").append(vy).append(" dvy\n");
+                sb.append("tHullOk").append(e).append(":\n");
+
+                // Dynamic velocity-banked sprite tilt + tether line update
+                sb.append("op sub ldx anchorX ").append(tx).append("\n");
+                sb.append("op sub ldy anchorY ").append(ty).append("\n");
+                sb.append("op mul bvx ").append(vx).append(" 2.4\n");
+                sb.append("op mul bvy ").append(vy).append(" 2.4\n");
+                sb.append("op add rdx ldx bvx\n");
+                sb.append("op add rdy ldy bvy\n");
+                sb.append("op angle trot rdx rdy\n");
+                sb.append("op sub trot trot 90\n");
+
+                sb.append("setmarker pos ").append(ce.connectionLineMarkerId).append(" anchorX anchorY 0\n");
+                sb.append("setmarker endPos ").append(ce.connectionLineMarkerId).append(" ")
+                    .append(tx).append(" ").append(ty).append(" 0\n");
+                sb.append("setmarker drawLayer ").append(ce.connectionLineMarkerId).append(" underLayer 0 0\n");
+
+                sb.append("setmarker pos ").append(ce.primaryMarkerId).append(" ")
+                    .append(tx).append(" ").append(ty).append(" 0\n");
+                sb.append("setmarker rotation ").append(ce.primaryMarkerId).append(" trot 0 0\n");
+                sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" baseLayer 0 0\n");
             }
         }
 
@@ -781,6 +1039,19 @@ public final class WorldItemLogicManager {
         sb.append("jump mainLoop always 0 0\n");
 
         return sb.toString();
+    }
+
+    private static @Nullable String sanitizeMlogString(@Nullable String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        StringBuilder out = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '"' || c == '\\' || c == '\n' || c == '\r') {
+                return null;
+            }
+            out.append(c);
+        }
+        return out.toString();
     }
 
     private static void emitRigidTransform(StringBuilder sb, float fwdTiles, float sideTiles, String outX, String outY) {
@@ -856,10 +1127,11 @@ public final class WorldItemLogicManager {
         return out;
     }
 
-    private static String buildRigSignature(Unit unit, Seq<String> equippedIds) {
-        StringBuilder sb = new StringBuilder(equippedIds.size * 8 + 24);
+    private static String buildRigSignature(Unit unit, @Nullable String ownerPlayerName, Seq<String> equippedIds) {
+        StringBuilder sb = new StringBuilder(equippedIds.size * 8 + 40);
         sb.append(unit.type != null ? unit.type.name : "unit").append('#');
-        sb.append(Math.round(unit.hitSize * 10f)).append(':');
+        sb.append(Math.round(unit.hitSize * 10f)).append('#');
+        sb.append(ownerPlayerName != null ? ownerPlayerName : "").append(':');
         for (int i = 0; i < equippedIds.size; i++) {
             if (i > 0) sb.append('|');
             sb.append(equippedIds.get(i));

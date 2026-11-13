@@ -101,6 +101,10 @@ public class BuildSystem {
         this.techTree = techTree;
     }
 
+    public @Nullable TechTreeService getTechTree() {
+        return techTree;
+    }
+
     public void start() {
         if (started) return;
         started = true;

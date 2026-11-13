@@ -139,7 +139,7 @@ public class PlayerItemSystem {
     private final PlayerDatabase database;
     private final PlayerSessionManager sessionManager;
     private final BuildSystem buildSystem;
-    private final WorldItemLogicManager worldLogicManager = new WorldItemLogicManager();
+    private final WorldItemLogicManager worldLogicManager;
 
     private Catalog catalog;
     private final ObjectMap<String, ActiveServerRig> serverRigs = new ObjectMap<>();
@@ -156,6 +156,7 @@ public class PlayerItemSystem {
         this.database = database;
         this.sessionManager = sessionManager;
         this.buildSystem = buildSystem;
+        this.worldLogicManager = new WorldItemLogicManager(buildSystem);
     }
 
     public WorldItemLogicManager getWorldLogicManager() {
@@ -536,7 +537,7 @@ public class PlayerItemSystem {
             EquipmentData eq = getEquipment(player);
             ComputedStats stats = computeStats(eq.equipped);
             applyStatsToUnit(unit, stats);
-            updateVisualRig(player.uuid(), unit, eq.equipped, stats);
+            updateVisualRig(player.uuid(), player.name, unit, eq.equipped, stats);
         }
     }
 
@@ -567,17 +568,23 @@ public class PlayerItemSystem {
     }
 
     public void updateVisualRigForUnit(String rigKey, Unit unit, Seq<String> equippedIds, ComputedStats stats) {
-        updateVisualRig(rigKey, unit, equippedIds, stats);
+        updateVisualRig(rigKey, null, unit, equippedIds, stats);
     }
 
-    private void updateVisualRig(String rigKey, Unit unit, Seq<String> equippedIds, ComputedStats stats) {
+    private void updateVisualRig(
+        String rigKey,
+        @Nullable String ownerPlayerName,
+        Unit unit,
+        Seq<String> equippedIds,
+        ComputedStats stats
+    ) {
         if (equippedIds == null || equippedIds.isEmpty()) {
             destroyRig(rigKey);
             return;
         }
 
         // 1. Synchronise client-local 60-FPS WorldProcessor markers (zero Unit entities spawned!)
-        worldLogicManager.syncRig(rigKey, unit, equippedIds, getCatalog());
+        worldLogicManager.syncRig(rigKey, ownerPlayerName, unit, equippedIds, getCatalog());
 
         // 2. Maintain authoritative server gameplay state (active SUBWEAPON barrels in slots 0..3 + optional custom HALO Fx)
         String sig = buildSignature(unit, equippedIds);

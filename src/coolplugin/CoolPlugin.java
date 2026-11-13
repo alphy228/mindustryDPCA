@@ -162,6 +162,7 @@ public class CoolPlugin extends Plugin {
                 buildSystem,
                 playerUnitSystem,
                 techTree,
+                launchPadSystem,
                 playerDatabase,
                 sessionManager
             );

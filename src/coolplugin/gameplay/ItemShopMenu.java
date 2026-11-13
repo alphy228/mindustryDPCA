@@ -5,17 +5,19 @@ import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Nullable;
 import arc.util.Scaling;
-import arc.util.Strings;
+import arc.util.io.Writes;
 import coolplugin.database.AccountRecord;
 import coolplugin.database.PlayerDatabase;
 import coolplugin.database.PlayerDatabase.EquipmentData;
 import coolplugin.database.PlayerSessionManager;
+import coolplugin.gameplay.PlayerInventoryDrawer.ActionResult;
+import coolplugin.gameplay.PlayerInventoryDrawer.DrawerTheme;
 import coolplugin.gameplay.PlayerItemSystem.ActionOutcome;
-import coolplugin.gameplay.PlayerItemSystem.ComputedStats;
 import coolplugin.gameplay.ShopConfigIO.Catalog;
 import coolplugin.gameplay.ShopItemDef.ItemIngredient;
 import coolplugin.gameplay.ShopItemDef.OrbitalTradeDef;
 import coolplugin.gameplay.ShopItemDef.ResourceCost;
+import coolplugin.gameplay.ShopItemDef.ShopCategory;
 import coolplugin.gameplay.ShopItemDef.StationTier;
 import mindustry.Vars;
 import mindustry.gen.Call;
@@ -23,44 +25,64 @@ import mindustry.gen.Player;
 import mindustry.type.Item;
 import mindustry.ui.Menus;
 import mindustry.ui.builder.MenuBuilder;
-import mindustry.ui.builder.UiBuilder.ButtonBuilder;
-import mindustry.ui.builder.UiBuilder.ButtonTableBuilder;
-import mindustry.ui.builder.UiBuilder.ImageBuilder;
-import mindustry.ui.builder.UiBuilder.NodeBuilder;
-import mindustry.ui.builder.UiBuilder.PaneBuilder;
-import mindustry.ui.builder.UiBuilder.TableBuilder;
+import mindustry.ui.builder.MenuResult;
+import mindustry.ui.builder.UiBuilder.*;
+
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.util.Locale;
 
 import static mindustry.ui.builder.UiBuilder.*;
 
 /**
- * Rich server-side {@link MenuBuilder} interfaces for {@link StationTier#WORKBENCH},
- * {@link StationTier#BAZAAR}, and {@link StationTier#CURSED_ALTAR}.
+ * Deadlock-inspired multi-column Item Shop menu for {@link StationTier#WORKBENCH},
+ * {@link StationTier#BAZAAR}, and {@link StationTier#CURSED_ALTAR}:
+ * <ul>
+ *   <li>Clean top station title ({@code Workbench}, {@code Bazaar}, {@code Cursed Altar}) with no icon and no background box.</li>
+ *   <li>Borderless non-zero resource item counter directly below the station title.</li>
+ *   <li>4 category headers ({@code Resource}, {@code Attack}, {@code Defense}, {@code Utility}) with no background boxes,
+ *       keeping only the thick colored category lines.</li>
+ *   <li>Search bar directly below the category names.</li>
+ *   <li>2 columns per category of pure custom-icon rectangles; item name, description, stats, and costs remain hidden
+ *       until clicked, which opens the item detail ({@code dsc}) panel.</li>
+ *   <li>Right-side hexagonal inventory + multipliers below rendered via reusable {@link PlayerInventoryDrawer}.</li>
+ * </ul>
  */
 public class ItemShopMenu {
 
-    public static final String ID_DYNAMIC_BODY = "coolplugin-shop-body";
+    public static final String ID_ROOT = "alphy-shop-root";
+    public static final String ID_TITLE = "alphy-shop-title";
+    public static final String ID_TOP_RES = "alphy-shop-topres";
+    public static final String ID_LEFT_AREA = "alphy-shop-columns";
+    public static final String ID_RIGHT_COL = "alphy-shop-rightcol";
+    public static final String ID_SEARCH_FIELD = "alphy-shop-search";
 
-    public static final String TAB_CRAFT = "craft";
-    public static final String TAB_CRAFT_T2 = "craft2";
-    public static final String TAB_DECRAFT = "decraft";
-    public static final String TAB_SHIPS = "ships";
-    public static final String TAB_BAG = "bag";
+    private static final float CAT_COL_W = 172f;
+    private static final float CAT_COL_GAP = 12f;
+    private static final float CAT_SCROLL_H_FULL = 408f;
+    private static final float CAT_SCROLL_H_WITH_DSC = 292f;
+    private static final float ICON_CELL_W = 68f;
+    private static final float ICON_CELL_H = 52f;
+    private static final float LEFT_TOTAL_W = CAT_COL_W * 4f + CAT_COL_GAP * 3f;
 
-    private static final float DIALOG_WIDTH = 836f;
-    private static final float CARD_WIDTH = 392f;
-    private static final float SCROLL_HEIGHT = 330f;
+    private static final float RIGHT_GAP = 14f;
+    private static final float TOTAL_W = LEFT_TOTAL_W + RIGHT_GAP + PlayerInventoryDrawer.WIDTH;
 
-    public static final class ShopSession {
-        public StationTier station = StationTier.WORKBENCH;
-        public String tab = TAB_CRAFT;
-        public String statusBanner = "";
+    private static final class Session {
+        StationTier station = StationTier.WORKBENCH;
+        boolean bazaarShipsMode = false;
+        String searchQuery = "";
+        String selectedShopItemId = "";
+        int selectedInvSlot = -1;
+        String statusMsg = "";
     }
 
     private final PlayerItemSystem itemSystem;
     private final BuildSystem buildSystem;
     private final PlayerDatabase database;
     private final PlayerSessionManager sessionManager;
-    private final ObjectMap<String, ShopSession> sessions = new ObjectMap<>();
+    private final PlayerInventoryDrawer inventoryDrawer;
+    private final ObjectMap<String, Session> sessions = new ObjectMap<>();
     private int menuId = -1;
 
     public ItemShopMenu(
@@ -73,730 +95,722 @@ public class ItemShopMenu {
         this.buildSystem = buildSystem;
         this.database = database;
         this.sessionManager = sessionManager;
+        this.inventoryDrawer = new PlayerInventoryDrawer(itemSystem);
+    }
+
+    public PlayerInventoryDrawer getInventoryDrawer() {
+        return inventoryDrawer;
     }
 
     public void register() {
         if (menuId != -1) return;
-        menuId = Menus.registerMenuBuilder((player, result) -> {
-            if (player == null || result == null || result.wasCancelled() || result.result == null) return;
-            handleAction(player, result.result);
+        menuId = Menus.registerMenuBuilder((player, res) -> {
+            if (player == null || res == null || res.wasCancelled() || res.result == null) return;
+            handleAction(player, res);
         });
     }
 
+    public int getMenuId() {
+        return menuId;
+    }
+
     public void open(Player player, StationTier station) {
-        if (player == null || player.con == null || !player.con.isConnected() || station == null) return;
+        if (player == null || player.con == null || !player.con.isConnected()) return;
         register();
         UiSpriteSync.ensureSent(player);
 
-        ShopSession session = getOrCreateSession(player);
-        session.station = station;
-        session.tab = (station == StationTier.BAZAAR) ? TAB_CRAFT_T2 : TAB_CRAFT;
-        session.statusBanner = "";
+        Session s = getOrCreateSession(player);
+        s.station = station;
+        s.bazaarShipsMode = false;
+        s.searchQuery = "";
+        s.selectedShopItemId = "";
+        s.selectedInvSlot = -1;
+        s.statusMsg = "";
 
-        TableBuilder root = buildFullDialog(player, session);
-        MenuBuilder.of(root)
+        MenuBuilder.of(buildFullDialog(player, s))
             .id(menuId)
             .title(null)
             .hideOnClick(false)
             .hideExisting(true)
-            .fillScreen(false)
+            .fillScreen(true)
             .show(player);
     }
 
-    public NodeBuilder<?> buildRootForTest(Player player, StationTier station, String tab) {
-        ShopSession session = getOrCreateSession(player);
-        session.station = station;
-        session.tab = tab;
-        session.statusBanner = "";
-        return buildFullDialog(player, session);
+    public void refreshOpenSession(@Nullable Player player) {
+        if (player == null || player.con == null || !player.con.isConnected() || menuId == -1) return;
+        Session s = sessions.get(player.uuid());
+        if (s == null) return;
+        s.selectedInvSlot = -1;
+        s.statusMsg = "";
+        pushUpdates(player, s, true, true, true, true);
     }
 
-    private ShopSession getOrCreateSession(Player player) {
-        ShopSession s = sessions.get(player.uuid());
+    public TableBuilder buildForTest(Player player, StationTier station) {
+        return buildForTest(player, station, false, -1, "", "");
+    }
+
+    public TableBuilder buildForTest(Player player, StationTier station, boolean shipsMode, int selectedInvSlot) {
+        return buildForTest(player, station, shipsMode, selectedInvSlot, "", "");
+    }
+
+    public TableBuilder buildForTest(
+        Player player,
+        StationTier station,
+        boolean shipsMode,
+        int selectedInvSlot,
+        String selectedShopItemId,
+        String searchQuery
+    ) {
+        Session s = getOrCreateSession(player);
+        s.station = station;
+        s.bazaarShipsMode = (station == StationTier.BAZAAR) && shipsMode;
+        s.selectedInvSlot = selectedInvSlot;
+        s.selectedShopItemId = selectedShopItemId == null ? "" : selectedShopItemId;
+        s.searchQuery = searchQuery == null ? "" : searchQuery;
+        return buildFullDialog(player, s);
+    }
+
+    public static int serializeSize(NodeBuilder<?> builder) {
+        try {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(16384);
+            builder.write(new Writes(new DataOutputStream(bos)));
+            return bos.size();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private Session getOrCreateSession(Player player) {
+        Session s = sessions.get(player.uuid());
         if (s == null) {
-            s = new ShopSession();
+            s = new Session();
             sessions.put(player.uuid(), s);
         }
         return s;
     }
 
-    private void handleAction(Player player, String action) {
-        if ("close".equals(action)) {
-            if (player.con != null) {
-                Call.hideFollowUpMenu(player.con, menuId);
-            }
+    private void handleAction(Player player, MenuResult res) {
+        String action = res.result;
+        Session s = getOrCreateSession(player);
+
+        // Preserve any typed text in the search field across clicks
+        if (res.values != null && res.values.containsKey(ID_SEARCH_FIELD)) {
+            s.searchQuery = res.getString(ID_SEARCH_FIELD, "").trim();
+        }
+
+        // 1. Delegate right-hand inventory drawer actions to reusable PlayerInventoryDrawer
+        ActionResult invRes = inventoryDrawer.handleAction(player, action, s.selectedInvSlot, s.station);
+        if (invRes.handled()) {
+            s.selectedInvSlot = invRes.selectedSlot();
+            s.statusMsg = invRes.statusMessage();
+            pushUpdates(
+                player,
+                s,
+                !s.statusMsg.isEmpty(),
+                invRes.resourcesChanged(),
+                invRes.inventoryChanged() || invRes.resourcesChanged(),
+                true
+            );
             return;
         }
 
-        ShopSession session = getOrCreateSession(player);
-
-        if (action.startsWith("tab:")) {
-            String nextTab = action.substring("tab:".length());
-            if (session.station == StationTier.CURSED_ALTAR
-                && (TAB_DECRAFT.equals(nextTab) || TAB_SHIPS.equals(nextTab) || TAB_CRAFT_T2.equals(nextTab))) {
-                nextTab = TAB_CRAFT;
-            }
-            session.tab = nextTab;
-            session.statusBanner = "";
-            pushBodyUpdate(player, session);
+        // 2. Search bar apply / clear
+        if ("search:apply".equals(action)) {
+            s.statusMsg = "";
+            pushUpdates(player, s, false, false, true, false);
             return;
         }
 
+        if ("search:clear".equals(action)) {
+            s.searchQuery = "";
+            s.statusMsg = "";
+            pushUpdates(player, s, false, false, true, false);
+            return;
+        }
+
+        // 3. Bazaar mode toggle (Crafts vs Orbital Ships)
+        if ("mode:crafts".equals(action)) {
+            s.bazaarShipsMode = false;
+            s.statusMsg = "";
+            pushUpdates(player, s, true, true, true, false);
+            return;
+        }
+
+        if ("mode:ships".equals(action) && s.station == StationTier.BAZAAR) {
+            s.bazaarShipsMode = true;
+            s.selectedShopItemId = "";
+            s.statusMsg = "";
+            pushUpdates(player, s, true, true, true, false);
+            return;
+        }
+
+        // 4. Shop item selection -> toggles the item detail (dsc) panel
+        if (action.startsWith("select:")) {
+            String itemId = action.substring("select:".length());
+            if ("close".equals(itemId) || itemId.equals(s.selectedShopItemId)) {
+                s.selectedShopItemId = "";
+            } else if (itemSystem.getCatalog().findItem(itemId) != null) {
+                s.selectedShopItemId = itemId;
+            }
+            s.statusMsg = "";
+            pushUpdates(player, s, true, false, true, false);
+            return;
+        }
+
+        // 5. Craft from opened dsc panel
         if (action.startsWith("craft:")) {
             String itemId = action.substring("craft:".length());
-            ActionOutcome out = itemSystem.craft(player, itemId, session.station);
-            session.statusBanner = out.message();
-            pushBodyUpdate(player, session);
+            ActionOutcome out = itemSystem.craft(player, itemId, s.station);
+            s.statusMsg = out.message();
+            s.selectedInvSlot = inventoryDrawer.clampSlot(player, s.selectedInvSlot);
+            pushUpdates(player, s, true, true, true, true);
             return;
         }
 
-        if (action.startsWith("decraft:")) {
-            String itemId = action.substring("decraft:".length());
-            ActionOutcome out = itemSystem.decraft(player, itemId, session.station);
-            session.statusBanner = out.message();
-            pushBodyUpdate(player, session);
-            return;
-        }
-
-        if (action.startsWith("ship:")) {
-            if (session.station != StationTier.BAZAAR) return;
-            String tradeId = action.substring("ship:".length());
+        // 6. Bazaar orbital ship trade
+        if (action.startsWith("trade:")) {
+            if (s.station != StationTier.BAZAAR) return;
+            String tradeId = action.substring("trade:".length());
             ActionOutcome out = itemSystem.executeOrbitalTrade(player, tradeId);
-            session.statusBanner = out.message();
-            pushBodyUpdate(player, session);
-            return;
-        }
-
-        if (action.startsWith("equip:")) {
-            String itemId = action.substring("equip:".length());
-            ActionOutcome out = itemSystem.equipFromBag(player, itemId);
-            session.statusBanner = out.message();
-            pushBodyUpdate(player, session);
-            return;
-        }
-
-        if (action.startsWith("unequip:")) {
-            try {
-                int slotIdx = Integer.parseInt(action.substring("unequip:".length()));
-                ActionOutcome out = itemSystem.unequipSlot(player, slotIdx);
-                session.statusBanner = out.message();
-                pushBodyUpdate(player, session);
-            } catch (NumberFormatException ignored) {
-            }
+            s.statusMsg = out.message();
+            s.selectedInvSlot = inventoryDrawer.clampSlot(player, s.selectedInvSlot);
+            pushUpdates(player, s, true, true, true, true);
         }
     }
 
-    private void pushBodyUpdate(Player player, ShopSession session) {
+    private void pushUpdates(
+        Player player,
+        Session s,
+        boolean titleRow,
+        boolean topRes,
+        boolean leftArea,
+        boolean rightCol
+    ) {
         if (player.con == null || !player.con.isConnected()) return;
-        Call.menuBuilderUpdate(player.con, menuId, ID_DYNAMIC_BODY, buildDynamicBody(player, session));
+        if (titleRow) Call.menuBuilderUpdate(player.con, menuId, ID_TITLE, buildTopTitleRow(s));
+        if (topRes) Call.menuBuilderUpdate(player.con, menuId, ID_TOP_RES, buildResourceCounterBar(player, s));
+        if (leftArea) Call.menuBuilderUpdate(player.con, menuId, ID_LEFT_AREA, buildLeftArea(player, s));
+        if (rightCol) Call.menuBuilderUpdate(player.con, menuId, ID_RIGHT_COL, buildRightDrawer(player, s));
     }
 
-    private TableBuilder buildFullDialog(Player player, ShopSession session) {
-        TableBuilder outer = table().background("pane").margin(0f).width(DIALOG_WIDTH);
-        TableBuilder dynamicHolder = table().id(ID_DYNAMIC_BODY).growX();
-        dynamicHolder.add(buildDynamicBody(player, session));
-        outer.add(dynamicHolder.growX());
-        return outer;
+    private TableBuilder buildFullDialog(Player player, Session s) {
+        TableBuilder root = table().id(ID_ROOT).align("center").margin(6f);
+
+        // 1. Station title text on top (NO icon, NO background rectangle!)
+        TableBuilder titleHolder = table().id(ID_TITLE).width(TOTAL_W);
+        titleHolder.add(buildTopTitleRow(s));
+        root.add(titleHolder.padBottom(2f)).row();
+
+        // 2. Non-zero resource item counter directly BELOW station title (NO background rectangle!)
+        TableBuilder topResHolder = table().id(ID_TOP_RES).width(TOTAL_W);
+        topResHolder.add(buildResourceCounterBar(player, s));
+        root.add(topResHolder.padBottom(8f)).row();
+
+        // 3. Main Body: Left = Category Headers + Search Bar + 2-Col Icon Grids (+ dsc on click) | Right = PlayerInventoryDrawer
+        TableBuilder bodyRow = table().align("top");
+
+        TableBuilder leftHolder = table().id(ID_LEFT_AREA).width(LEFT_TOTAL_W).align("top");
+        leftHolder.add(buildLeftArea(player, s));
+        bodyRow.add(leftHolder).align("top");
+
+        TableBuilder rightHolder = table().id(ID_RIGHT_COL).width(PlayerInventoryDrawer.WIDTH).align("top").padLeft(RIGHT_GAP);
+        rightHolder.add(buildRightDrawer(player, s));
+        bodyRow.add(rightHolder).align("top");
+
+        root.add(bodyRow);
+        return root;
     }
 
-    private TableBuilder buildDynamicBody(Player player, ShopSession session) {
-        if (session.station == StationTier.CURSED_ALTAR) {
-            return buildCursedAltarBody(player, session);
-        }
-        return buildStandardShopBody(player, session);
-    }
+    // ------------------------------------------------------------------ 1. Pure Text Top Station Title
 
-    // =========================================================================
-    // WORKBENCH & BAZAAR INTERFACE
-    // =========================================================================
-
-    private TableBuilder buildStandardShopBody(Player player, ShopSession session) {
-        StationTier st = session.station;
-        String accent = st.accentHex + "ff";
-        EquipmentData eq = itemSystem.getEquipment(player);
-        ComputedStats stats = itemSystem.computeStats(eq.equipped);
-
-        TableBuilder body = table().margin(0f).width(DIALOG_WIDTH);
-
-        // 1. Top glowing trim
-        body.add(image("whiteui").color(accent).height(4f).growX()).row();
-
-        // 2. Station Title Bar + Close Button
-        TableBuilder topBar = table().margin(10f).align("left");
-        ImageBuilder stationIcon = image(UiSpriteSync.resolveMenuDrawable(st.blockName))
-            .placeholder("block-container-ui")
-            .scaling(Scaling.fit)
-            .size(34f)
-            .padRight(10f);
-        topBar.add(stationIcon);
-
-        TableBuilder titleCol = table().align("left");
-        String tierBadge = (st == StationTier.WORKBENCH) ? "TIER I // FIELD ARTIFICER" : "TIER II // ORBITAL EXCHANGE";
-        titleCol.add(label("[#" + st.accentHex + "]" + st.title.toUpperCase() + "[]  [gray]" + tierBadge + "[]").labelAlign("left")).row();
-        String subHint = (st == StationTier.WORKBENCH)
-            ? "[lightgray]Uses nearby map containers. Excess decrafted items vanish if storage is full.[]"
-            : "[lightgray]Map crafting/decrafting + Orbital Merchant Ship exchange via Launch Pad reserves.[]";
-        titleCol.add(label(subHint).labelAlign("left"));
-        topBar.add(titleCol.growX());
-
-        topBar.add(
-            button("[scarlet]Close[]")
-                .style("defaultt")
-                .clicked("close")
-                .width(86f)
-                .height(36f)
+    private TableBuilder buildTopTitleRow(Session s) {
+        StationTier st = s.station;
+        TableBuilder row = table().align("center").width(TOTAL_W);
+        row.add(
+            label("[#" + st.accentHex + "]" + st.title + "[]")
+                .style("outlineLabel")
+                .labelAlign("center")
         );
-        body.add(topBar.growX()).row();
-
-        body.add(image("whiteui").color("383a48ff").height(2f).growX()).row();
-
-        // 3. Resource Readout Strip (Map Reach Storage + Orbital Storage on Bazaar)
-        body.add(buildResourceReadoutStrip(player, st == StationTier.BAZAAR).growX()).row();
-        body.add(image("whiteui").color("303240ff").height(2f).growX()).row();
-
-        // 4. 10-Slot Loadout Rack + Active Passive / Overburden Readout
-        body.add(buildTenSlotLoadoutRack(eq, stats, st.accentHex).growX()).row();
-
-        // 5. Status feedback banner (if any action just ran)
-        if (session.statusBanner != null && !session.statusBanner.isEmpty()) {
-            TableBuilder banner = table().background("button").margin(6f);
-            banner.add(label(session.statusBanner).wrap().labelAlign("center").width(DIALOG_WIDTH - 36f));
-            body.add(banner.growX().padLeft(10f).padRight(10f).padTop(4f)).row();
+        if (s.statusMsg != null && !s.statusMsg.isEmpty()) {
+            row.row();
+            row.add(label(s.statusMsg).labelAlign("center").padTop(2f));
         }
-
-        // 6. Navigation Tabs
-        TableBuilder tabs = table().margin(6f);
-        if (st == StationTier.BAZAAR) {
-            tabs.add(buildTabBtn("Bazaar Crafts", TAB_CRAFT_T2, session.tab, st.accentHex, 148f).padRight(5f));
-            tabs.add(buildTabBtn("Basic Crafts", TAB_CRAFT, session.tab, "ffd37f", 142f).padRight(5f));
-            tabs.add(buildTabBtn("Decraft", TAB_DECRAFT, session.tab, st.accentHex, 118f).padRight(5f));
-            tabs.add(buildTabBtn("Orbital Ships", TAB_SHIPS, session.tab, "7fe6ff", 148f).padRight(5f));
-            int bagCount = PlayerItemSystem.totalBagCount(eq);
-            tabs.add(buildTabBtn("Bag (" + bagCount + ")", TAB_BAG, session.tab, st.accentHex, 118f));
-        } else {
-            tabs.add(buildTabBtn("Craft", TAB_CRAFT, session.tab, st.accentHex, 184f).padRight(6f));
-            tabs.add(buildTabBtn("Decraft", TAB_DECRAFT, session.tab, st.accentHex, 184f).padRight(6f));
-            int bagCount = PlayerItemSystem.totalBagCount(eq);
-            tabs.add(buildTabBtn("Bag (" + bagCount + ")", TAB_BAG, session.tab, st.accentHex, 184f));
-        }
-        body.add(tabs.growX()).row();
-
-        // 7. Scrollable Content Pane
-        TableBuilder scrollInner = switch (session.tab) {
-            case TAB_DECRAFT -> buildDecraftGrid(player, eq, session.station);
-            case TAB_SHIPS -> buildOrbitalShipsGrid(player);
-            case TAB_BAG -> buildBagManagementGrid(eq, st.accentHex);
-            case TAB_CRAFT_T2 -> buildCraftGrid(player, eq, StationTier.BAZAAR, StationTier.BAZAAR, st.accentHex);
-            default -> buildCraftGrid(player, eq, StationTier.WORKBENCH, session.station, st.accentHex);
-        };
-
-        PaneBuilder scroll = pane()
-            .style("defaultPane")
-            .width(DIALOG_WIDTH - 16f)
-            .height(SCROLL_HEIGHT)
-            .add(scrollInner);
-        body.add(scroll.padBottom(8f));
-
-        return body;
+        return row;
     }
 
-    // =========================================================================
-    // CURSED ALTAR — DEDICATED ABYSSAL CRAFT MENU (NO BASIC CRAFTS / NO TRADES)
-    // =========================================================================
+    // ------------------------------------------------------------------ 2. Borderless Resource Item Counter Below Title
 
-    private TableBuilder buildCursedAltarBody(Player player, ShopSession session) {
-        EquipmentData eq = itemSystem.getEquipment(player);
-        ComputedStats stats = itemSystem.computeStats(eq.equipped);
+    private TableBuilder buildResourceCounterBar(Player player, Session s) {
+        TableBuilder resBar = table().wrap(true).align("center");
+        boolean anyShown = false;
 
-        TableBuilder body = table().margin(0f).width(DIALOG_WIDTH);
-
-        // Twin crimson + violet eldritch trim
-        body.add(image("whiteui").color("ff3b6bff").height(3f).growX()).row();
-        body.add(image("whiteui").color("9d4eddff").height(2f).growX()).row();
-
-        TableBuilder header = table().margin(12f).align("left");
-        header.add(
-            image(UiSpriteSync.resolveMenuDrawable("dp-cursed-altar"))
-                .placeholder("block-thorium-reactor-ui")
-                .scaling(Scaling.fit)
-                .size(40f)
-                .padRight(12f)
-        );
-
-        TableBuilder titleCol = table().align("left");
-        titleCol.add(label("[#ff3b6b]* CURSED ALTAR[]  [#c77dff]// ABYSSAL SANCTUM[]").labelAlign("left")).row();
-        titleCol.add(label("[#b8a2c8]No mortal crafts or orbital merchants reach here. Bind forbidden relics at your peril.[]")
-            .labelAlign("left"));
-        header.add(titleCol.growX());
-
-        header.add(
-            button("[#ff4b6e]Leave Altar[]")
-                .style("defaultt")
-                .clicked("close")
-                .width(114f)
-                .height(36f)
-        );
-        body.add(header.growX()).row();
-
-        body.add(image("whiteui").color("5a1e38ff").height(2f).growX()).row();
-        body.add(buildResourceReadoutStrip(player, false).growX()).row();
-        body.add(image("whiteui").color("421834ff").height(2f).growX()).row();
-
-        // Soul-binding 10-slot rack
-        body.add(buildTenSlotLoadoutRack(eq, stats, "ff4b6e").growX()).row();
-
-        if (session.statusBanner != null && !session.statusBanner.isEmpty()) {
-            TableBuilder banner = table().background("button").margin(6f);
-            banner.add(label(session.statusBanner).wrap().labelAlign("center").width(DIALOG_WIDTH - 36f));
-            body.add(banner.growX().padLeft(10f).padRight(10f).padTop(4f)).row();
-        }
-
-        // Only Cursed Rituals & Soul Bag tabs (no basic crafts, no trades)
-        TableBuilder tabs = table().margin(6f);
-        tabs.add(buildTabBtn("Forbidden Crafts (15)", TAB_CRAFT, session.tab, "ff4b6e", 230f).padRight(8f));
-        tabs.add(buildTabBtn("Bound Relics & Bag (" + PlayerItemSystem.totalBagCount(eq) + ")", TAB_BAG, session.tab, "c77dff", 240f));
-        body.add(tabs.growX()).row();
-
-        TableBuilder scrollInner = TAB_BAG.equals(session.tab)
-            ? buildBagManagementGrid(eq, "ff4b6e")
-            : buildCraftGrid(player, eq, StationTier.CURSED_ALTAR, StationTier.CURSED_ALTAR, "ff4b6e");
-
-        PaneBuilder scroll = pane()
-            .style("defaultPane")
-            .width(DIALOG_WIDTH - 16f)
-            .height(SCROLL_HEIGHT)
-            .add(scrollInner);
-        body.add(scroll.padBottom(8f));
-
-        return body;
-    }
-
-    // =========================================================================
-    // SHARED WIDGETS: 10-SLOT RACK, RESOURCE STRIP, CRAFT/DECRAFT/SHIP CARDS
-    // =========================================================================
-
-    private TableBuilder buildResourceReadoutStrip(Player player, boolean includeOrbital) {
-        TableBuilder wrap = table().margin(6f).align("left");
-
-        // Map Reach Storage row
-        TableBuilder mapRow = table().wrap(true).align("left");
-        mapRow.add(label("[#ffd37f]Map Storage:[] ").padRight(6f));
-        ObjectIntMap<Item> mapRes = buildSystem.getAvailableSnapshot(player);
-        boolean anyMap = false;
-        if (Vars.content != null) {
-            for (Item it : Vars.content.items()) {
-                int amt = mapRes.get(it, 0);
-                if (amt <= 0) continue;
-                anyMap = true;
-                mapRow.add(image("item-" + it.name + "-ui").scaling(Scaling.fit).size(16f).padRight(2f));
-                mapRow.add(label("[white]" + fmtAmt(amt) + "[]").padRight(8f));
-            }
-        }
-        if (!anyMap) {
-            mapRow.add(label("[gray]Empty (place items in unit or nearby containers)[]"));
-        }
-        wrap.add(mapRow.growX()).row();
-
-        // Orbital Storage row (shown on Bazaar)
-        if (includeOrbital) {
+        if (s.station == StationTier.BAZAAR && s.bazaarShipsMode) {
             AccountRecord acc = sessionManager.getOrInitSession(player);
             String factionId = sessionManager.getActiveFactionId(player.uuid());
-            ObjectIntMap<String> orb = database.getOrbitalStorage(acc.id, factionId);
-
-            TableBuilder orbRow = table().wrap(true).align("left").padTop(3f);
-            orbRow.add(label("[#7fe6ff]Orbital Storage:[] ").padRight(6f));
-            boolean anyOrb = false;
+            ObjectIntMap<String> orbital = database.getOrbitalStorage(acc.id, factionId);
             if (Vars.content != null) {
                 for (Item it : Vars.content.items()) {
-                    int amt = orb.get(it.name, 0);
+                    if (it.isHidden()) continue;
+                    int amt = orbital.get(it.name, 0);
                     if (amt <= 0) continue;
-                    anyOrb = true;
-                    orbRow.add(image("item-" + it.name + "-ui").scaling(Scaling.fit).size(16f).padRight(2f));
-                    orbRow.add(label("[#b8f4ff]" + fmtAmt(amt) + "[]").padRight(8f));
+                    anyShown = true;
+                    resBar.add(image("item-" + it.name + "-ui").scaling(Scaling.fit).size(20f).padRight(3f).padTop(2f).padBottom(2f));
+                    resBar.add(label("[#7fe6ff]" + formatCompact(amt) + "[]").padRight(10f).padTop(2f).padBottom(2f));
                 }
             }
-            if (!anyOrb) {
-                orbRow.add(label("[gray]0 (launch resources via your owned Launch Pad)[]"));
+        } else {
+            ObjectIntMap<Item> mapRes = buildSystem.getAvailableSnapshot(player);
+            if (Vars.content != null) {
+                for (Item it : Vars.content.items()) {
+                    if (it.isHidden()) continue;
+                    int amt = mapRes.get(it, 0);
+                    if (amt <= 0) continue;
+                    anyShown = true;
+                    resBar.add(image("item-" + it.name + "-ui").scaling(Scaling.fit).size(20f).padRight(3f).padTop(2f).padBottom(2f));
+                    resBar.add(label(formatCompact(amt)).padRight(10f).padTop(2f).padBottom(2f));
+                }
             }
-            wrap.add(orbRow.growX());
         }
 
-        return wrap;
+        // No background("pane") rectangle!
+        if (anyShown) {
+            return table().width(TOTAL_W).align("center").add(resBar);
+        }
+        return table().width(TOTAL_W);
     }
 
-    private TableBuilder buildTenSlotLoadoutRack(EquipmentData eq, ComputedStats stats, String accentHex) {
+    // ------------------------------------------------------------------ 3. Left Area: Category Headers + Search Bar + 2-Col Icon Grids + dsc
+
+    private TableBuilder buildLeftArea(Player player, Session s) {
+        TableBuilder left = table().align("topLeft").width(LEFT_TOTAL_W);
+
+        // Row A: Category Names with ONLY thick colored lines (no background rectangles!)
+        ShopCategory[] categories = ShopCategory.values();
+        if (!(s.station == StationTier.BAZAAR && s.bazaarShipsMode)) {
+            TableBuilder headersRow = table().align("left");
+            for (int i = 0; i < categories.length; i++) {
+                ShopCategory category = categories[i];
+                TableBuilder head = table().align("center").width(CAT_COL_W);
+                head.add(
+                    label("[#" + category.accentHex + "]" + category.title + "[]")
+                        .labelAlign("center")
+                        .padBottom(4f)
+                ).row();
+                head.add(
+                    image("whiteui")
+                        .color(category.accentHex + "ff")
+                        .height(4f)
+                        .width(CAT_COL_W)
+                );
+                if (i < categories.length - 1) {
+                    head.padRight(CAT_COL_GAP);
+                }
+                headersRow.add(head);
+            }
+            left.add(headersRow.padBottom(6f)).row();
+        }
+
+        // Row B: Search Bar directly below category names (+ Bazaar Crafts / Orbital Ships toggle if at Bazaar)
+        left.add(buildSearchAndModeBar(s).padBottom(6f)).row();
+
+        if (s.station == StationTier.BAZAAR && s.bazaarShipsMode) {
+            left.add(buildOrbitalShipsPanel(player, s.searchQuery));
+            return left;
+        }
+
         Catalog cat = itemSystem.getCatalog();
-        TableBuilder rack = table().margin(8f);
+        EquipmentData eq = itemSystem.getEquipment(player);
+        ObjectIntMap<Item> mapRes = buildSystem.getAvailableSnapshot(player);
+        ShopItemDef selectedItem = s.selectedShopItemId.isEmpty() ? null : cat.findItem(s.selectedShopItemId);
+        float scrollH = (selectedItem != null) ? CAT_SCROLL_H_WITH_DSC : CAT_SCROLL_H_FULL;
 
-        TableBuilder labelsRow = table();
-        labelsRow.add(label("[stat]ACTIVE SLOTS (1-4: Full Passive Bonuses)[]").padRight(26f));
-        labelsRow.add(label("[#ff6b6b]OVERBURDEN SLOTS (5-10: No Buffs, -10% Speed Each)[]"));
-        rack.add(labelsRow).row();
-
-        TableBuilder slotsRow = table().padTop(4f).padBottom(4f);
-        for (int i = 0; i < PlayerItemSystem.MAX_EQUIPPED_SLOTS; i++) {
-            boolean activeSlot = i < PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
-            boolean occupied = i < eq.equipped.size;
-            ShopItemDef def = occupied ? cat.findItem(eq.equipped.get(i)) : null;
-
-            ButtonTableBuilder slotBtn = buttonTable()
-                .style(occupied ? "nodei" : "defaulti")
-                .size(46f);
-
-            if (occupied) {
-                slotBtn.clicked("unequip:" + i);
-                slotBtn.color(activeSlot ? (accentHex + "ff") : "ff5c5cff");
-                ImageBuilder ic = image(def != null ? def.uiDrawable() : "item-copper-ui")
-                    .scaling(Scaling.fit)
-                    .size(26f);
-                if (def != null) {
-                    ic.color((activeSlot ? def.colorHex : "ff8787") + "ff");
-                }
-                slotBtn.add(ic);
-            } else {
-                slotBtn.disabled(true);
-                slotBtn.color(activeSlot ? "607868aa" : "684848aa");
-                slotBtn.add(label(activeSlot ? ("[gray]" + (i + 1) + "[]") : ("[#7a5252]" + (i + 1) + "[]")));
+        // Row C: 4 Scrollable Columns, each containing a 2-column grid of icon-only rectangles
+        TableBuilder colsRow = table().align("topLeft");
+        for (int i = 0; i < categories.length; i++) {
+            ShopCategory category = categories[i];
+            TableBuilder colPane = buildCategoryIconPane(
+                s.station,
+                category,
+                cat,
+                eq,
+                mapRes,
+                s.searchQuery,
+                s.selectedShopItemId,
+                scrollH
+            ).width(CAT_COL_W);
+            if (i < categories.length - 1) {
+                colPane.padRight(CAT_COL_GAP);
             }
-
-            if (i == PlayerItemSystem.ACTIVE_PASSIVE_SLOTS - 1) {
-                slotsRow.add(slotBtn.padRight(18f));
-            } else if (i < PlayerItemSystem.MAX_EQUIPPED_SLOTS - 1) {
-                slotsRow.add(slotBtn.padRight(5f));
-            } else {
-                slotsRow.add(slotBtn);
-            }
+            colsRow.add(colPane).align("top");
         }
-        rack.add(slotsRow).row();
+        left.add(colsRow).row();
 
-        // Live computed multiplier summary
-        String spdColor = stats.overloadCount > 0 ? "[#ff6b6b]" : "[white]";
-        String overloadTag = stats.overloadCount > 0
-            ? (" [#ff6b6b](-" + (stats.overloadCount * 10) + "% Overburden)[]")
-            : "";
-        String statLine = "[lightgray]HP[] [white]x" + Strings.autoFixed(stats.healthMult, 2)
-            + "[]   [lightgray]DMG[] [white]x" + Strings.autoFixed(stats.damageMult, 2)
-            + "[]   [lightgray]SPD[] " + spdColor + "x" + Strings.autoFixed(stats.speedMult, 2) + "[]" + overloadTag
-            + "   [lightgray]RLD[] [white]x" + Strings.autoFixed(stats.reloadMult, 2)
-            + "[]   [lightgray]BLD[] [white]x" + Strings.autoFixed(stats.buildSpeedMult, 2)
-            + "[]   [lightgray]ARM[] [white]+" + Math.round(stats.armorBonus) + "[]";
-        rack.add(label(statLine).labelAlign("center"));
+        // Row D: Item Description / Cost / Craft panel (dsc), ONLY shown when an item is clicked!
+        if (selectedItem != null) {
+            left.add(buildItemDescriptionPanel(selectedItem, s.station, cat, eq, mapRes).padTop(8f));
+        }
 
-        return rack;
+        return left;
     }
 
-    private ButtonBuilder buildTabBtn(String title, String tabId, String currentTab, String accentHex, float width) {
-        boolean selected = tabId.equals(currentTab);
-        String text = selected ? ("[#" + accentHex + "]>> " + title + "[]") : ("[lightgray]" + title + "[]");
-        return button(text)
+    private TableBuilder buildSearchAndModeBar(Session s) {
+        TableBuilder bar = table().align("left").width(LEFT_TOTAL_W);
+
+        bar.add(
+            field(s.searchQuery)
+                .id(ID_SEARCH_FIELD)
+                .hint("Search items...")
+                .maxLength(48)
+                .enter("search:apply")
+                .growX()
+                .height(30f)
+                .padRight(5f)
+        );
+
+        bar.add(
+            buttonTable()
+                .style("defaultt")
+                .margin(4f)
+                .clicked("search:apply")
+                .add(label("[lightgray]Search[]"))
+                .width(74f)
+                .height(30f)
+                .padRight(s.searchQuery.isEmpty() ? 0f : 4f)
+        );
+
+        if (!s.searchQuery.isEmpty()) {
+            bar.add(
+                buttonTable()
+                    .style("defaultt")
+                    .margin(4f)
+                    .clicked("search:clear")
+                    .add(label("[scarlet]Clear[]"))
+                    .width(60f)
+                    .height(30f)
+            );
+        }
+
+        if (s.station == StationTier.BAZAAR) {
+            bar.add(modeBtn("Crafts", "mode:crafts", !s.bazaarShipsMode, s.station.accentHex, 96f).padLeft(8f).padRight(4f));
+            bar.add(modeBtn("Orbital Ships", "mode:ships", s.bazaarShipsMode, s.station.accentHex, 142f));
+        }
+
+        return bar;
+    }
+
+    private static ButtonTableBuilder modeBtn(String text, String action, boolean active, String accentHex, float width) {
+        String labelText = active ? ("[#" + accentHex + "]" + text + "[]") : ("[lightgray]" + text + "[]");
+        return buttonTable()
             .style("defaultt")
-            .clicked("tab:" + tabId)
+            .checked(active)
+            .margin(4f)
+            .clicked(action)
+            .add(label(labelText).labelAlign("center"))
             .width(width)
-            .height(36f);
+            .height(30f);
     }
 
-    private TableBuilder buildCraftGrid(
-        Player player,
-        EquipmentData eq,
-        StationTier filterTier,
+    private TableBuilder buildCategoryIconPane(
         StationTier station,
-        String accentHex
+        ShopCategory category,
+        Catalog cat,
+        EquipmentData eq,
+        ObjectIntMap<Item> mapRes,
+        String searchQuery,
+        String selectedShopItemId,
+        float scrollHeight
     ) {
-        Catalog cat = itemSystem.getCatalog();
-        Seq<ShopItemDef> availableCrafts = cat.items.select(it -> it.tier == filterTier);
+        TableBuilder list = table().align("topLeft").margin(2f);
 
-        TableBuilder grid = table().align("topLeft").margin(4f);
-        int col = 0;
-        for (int i = 0; i < availableCrafts.size; i++) {
-            ShopItemDef item = availableCrafts.get(i);
-            TableBuilder card = buildCraftCard(player, eq, item, station, accentHex);
-            if (col == 0) {
-                grid.add(card.width(CARD_WIDTH).padRight(10f).padBottom(8f));
-                col = 1;
-            } else {
-                grid.add(card.width(CARD_WIDTH).padBottom(8f)).row();
-                col = 0;
+        if (station == StationTier.BAZAAR) {
+            Seq<ShopItemDef> tier1 = filterItems(cat.itemsForTierAndCategory(StationTier.WORKBENCH, category), searchQuery, cat);
+            Seq<ShopItemDef> tier2 = filterItems(cat.itemsForTierAndCategory(StationTier.BAZAAR, category), searchQuery, cat);
+
+            if (!tier1.isEmpty()) {
+                list.add(tierDivider("I", "eab678").padRight(16f)).row();
+                list.add(buildTwoColIconGrid(tier1, eq, mapRes, selectedShopItemId).padRight(16f)).row();
+            }
+            if (!tier2.isEmpty()) {
+                list.add(tierDivider("II", "7fe6ff").padRight(16f).padTop(4f)).row();
+                list.add(buildTwoColIconGrid(tier2, eq, mapRes, selectedShopItemId).padRight(16f)).row();
+            }
+        } else {
+            Seq<ShopItemDef> items = filterItems(cat.itemsForTierAndCategory(station, category), searchQuery, cat);
+            if (!items.isEmpty()) {
+                list.add(buildTwoColIconGrid(items, eq, mapRes, selectedShopItemId).padRight(16f)).row();
             }
         }
-        if (col == 1) grid.row();
+
+        list.add(space().growY());
+
+        PaneBuilder scroll = pane()
+            .style("defaultPane")
+            .width(CAT_COL_W)
+            .height(scrollHeight)
+            .add(list.growY().align("topLeft"));
+
+        return table().align("top").add(scroll);
+    }
+
+    private TableBuilder buildTwoColIconGrid(
+        Seq<ShopItemDef> items,
+        EquipmentData eq,
+        ObjectIntMap<Item> mapRes,
+        String selectedShopItemId
+    ) {
+        TableBuilder grid = table().align("topLeft");
+        for (int i = 0; i < items.size; i++) {
+            ShopItemDef item = items.get(i);
+            boolean selected = item.id.equals(selectedShopItemId);
+            boolean affordable = item.craftable && canAfford(item, eq, mapRes);
+
+            ButtonTableBuilder tile = buttonTable()
+                .style("defaultt")
+                .checked(selected)
+                .margin(4f)
+                .width(ICON_CELL_W)
+                .height(ICON_CELL_H)
+                .clicked("select:" + item.id);
+
+            ImageBuilder icon = image(item.uiDrawable())
+                .placeholder("item-" + item.iconItem + "-ui")
+                .scaling(Scaling.fit)
+                .size(30f);
+            if (!affordable && !selected) {
+                icon.color("9698a8ff");
+            }
+            tile.add(icon);
+
+            grid.add(tile.padRight((i % 2 == 0) ? 6f : 0f).padBottom(6f));
+            if (i % 2 == 1) {
+                grid.row();
+            }
+        }
         return grid;
     }
 
-    private TableBuilder buildCraftCard(
-        Player player,
-        EquipmentData eq,
+    private TableBuilder buildItemDescriptionPanel(
         ShopItemDef item,
         StationTier station,
-        String accentHex
+        Catalog cat,
+        EquipmentData eq,
+        ObjectIntMap<Item> mapRes
     ) {
-        Catalog cat = itemSystem.getCatalog();
-        boolean canCraft = item.craftable && itemSystem.canAffordCraft(player, item, eq);
-        int ownedCount = itemSystem.countOwnedTotal(eq, item.id);
+        boolean craftableHere = item.craftable && itemSystem.isStationAllowedToCraft(station, item);
+        boolean affordable = craftableHere && canAfford(item, eq, mapRes);
 
-        TableBuilder card = table().background("button").margin(0f);
-        card.add(image("whiteui").color(item.colorHex + "ff").height(3f).growX()).row();
+        TableBuilder box = table().background("pane").margin(8f).width(LEFT_TOTAL_W);
 
-        TableBuilder inner = table().margin(8f).align("topLeft");
-
-        // Header: icon + name + attach mode badge + owned badge
-        TableBuilder head = table().align("left");
-        head.add(
+        // Left: Icon + Name + Passive Summary + Description
+        TableBuilder row = table().align("left").growX();
+        row.add(
             image(item.uiDrawable())
-                .color(item.colorHex + "ff")
+                .placeholder("item-" + item.iconItem + "-ui")
                 .scaling(Scaling.fit)
-                .size(24f)
-                .padRight(7f)
+                .size(36f)
+                .padRight(10f)
         );
-        String ownedStr = ownedCount > 0 ? (" [gray](x" + ownedCount + ")[]") : "";
-        head.add(label("[#" + item.colorHex + "]" + item.name + "[]" + ownedStr).labelAlign("left").growX());
-        head.add(label("[#9aa0b8][" + item.attachMode.label + "][]"));
-        inner.add(head.growX()).row();
 
-        // Passive bonuses
-        inner.add(label(item.formatPassiveSummary()).wrap().labelAlign("left").width(CARD_WIDTH - 20f).padTop(3f)).row();
-
-        // Description
+        TableBuilder textCol = table().align("left").width(LEFT_TOTAL_W - 260f);
+        textCol.add(
+            label("[#" + item.tier.accentHex + "]" + item.name + "[]  " + item.formatPassiveSummary())
+                .wrap()
+                .labelAlign("left")
+                .width(LEFT_TOTAL_W - 266f)
+        ).row();
         if (item.description != null && !item.description.isEmpty()) {
-            inner.add(label("[lightgray]" + item.description + "[]").wrap().labelAlign("left").width(CARD_WIDTH - 20f).padTop(2f)).row();
-        }
-
-        // Recipe ingredients (Map resources + "items")
-        TableBuilder reqRow = table().wrap(true).align("left").padTop(5f).padBottom(5f);
-        for (ResourceCost rc : item.resourceCosts) {
-            Item mItem = rc.resolveItem();
-            int have = mItem != null ? buildSystem.getAvailableAmount(player, mItem) : 0;
-            String col = have >= rc.amount() ? "[stat]" : "[scarlet]";
-            reqRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(15f).padRight(2f));
-            reqRow.add(label(col + rc.amount() + "[]").padRight(7f));
-        }
-        for (ItemIngredient ing : item.itemCosts) {
-            ShopItemDef sub = cat.findItem(ing.shopItemId());
-            int have = itemSystem.countOwnedTotal(eq, ing.shopItemId());
-            String col = have >= ing.amount() ? "[#ffd37f]" : "[scarlet]";
-            String subName = sub != null ? sub.name : ing.shopItemId();
-            reqRow.add(label(col + "[" + ing.amount() + "x " + subName + "][]").padRight(6f));
-        }
-        inner.add(reqRow.growX()).row();
-
-        if (item.craftable) {
-            String btnText = (station == StationTier.CURSED_ALTAR)
-                ? (canCraft ? "[#" + accentHex + "]Invoke Ritual[]" : "[gray]Missing Offering[]")
-                : (canCraft ? "[#" + accentHex + "]Craft[]" : "[gray]Insufficient Materials[]");
-            inner.add(
-                button(btnText)
-                    .style("defaultt")
-                    .disabled(!canCraft)
-                    .clicked("craft:" + item.id)
-                    .height(34f)
-                    .growX()
-            );
-        } else {
-            inner.add(
-                button("[#ffbe76]Non-Craftable Relic (Decraftable)[]")
-                    .style("defaultt")
-                    .disabled(true)
-                    .height(34f)
-                    .growX()
-            );
-        }
-
-        card.add(inner.growX());
-        return card;
-    }
-
-    private TableBuilder buildDecraftGrid(Player player, EquipmentData eq, StationTier station) {
-        Catalog cat = itemSystem.getCatalog();
-        Seq<ShopItemDef> ownedDecraftables = new Seq<>();
-        for (ShopItemDef item : cat.items) {
-            if (item.decraftable && item.hasRecipe() && itemSystem.countOwnedTotal(eq, item.id) > 0) {
-                ownedDecraftables.add(item);
-            }
-        }
-
-        TableBuilder grid = table().align("topLeft").margin(4f);
-        if (ownedDecraftables.isEmpty()) {
-            grid.add(
-                label("[lightgray]You currently hold no decraftable items.\nCraft items or trade with Orbital Ships (salvage relics can also be decrafted here!).[]")
+            textCol.add(
+                label("[lightgray]" + item.description + "[]")
                     .wrap()
-                    .labelAlign("center")
-                    .width(DIALOG_WIDTH - 48f)
-                    .padTop(40f)
+                    .labelAlign("left")
+                    .width(LEFT_TOTAL_W - 266f)
+                    .padTop(2f)
             );
-            return grid;
         }
+        row.add(textCol.growX());
 
-        int col = 0;
-        for (int i = 0; i < ownedDecraftables.size; i++) {
-            ShopItemDef item = ownedDecraftables.get(i);
-            int count = itemSystem.countOwnedTotal(eq, item.id);
-
-            TableBuilder card = table().background("button").margin(0f);
-            card.add(image("whiteui").color(item.colorHex + "ff").height(3f).growX()).row();
-
-            TableBuilder inner = table().margin(8f).align("topLeft");
-            TableBuilder head = table().align("left");
-            head.add(image(item.uiDrawable()).color(item.colorHex + "ff").scaling(Scaling.fit).size(22f).padRight(6f));
-            head.add(label("[#" + item.colorHex + "]" + item.name + "[] [white](Owned: " + count + ")[]").labelAlign("left").growX());
-            inner.add(head.growX()).row();
-
-            TableBuilder outRow = table().wrap(true).align("left").padTop(5f).padBottom(6f);
-            outRow.add(label("[lightgray]Yields to Map Storage:[] ").padRight(5f));
+        // Right: Cost breakdown + Craft & Close buttons
+        TableBuilder rightCtrl = table().align("right");
+        TableBuilder costRow = table().wrap(true).align("right").padBottom(4f);
+        if (!item.craftable) {
+            costRow.add(label("[gray]Decrafts into:[] ").padRight(3f));
             for (ResourceCost rc : item.resourceCosts) {
-                outRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(15f).padRight(2f));
-                outRow.add(label("[stat]+" + rc.amount() + "[]").padRight(7f));
+                costRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(16f).padRight(2f));
+                costRow.add(label("[lightgray]" + formatCompact(rc.amount()) + "[]").padRight(6f));
+            }
+        } else {
+            for (ResourceCost rc : item.resourceCosts) {
+                Item mItem = rc.resolveItem();
+                int have = mItem != null ? mapRes.get(mItem, 0) : 0;
+                String col = have >= rc.amount() ? "[#d8f8d8]" : "[scarlet]";
+                costRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(16f).padRight(2f));
+                costRow.add(label(col + formatCompact(rc.amount()) + "[]").padRight(6f));
             }
             for (ItemIngredient ing : item.itemCosts) {
                 ShopItemDef sub = cat.findItem(ing.shopItemId());
-                outRow.add(label("[#ffd37f]+" + ing.amount() + "x " + (sub != null ? sub.name : ing.shopItemId()) + "[]").padRight(6f));
-            }
-            inner.add(outRow.growX()).row();
-
-            inner.add(
-                button("[#ffbe76]Decraft 1x -> Map Storage[]")
-                    .style("defaultt")
-                    .clicked("decraft:" + item.id)
-                    .height(34f)
-                    .growX()
-            );
-            card.add(inner.growX());
-
-            if (col == 0) {
-                grid.add(card.width(CARD_WIDTH).padRight(10f).padBottom(8f));
-                col = 1;
-            } else {
-                grid.add(card.width(CARD_WIDTH).padBottom(8f)).row();
-                col = 0;
+                int have = itemSystem.countOwnedTotal(eq, ing.shopItemId());
+                String col = have >= ing.amount() ? "[#ffd37f]" : "[scarlet]";
+                String subDraw = sub != null ? sub.uiDrawable() : "item-copper-ui";
+                costRow.add(image(subDraw).placeholder("item-copper-ui").scaling(Scaling.fit).size(17f).padRight(2f));
+                costRow.add(label(col + "x" + ing.amount() + "[]").padRight(6f));
             }
         }
-        if (col == 1) grid.row();
-        return grid;
+        rightCtrl.add(costRow).row();
+
+        TableBuilder btnRow = table().align("right");
+        if (craftableHere) {
+            String craftCol = affordable ? "[stat]" : "[gray]";
+            btnRow.add(
+                buttonTable()
+                    .style("defaultt")
+                    .margin(4f)
+                    .disabled(!affordable)
+                    .clicked("craft:" + item.id)
+                    .add(label(craftCol + "Craft[]"))
+                    .width(96f)
+                    .height(28f)
+                    .padRight(6f)
+            );
+        } else {
+            btnRow.add(label("[gray]Salvage only[]").padRight(8f));
+        }
+
+        btnRow.add(
+            buttonTable()
+                .style("defaultt")
+                .margin(4f)
+                .clicked("select:close")
+                .add(label("[lightgray]X[]"))
+                .width(32f)
+                .height(28f)
+        );
+        rightCtrl.add(btnRow);
+
+        row.add(rightCtrl.padLeft(8f));
+        box.add(row.growX());
+        return box;
     }
 
-    private TableBuilder buildOrbitalShipsGrid(Player player) {
+    private static Seq<ShopItemDef> filterItems(Seq<ShopItemDef> items, String searchQuery, Catalog cat) {
+        if (searchQuery == null || searchQuery.isBlank()) return items;
+        return items.select(i -> i.matchesSearch(searchQuery, cat));
+    }
+
+    private static TableBuilder tierDivider(String title, String hex) {
+        float w = ICON_CELL_W * 2f + 6f;
+        TableBuilder div = table().width(w).padBottom(3f);
+        div.add(image("whiteui").color(hex + "66").height(2f).growX().padRight(4f));
+        div.add(label("[#" + hex + "]" + title + "[]"));
+        div.add(image("whiteui").color(hex + "66").height(2f).growX().padLeft(4f));
+        return div;
+    }
+
+    private TableBuilder buildOrbitalShipsPanel(Player player, String searchQuery) {
         Catalog cat = itemSystem.getCatalog();
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
-        ObjectIntMap<String> orb = database.getOrbitalStorage(acc.id, factionId);
+        ObjectIntMap<String> orbital = database.getOrbitalStorage(acc.id, factionId);
 
-        TableBuilder grid = table().align("topLeft").margin(4f);
-        int col = 0;
+        TableBuilder list = table().align("topLeft").margin(4f);
+        float shipCardW = (LEFT_TOTAL_W - 28f) / 2f;
+        String q = searchQuery == null ? "" : searchQuery.trim().toLowerCase(Locale.ROOT);
+
+        int shown = 0;
         for (int i = 0; i < cat.trades.size; i++) {
             OrbitalTradeDef tr = cat.trades.get(i);
-            boolean canBuy = itemSystem.canAffordOrbitalTrade(player, tr);
+            if (!q.isEmpty()) {
+                boolean match = tr.shipName.toLowerCase(Locale.ROOT).contains(q)
+                    || tr.title.toLowerCase(Locale.ROOT).contains(q)
+                    || tr.description.toLowerCase(Locale.ROOT).contains(q);
+                if (!match) continue;
+            }
 
-            TableBuilder card = table().background("button").margin(0f);
-            card.add(image("whiteui").color("7fe6ffff").height(3f).growX()).row();
-
-            TableBuilder inner = table().margin(8f).align("topLeft");
-            inner.add(label("[#7fe6ff][" + tr.shipName + "][]  [white]" + tr.title + "[]").labelAlign("left")).row();
-            inner.add(label("[lightgray]" + tr.description + "[]").wrap().labelAlign("left").width(CARD_WIDTH - 20f).padTop(3f)).row();
-
-            TableBuilder costRow = table().wrap(true).align("left").padTop(5f).padBottom(6f);
-            costRow.add(label("[#7fe6ff]Orbit Cost:[] ").padRight(5f));
+            boolean canPay = true;
             for (ResourceCost rc : tr.orbitalCosts) {
-                int have = orb.get(rc.itemName(), 0);
-                String c = have >= rc.amount() ? "[stat]" : "[scarlet]";
-                costRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(15f).padRight(2f));
-                costRow.add(label(c + rc.amount() + "[]").padRight(7f));
+                if (orbital.get(rc.itemName(), 0) < rc.amount()) {
+                    canPay = false;
+                    break;
+                }
             }
-            inner.add(costRow.growX()).row();
 
-            inner.add(
-                button(canBuy ? "[#7fe6ff]Trade with Ship[]" : "[gray]Need Orbital Cargo[]")
-                    .style("defaultt")
-                    .disabled(!canBuy)
-                    .clicked("ship:" + tr.id)
-                    .height(34f)
-                    .growX()
-            );
-            card.add(inner.growX());
+            ButtonTableBuilder card = buttonTable()
+                .style("defaultt")
+                .margin(7f)
+                .width(shipCardW)
+                .align("left")
+                .clicked("trade:" + tr.id);
 
-            if (col == 0) {
-                grid.add(card.width(CARD_WIDTH).padRight(10f).padBottom(8f));
-                col = 1;
-            } else {
-                grid.add(card.width(CARD_WIDTH).padBottom(8f)).row();
-                col = 0;
-            }
-        }
-        if (col == 1) grid.row();
-        return grid;
-    }
-
-    private TableBuilder buildBagManagementGrid(EquipmentData eq, String accentHex) {
-        Catalog cat = itemSystem.getCatalog();
-        TableBuilder grid = table().align("topLeft").margin(4f);
-
-        Seq<ShopItemDef> bagItems = new Seq<>();
-        for (ShopItemDef def : cat.items) {
-            if (eq.stash.get(def.id, 0) > 0) {
-                bagItems.add(def);
-            }
-        }
-
-        if (bagItems.isEmpty()) {
-            grid.add(
-                label("[lightgray]Your unequipped Bag is empty.\nClick any occupied slot in the 10-slot rack above to unequip an item, or craft new gear![]")
+            card.add(
+                label("[#7fe6ff]" + tr.shipName + "[] [gray]-[] [white]" + tr.title + "[]")
                     .wrap()
-                    .labelAlign("center")
-                    .width(DIALOG_WIDTH - 48f)
-                    .padTop(40f)
-            );
-            return grid;
-        }
+                    .labelAlign("left")
+                    .width(shipCardW - 18f)
+            ).row();
 
-        boolean canEquipMore = eq.equipped.size < PlayerItemSystem.MAX_EQUIPPED_SLOTS;
-        boolean nextOverloaded = eq.equipped.size >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
-
-        int col = 0;
-        for (int i = 0; i < bagItems.size; i++) {
-            ShopItemDef item = bagItems.get(i);
-            int count = eq.stash.get(item.id, 0);
-
-            TableBuilder card = table().background("button").margin(0f);
-            card.add(image("whiteui").color(item.colorHex + "ff").height(3f).growX()).row();
-
-            TableBuilder inner = table().margin(8f).align("topLeft");
-            TableBuilder head = table().align("left");
-            head.add(image(item.uiDrawable()).color(item.colorHex + "ff").scaling(Scaling.fit).size(22f).padRight(6f));
-            head.add(label("[#" + item.colorHex + "]" + item.name + "[] [white]x" + count + "[]").labelAlign("left").growX());
-            head.add(label("[#9aa0b8][" + item.attachMode.label + "][]"));
-            inner.add(head.growX()).row();
-
-            inner.add(label(item.formatPassiveSummary()).wrap().labelAlign("left").width(CARD_WIDTH - 20f).padTop(3f).padBottom(6f)).row();
-
-            String btnLabel = !canEquipMore
-                ? "[gray]10/10 Slots Full[]"
-                : (nextOverloaded
-                    ? "[#ff9f43]Equip (Overburden Slot: -10% SPD)[]"
-                    : ("[#" + accentHex + "]Equip in Active Slot #" + (eq.equipped.size + 1) + "[]"));
-
-            inner.add(
-                button(btnLabel)
-                    .style("defaultt")
-                    .disabled(!canEquipMore)
-                    .clicked("equip:" + item.id)
-                    .height(34f)
-                    .growX()
-            );
-            card.add(inner.growX());
-
-            if (col == 0) {
-                grid.add(card.width(CARD_WIDTH).padRight(10f).padBottom(8f));
-                col = 1;
-            } else {
-                grid.add(card.width(CARD_WIDTH).padBottom(8f)).row();
-                col = 0;
+            TableBuilder exRow = table().wrap(true).align("left").padTop(4f);
+            for (ResourceCost rc : tr.orbitalCosts) {
+                int have = orbital.get(rc.itemName(), 0);
+                String col = have >= rc.amount() ? "[#7fe6ff]" : "[scarlet]";
+                exRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(15f).padRight(2f));
+                exRow.add(label(col + formatCompact(rc.amount()) + "[]").padRight(6f));
             }
+            exRow.add(label("[gray]->[]").padRight(6f));
+
+            if (tr.rewardShopItemId != null) {
+                ShopItemDef rew = cat.findItem(tr.rewardShopItemId);
+                if (rew != null) {
+                    exRow.add(image(rew.uiDrawable()).placeholder("item-copper-ui").scaling(Scaling.fit).size(18f).padRight(4f));
+                    exRow.add(label((canPay ? "[stat]" : "[lightgray]") + rew.name + "[]"));
+                }
+            }
+            for (ResourceCost rc : tr.rewardMapResources) {
+                exRow.add(image("item-" + rc.itemName() + "-ui").scaling(Scaling.fit).size(16f).padRight(2f));
+                exRow.add(label("[stat]+" + formatCompact(rc.amount()) + "[]").padRight(5f));
+            }
+
+            card.add(exRow.growX());
+            list.add(card.padRight((shown % 2 == 0) ? 8f : 0f).padBottom(6f));
+            if (shown % 2 == 1) list.row();
+            shown++;
         }
-        if (col == 1) grid.row();
-        return grid;
+        list.add(space().growY());
+
+        return table().add(
+            pane()
+                .style("defaultPane")
+                .width(LEFT_TOTAL_W)
+                .height(CAT_SCROLL_H_FULL + 26f)
+                .add(list.growY().align("topLeft"))
+        );
     }
 
-    private static String fmtAmt(int amount) {
-        if (amount >= 1_000_000_000) return Strings.autoFixed(amount / 1_000_000_000f, 2) + "b";
-        if (amount >= 1_000_000) return Strings.autoFixed(amount / 1_000_000f, 1) + "m";
-        if (amount >= 10_000) return Strings.autoFixed(amount / 1_000f, 1) + "k";
-        return Integer.toString(amount);
+    // ------------------------------------------------------------------ 4. Right Drawer via Reusable PlayerInventoryDrawer
+
+    private TableBuilder buildRightDrawer(Player player, Session s) {
+        boolean allowDecraft = (s.station != StationTier.CURSED_ALTAR);
+        return inventoryDrawer.build(
+            player,
+            s.selectedInvSlot,
+            DrawerTheme.forStation(s.station),
+            allowDecraft
+        );
+    }
+
+    private boolean canAfford(ShopItemDef item, EquipmentData eq, ObjectIntMap<Item> mapRes) {
+        for (ResourceCost rc : item.resourceCosts) {
+            Item mItem = rc.resolveItem();
+            if (mItem == null || mapRes.get(mItem, 0) < rc.amount()) return false;
+        }
+        for (ItemIngredient ing : item.itemCosts) {
+            if (itemSystem.countOwnedTotal(eq, ing.shopItemId()) < ing.amount()) return false;
+        }
+        return true;
+    }
+
+    private static String formatCompact(int n) {
+        if (n >= 1_000_000_000) return String.format(Locale.ROOT, "%.1fB", n / 1_000_000_000.0);
+        if (n >= 1_000_000) return String.format(Locale.ROOT, "%.1fM", n / 1_000_000.0);
+        if (n >= 10_000) return String.format(Locale.ROOT, "%.1fk", n / 1_000.0);
+        return Integer.toString(n);
     }
 }

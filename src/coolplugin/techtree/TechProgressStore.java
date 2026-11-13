@@ -116,6 +116,17 @@ public class TechProgressStore {
         database.saveFactionTechProgress(key.accountId, key.factionId, rec.unlocked, rec.flags, rec.paidItems);
     }
 
+    /** Evicts all in-memory cached faction tech records for {@code accountId} after a {@code wipedata} reset. */
+    public synchronized void evictAccountCache(long accountId) {
+        String prefix = accountId + ":";
+        arc.struct.Seq<String> keys = dbCache.keys().toSeq();
+        for (String k : keys) {
+            if (k != null && k.startsWith(prefix)) {
+                dbCache.remove(k);
+            }
+        }
+    }
+
     public synchronized PlayerRecord getOrCreate(String uuid, String playerName, TechNodeDef root) {
         if (root != null) cachedRoot = root;
         if (isDatabaseBacked()) {

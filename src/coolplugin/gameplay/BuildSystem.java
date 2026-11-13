@@ -582,7 +582,117 @@ public class BuildSystem {
     }
 
     private static void add(Res res, Item item, int amount) {
-        res.available.put(item, res.available.get(item, 0) + amount);
+        if (amount <= 0) return;
+        long cur = res.available.get(item, 0);
+        long sum = Math.min((long) Integer.MAX_VALUE, cur + (long) amount);
+        res.available.put(item, (int) sum);
+    }
+
+    /**
+     * Places an overfilled {@code container} near {@code player} holding {@link Integer#MAX_VALUE}
+     * ({@code 2147483647}) of every non-hidden item, keeping {@link ItemModule#any()} positive.
+     */
+    public @Nullable Building placeInfiniteItemsContainerNear(@Nullable Player player) {
+        if (player == null || world == null || world.tiles == null || Blocks.container == null) {
+            return null;
+        }
+
+        Unit unit = PlayerUnitSystem.ownedUnit(player);
+        if (unit == null) unit = player.unit();
+
+        int baseX;
+        int baseY;
+        Team team;
+        if (unit != null && !unit.dead()) {
+            baseX = unit.tileX();
+            baseY = unit.tileY();
+            team = unit.team;
+        } else {
+            baseX = mindustry.core.World.toTile(player.x);
+            baseY = mindustry.core.World.toTile(player.y);
+            if (baseX <= 0 && baseY <= 0) {
+                baseX = world.width() / 2;
+                baseY = world.height() / 2;
+            }
+            team = player.team();
+        }
+        if (team == null || team == Team.derelict) {
+            team = Team.sharded;
+        }
+
+        Tile chosen = findClear2x2Near(baseX, baseY, true);
+        if (chosen == null) {
+            chosen = findClear2x2Near(baseX, baseY, false);
+        }
+        if (chosen == null) return null;
+
+        Call.setTile(chosen, Blocks.container, team, 0);
+        Building build = chosen.build;
+        if (build == null || build.items == null) return null;
+
+        for (int i = 0; i < content.items().size; i++) {
+            Item item = content.items().get(i);
+            if (item.isHidden()) continue;
+            build.items.set(item, Integer.MAX_VALUE);
+            Call.setItem(build, item, Integer.MAX_VALUE);
+        }
+
+        // Prevent 32-bit signed int wraparound in ItemModule.total when >1 item is at Integer.MAX_VALUE
+        clampItemModuleTotal(build.items, Integer.MAX_VALUE);
+
+        syncClientCoreNow(player);
+        return build;
+    }
+
+    private @Nullable Tile findClear2x2Near(int cx, int cy, boolean requireEmpty) {
+        Tile best = null;
+        int bestDist2 = Integer.MAX_VALUE;
+        int w = world.width();
+        int h = world.height();
+
+        for (int dy = -12; dy <= 12; dy++) {
+            for (int dx = -12; dx <= 12; dx++) {
+                int d2 = dx * dx + dy * dy;
+                if (d2 < 4 || d2 >= bestDist2) continue;
+
+                int x = cx + dx;
+                int y = cy + dy;
+                if (x < 1 || y < 1 || x + 1 >= w - 1 || y + 1 >= h - 1) continue;
+                if (inReserved(x, y) || inReserved(x + 1, y + 1) || inReserved(x + 1, y) || inReserved(x, y + 1)) {
+                    continue;
+                }
+
+                if (requireEmpty) {
+                    boolean clear = true;
+                    for (int oy = 0; oy <= 1 && clear; oy++) {
+                        for (int ox = 0; ox <= 1; ox++) {
+                            Tile t = world.tile(x + ox, y + oy);
+                            if (t == null || t.build != null || t.solid()) {
+                                clear = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!clear) continue;
+                }
+
+                Tile center = world.tile(x, y);
+                if (center != null) {
+                    best = center;
+                    bestDist2 = d2;
+                }
+            }
+        }
+        return best;
+    }
+
+    private static void clampItemModuleTotal(ItemModule items, int clampedTotal) {
+        try {
+            java.lang.reflect.Field f = ItemModule.class.getDeclaredField("total");
+            f.setAccessible(true);
+            f.setInt(items, clampedTotal);
+        } catch (Throwable ignored) {
+        }
     }
 
     // ------------------------------------------------------------------ client core

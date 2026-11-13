@@ -338,6 +338,26 @@ public class PlayerUnitSystem {
         return player != null && chosenFactions.containsKey(player.uuid());
     }
 
+    /** Despawns any active unit, clears active faction/respawn state, and reopens the starting menu after {@code wipedata}. */
+    public void onPlayerDataWiped(@Nullable Player player) {
+        if (player == null) return;
+        String uuid = player.uuid();
+        cleanupOwnedUnit(uuid);
+        chosenFactions.remove(uuid);
+        respawnAt.remove(uuid);
+        lastRespawnOffer.remove(uuid);
+        lastExitOffer.remove(uuid);
+        lastReconLockNotice.remove(uuid);
+        lostScans.remove(uuid);
+        activeJoinMenus.remove(uuid);
+        player.clearUnit();
+        if (sessionManager != null) {
+            sessionManager.setActiveFaction(uuid, null);
+        }
+        buildSystem.onPlayerWorldSynced(player);
+        openFactionMenuIfNeeded(player);
+    }
+
     public @Nullable FactionDef getChosenFaction(@Nullable Player player) {
         return player == null ? null : chosenFactions.get(player.uuid());
     }

@@ -1,0 +1,62 @@
+type: flying
+flying: true
+lowAltitude: false
+hidden: true
+internal: true
+isEnemy: false
+useUnitCap: false
+playerControllable: false
+logicControllable: false
+allowedInPayloads: false
+hittable: false
+targetable: false
+physics: false
+bounded: false
+drawCell: false
+drawItems: false
+drawShields: false
+drawSoftShadow: false
+createWreck: false
+createScorch: false
+health: 10000
+armor: 100
+hitSize: 4
+speed: 0
+rotateSpeed: 360
+accel: 1
+drag: 1
+engineSize: 0
+shadowElevation: 0
+itemCapacity: 0
+mineTier: -1
+mineSpeed: 0
+buildSpeed: 0
+drawBody: false
+groundLayer: 60.28
+parts: [
+  {
+    type: HaloPart
+    progress: 1
+    hollow: true
+    shapes: 1
+    sides: 6
+    haloRadius: 0
+    radius: 9.6
+    stroke: 0.78
+    rotateSpeed: 1.2
+    color: f9a3c7
+    layerOffset: 0.25
+  }
+  {
+    type: HaloPart
+    progress: 1
+    tri: true
+    shapes: 6
+    haloRadius: 10.2
+    radius: 1.3
+    triLength: 2.4
+    haloRotateSpeed: -1.4
+    color: f9a3c7
+    layerOffset: 0.26
+  }
+]

@@ -1,0 +1,64 @@
+type: flying
+flying: true
+lowAltitude: false
+hidden: true
+internal: true
+isEnemy: false
+useUnitCap: false
+playerControllable: false
+logicControllable: false
+allowedInPayloads: false
+hittable: false
+targetable: false
+physics: false
+bounded: false
+drawCell: false
+drawItems: false
+drawShields: false
+drawSoftShadow: false
+createWreck: false
+createScorch: false
+health: 10000
+armor: 100
+hitSize: 4
+speed: 0
+rotateSpeed: 360
+accel: 1
+drag: 1
+engineSize: 0
+shadowElevation: 0
+itemCapacity: 0
+mineTier: -1
+mineSpeed: 0
+buildSpeed: 0
+drawBody: false
+groundLayer: 60.24
+weapons: [
+  {
+    name: shop-bz-08
+    x: 0
+    y: 0
+    mirror: false
+    top: true
+    rotate: true
+    rotateSpeed: 8.5
+    controllable: true
+    autoTarget: true
+    reload: 30
+    recoil: 1.8
+    shootY: 3.0
+    shootSound: laser
+    bullet: {
+      type: BasicBulletType
+      speed: 5.2
+      lifetime: 40
+      damage: 36
+      pierce: true
+      pierceCap: 3
+      width: 6
+      height: 14
+      frontColor: ffffff
+      backColor: f4ba6e
+    }
+  }
+]

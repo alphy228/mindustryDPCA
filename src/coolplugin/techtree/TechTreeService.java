@@ -356,6 +356,16 @@ public class TechTreeService {
         return menu;
     }
 
+    /** Clears cached tech progress for {@code accountId} and live-syncs {@code onlinePlayer} if connected. */
+    public void onAccountWiped(long accountId, @Nullable Player onlinePlayer) {
+        progressStore.evictAccountCache(accountId);
+        if (onlinePlayer != null) {
+            ensurePlayerInitialized(onlinePlayer);
+            syncPlayerRulesLive(onlinePlayer, null);
+            menu.refreshOpenSession(onlinePlayer);
+        }
+    }
+
     public TechNodeDef getRoot() {
         return root;
     }

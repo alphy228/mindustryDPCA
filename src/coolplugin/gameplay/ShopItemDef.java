@@ -1,38 +1,55 @@
 package coolplugin.gameplay;
 
+import arc.graphics.Color;
 import arc.struct.Seq;
 import arc.util.Nullable;
 import mindustry.Vars;
+import mindustry.content.Fx;
+import mindustry.entities.Effect;
 import mindustry.type.Item;
 
+import java.lang.reflect.Field;
+import java.util.Locale;
+
 /**
- * Data definitions for Item Shop tiers, equipable items, visual attachment modes,
- * crafting/decrafting recipes, and Bazaar orbital ship trades.
+ * Data definitions for Item Shop tiers, Deadlock-style shop categories, equipable items,
+ * custom sprites, world attachment systems ({@link AttachMode#MOUNT}, {@link AttachMode#HALO},
+ * {@link AttachMode#FOLLOW}, {@link AttachMode#SUBWEAPON}), symmetry-preserving mount subtypes,
+ * configurable halo anchors/effects, crafting/decrafting recipes, and Bazaar orbital ship trades.
  */
 public final class ShopItemDef {
 
     public enum StationTier {
-        WORKBENCH("workbench", "Workbench", "dp-workbench", "ffd37f", "eab678"),
-        BAZAAR("bazaar", "Bazaar", "dp-bazaar", "7fe6ff", "4aa8d8"),
-        CURSED_ALTAR("cursed-altar", "Cursed Altar", "dp-cursed-altar", "ff4b6e", "a8284e");
+        WORKBENCH("workbench", "Workbench", "dp-workbench", "shop-inv-hex-workbench", "ffd37f", "eab678"),
+        BAZAAR("bazaar", "Bazaar", "dp-bazaar", "shop-inv-hex-bazaar", "7fe6ff", "4aa8d8"),
+        CURSED_ALTAR("cursed-altar", "Cursed Altar", "dp-cursed-altar", "shop-inv-hex-altar", "ff4b6e", "a8284e");
 
         public final String id;
         public final String title;
         public final String blockName;
+        public final String invHexSprite;
         public final String accentHex;
         public final String borderHex;
 
-        StationTier(String id, String title, String blockName, String accentHex, String borderHex) {
+        StationTier(
+            String id,
+            String title,
+            String blockName,
+            String invHexSprite,
+            String accentHex,
+            String borderHex
+        ) {
             this.id = id;
             this.title = title;
             this.blockName = blockName;
+            this.invHexSprite = invHexSprite;
             this.accentHex = accentHex;
             this.borderHex = borderHex;
         }
 
         public static @Nullable StationTier byIdOrBlock(@Nullable String raw) {
             if (raw == null || raw.isEmpty()) return null;
-            String s = raw.trim().toLowerCase(java.util.Locale.ROOT);
+            String s = raw.trim().toLowerCase(Locale.ROOT);
             return switch (s) {
                 case "workbench", "dp-workbench", "wb", "1" -> WORKBENCH;
                 case "bazaar", "dp-bazaar", "bz", "2" -> BAZAAR;
@@ -42,15 +59,44 @@ public final class ShopItemDef {
         }
     }
 
+    public enum ShopCategory {
+        RESOURCE("resource", "Resource", "eab678"),
+        ATTACK("attack", "Attack", "ff6b5b"),
+        DEFENSE("defense", "Defense", "6ad99a"),
+        UTILITY("utility", "Utility", "7fd8ff");
+
+        public final String id;
+        public final String title;
+        public final String accentHex;
+
+        ShopCategory(String id, String title, String accentHex) {
+            this.id = id;
+            this.title = title;
+            this.accentHex = accentHex;
+        }
+
+        public static ShopCategory parse(@Nullable String raw) {
+            if (raw == null || raw.isEmpty()) return UTILITY;
+            String s = raw.trim().toLowerCase(Locale.ROOT);
+            for (ShopCategory c : values()) {
+                if (c.id.equals(s) || c.name().equalsIgnoreCase(s)) return c;
+            }
+            return UTILITY;
+        }
+    }
+
+    /**
+     * World visual/functional behavior for an equipped item (Orbit is removed).
+     */
     public enum AttachMode {
-        /** Revolves smoothly around the unit in a circular orbit. */
-        ORBIT("Orbit"),
-        /** Mounted on left/right hull hardpoints rotating with the unit's heading. */
+        /** Attaches flush to the unit's hull sprite using {@link MountSubtype}; duplicates symmetrically if off-axis. */
         MOUNT("Mount"),
-        /** Hovers in a bobbing crown arc above the unit. */
+        /** Displays geometric HaloPart + configurable {@link Fx} halo effects on unit center, weapons, or engines. */
         HALO("Halo"),
-        /** Trails behind the unit in a smooth follow-the-leader wake. */
-        TRAIL("Trail");
+        /** Floating companion that smoothly follows the unit and maintains a specific standoff distance. */
+        FOLLOW("Follow"),
+        /** Becomes a real rotating, recoiling, firing weapon mounted on the unit (symmetrically duplicated if off-axis). */
+        SUBWEAPON("Subweapon");
 
         public final String label;
 
@@ -59,11 +105,97 @@ public final class ShopItemDef {
         }
 
         public static AttachMode parse(@Nullable String raw) {
-            if (raw == null) return ORBIT;
-            for (AttachMode m : values()) {
-                if (m.name().equalsIgnoreCase(raw.trim())) return m;
+            if (raw == null || raw.isEmpty()) return FOLLOW;
+            String s = raw.trim().toUpperCase(Locale.ROOT);
+            // Backwards-compatible mapping for older configs where ORBIT or TRAIL existed
+            if ("ORBIT".equals(s) || "TRAIL".equals(s) || "FLOATING".equals(s)) {
+                return FOLLOW;
             }
-            return ORBIT;
+            if ("WEAPON".equals(s) || "SUB_WEAPON".equals(s)) {
+                return SUBWEAPON;
+            }
+            for (AttachMode m : values()) {
+                if (m.name().equalsIgnoreCase(s)) return m;
+            }
+            return FOLLOW;
+        }
+    }
+
+    /**
+     * Anatomical hardpoint subtypes for {@link AttachMode#MOUNT} and {@link AttachMode#SUBWEAPON}.
+     * Any subtype with {@code sideRatio != 0} (or non-zero {@code mountSideOffset}) is off the longitudinal
+     * symmetry axis and is automatically duplicated into a mirrored Left + Right pair!
+     */
+    public enum MountSubtype {
+        // Off-axis hull mounts (automatically duplicated symmetrically Left + Right)
+        SIDE_SHIELD(0.04f, 0f, 0.78f, 0.55f, -18f),
+        WING_BLADE(0.16f, 0f, 0.84f, 0.75f, 26f),
+        SHOULDER_PAD(0.44f, 0.3f, 0.64f, 0.45f, 12f),
+        REAR_THRUSTER(-0.66f, -0.4f, 0.50f, 0.55f, -16f),
+        SIDE_POD(0.06f, 0f, 0.78f, 0.75f, 0f),
+        WING_POD(-0.14f, 0f, 0.86f, 0.90f, 0f),
+
+        // On-symmetry-axis hull mounts (side == 0 -> single centered mount along heading axis)
+        NOSE_PROW(0.72f, 0.55f, 0f, 0f, 0f),
+        SPINE_CORE(-0.12f, 0f, 0f, 0f, 0f),
+        TAIL_BOOSTER(-0.76f, -0.55f, 0f, 0f, 0f),
+        DORSAL_TURRET(-0.08f, 0f, 0f, 0f, 0f);
+
+        public final float forwardRatio;
+        public final float forwardExtra;
+        public final float sideRatio;
+        public final float sideExtra;
+        public final float defaultAngleOffset;
+
+        MountSubtype(
+            float forwardRatio,
+            float forwardExtra,
+            float sideRatio,
+            float sideExtra,
+            float defaultAngleOffset
+        ) {
+            this.forwardRatio = forwardRatio;
+            this.forwardExtra = forwardExtra;
+            this.sideRatio = sideRatio;
+            this.sideExtra = sideExtra;
+            this.defaultAngleOffset = defaultAngleOffset;
+        }
+
+        public boolean isDefaultOffAxis() {
+            return Math.abs(sideRatio) > 0.001f || Math.abs(sideExtra) > 0.001f;
+        }
+
+        public static MountSubtype parse(@Nullable String raw, AttachMode mode) {
+            if (raw != null && !raw.isEmpty()) {
+                String s = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+                for (MountSubtype st : values()) {
+                    if (st.name().equalsIgnoreCase(s)) return st;
+                }
+            }
+            return mode == AttachMode.SUBWEAPON ? SIDE_POD : SIDE_SHIELD;
+        }
+    }
+
+    /**
+     * Placement target for {@link AttachMode#HALO} items.
+     */
+    public enum HaloAnchor {
+        /** Displays at the center of the unit. */
+        CENTER,
+        /** Displays at the center of every weapon mount on the unit. */
+        WEAPONS,
+        /** Displays at the center of every engine on the unit. */
+        ENGINES;
+
+        public static HaloAnchor parse(@Nullable String raw) {
+            if (raw == null || raw.isEmpty()) return CENTER;
+            String s = raw.trim().toUpperCase(Locale.ROOT);
+            if ("WEAPON".equals(s)) return WEAPONS;
+            if ("ENGINE".equals(s)) return ENGINES;
+            for (HaloAnchor a : values()) {
+                if (a.name().equalsIgnoreCase(s)) return a;
+            }
+            return CENTER;
         }
     }
 
@@ -89,16 +221,34 @@ public final class ShopItemDef {
     public String name;
     public String description;
     public StationTier tier = StationTier.WORKBENCH;
+    public ShopCategory category = ShopCategory.UTILITY;
+    public String sprite = "";
     public String iconItem = "copper";
     public String colorHex = "ffd37f";
-    public AttachMode attachMode = AttachMode.ORBIT;
+    public AttachMode attachMode = AttachMode.FOLLOW;
+
+    // Mount / Subweapon placement & symmetry configuration
+    public MountSubtype mountSubtype = MountSubtype.SIDE_SHIELD;
+    public float mountForwardOffset = 0f;
+    public float mountSideOffset = 0f;
+    public float mountAngleOffset = Float.NaN;
+
+    // Halo placement & configurable Fx effect parameters
+    public HaloAnchor haloAnchor = HaloAnchor.CENTER;
+    public String haloEffect = "dynamicWave";
+    public String haloColorHex = "";
+    public float haloRadius = 12f;
+    public float haloInterval = 26f;
+
+    // Floating follower configuration
+    public float followDistance = 10.5f;
 
     /** True if players can craft this item at its station; false for salvage/relic items that can only be decrafted. */
     public boolean craftable = true;
     /** True if players can break this item down at Workbench/Bazaar into its recipe components. */
     public boolean decraftable = true;
 
-    // Passive bonuses granted ONLY while in equipped slots 1..4 (indices 0..3)
+    // Passive bonuses granted ONLY while in active inventory positions 1..4 (indices 0..3)
     public float healthMultBonus = 0f;
     public float damageMultBonus = 0f;
     public float speedMultBonus = 0f;
@@ -114,8 +264,68 @@ public final class ShopItemDef {
         return !resourceCosts.isEmpty() || !itemCosts.isEmpty();
     }
 
+    /**
+     * Computes the lateral offset from the longitudinal symmetry axis for a unit of radius {@code hullRadius}.
+     * Whenever {@code Math.abs(computeSideOffset(hullRadius)) > 0.01f}, the mount/subweapon is duplicated
+     * symmetrically onto both left ({@code +side}) and right ({@code -side})!
+     */
+    public float computeSideOffset(float hullRadius) {
+        return mountSubtype.sideRatio * hullRadius + mountSubtype.sideExtra + mountSideOffset;
+    }
+
+    public float computeForwardOffset(float hullRadius) {
+        return mountSubtype.forwardRatio * hullRadius + mountSubtype.forwardExtra + mountForwardOffset;
+    }
+
+    public float effectiveMountAngleOffset() {
+        return Float.isNaN(mountAngleOffset) ? mountSubtype.defaultAngleOffset : mountAngleOffset;
+    }
+
+    public boolean isSymmetricallyDuplicated(float hullRadius) {
+        return Math.abs(computeSideOffset(hullRadius)) > 0.01f;
+    }
+
+    public Color resolveHaloColor() {
+        String hex = (haloColorHex != null && !haloColorHex.isBlank()) ? haloColorHex.trim() : colorHex;
+        try {
+            return Color.valueOf(hex);
+        } catch (Throwable ignored) {
+            return Color.valueOf("ffd37f");
+        }
+    }
+
+    public @Nullable Effect resolveHaloFx() {
+        if (haloEffect == null || haloEffect.isBlank() || "none".equalsIgnoreCase(haloEffect.trim())) {
+            return null;
+        }
+        String fxName = haloEffect.trim();
+        try {
+            Field f = Fx.class.getField(fxName);
+            Object val = f.get(null);
+            if (val instanceof Effect eff && eff != Fx.none) {
+                return eff;
+            }
+        } catch (Throwable ignored) {
+        }
+        return Fx.dynamicWave;
+    }
+
+    public String effectiveSprite() {
+        if (sprite != null && !sprite.isBlank()) return sprite.trim();
+        return "shop-" + id;
+    }
+
     public String uiDrawable() {
+        String sp = effectiveSprite();
+        if (UiSpriteSync.hasSprite(sp)) {
+            return UiSpriteSync.resolveMenuDrawable(sp);
+        }
         return "item-" + iconItem + "-ui";
+    }
+
+    public String visualUnitName() {
+        String sp = effectiveSprite();
+        return sp.startsWith("dp-") ? sp : ("dp-" + sp);
     }
 
     public String worldGlyph() {
@@ -125,12 +335,35 @@ public final class ShopItemDef {
                 return it.emoji();
             }
         }
-        return switch (attachMode) {
-            case ORBIT -> "o";
-            case MOUNT -> "+";
-            case HALO -> "*";
-            case TRAIL -> "~";
-        };
+        return "*";
+    }
+
+    public boolean matchesSearch(@Nullable String rawQuery, @Nullable ShopConfigIO.Catalog catalog) {
+        if (rawQuery == null || rawQuery.isBlank()) return true;
+        String q = rawQuery.trim().toLowerCase(Locale.ROOT);
+        if (name != null && name.toLowerCase(Locale.ROOT).contains(q)) return true;
+        if (id != null && id.toLowerCase(Locale.ROOT).contains(q)) return true;
+        if (description != null && description.toLowerCase(Locale.ROOT).contains(q)) return true;
+        if (category != null && category.title.toLowerCase(Locale.ROOT).contains(q)) return true;
+        if (healthMultBonus != 0f && ("hp".contains(q) || "health".contains(q))) return true;
+        if (damageMultBonus != 0f && ("dmg".contains(q) || "damage".contains(q))) return true;
+        if (speedMultBonus != 0f && ("spd".contains(q) || "speed".contains(q))) return true;
+        if (reloadMultBonus != 0f && ("rld".contains(q) || "reload".contains(q))) return true;
+        if (buildSpeedMultBonus != 0f && ("bld".contains(q) || "build".contains(q))) return true;
+        if (armorBonus != 0f && ("arm".contains(q) || "armor".contains(q))) return true;
+        if (regenPerSec != 0f && ("regen".contains(q) || "heal".contains(q))) return true;
+        for (ResourceCost rc : resourceCosts) {
+            if (rc.itemName().toLowerCase(Locale.ROOT).contains(q)) return true;
+        }
+        if (catalog != null) {
+            for (ItemIngredient ing : itemCosts) {
+                ShopItemDef sub = catalog.findItem(ing.shopItemId());
+                if (sub != null && sub.name != null && sub.name.toLowerCase(Locale.ROOT).contains(q)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public String formatPassiveSummary() {
@@ -140,9 +373,28 @@ public final class ShopItemDef {
         if (speedMultBonus != 0f) parts.add(fmtPct(speedMultBonus, "SPD"));
         if (reloadMultBonus != 0f) parts.add(fmtPct(reloadMultBonus, "RLD"));
         if (buildSpeedMultBonus != 0f) parts.add(fmtPct(buildSpeedMultBonus, "BLD"));
-        if (armorBonus != 0f) parts.add((armorBonus > 0 ? "+" : "") + Math.round(armorBonus) + " ARM");
-        if (regenPerSec != 0f) parts.add("+" + fmtNum(regenPerSec) + " HP/s");
-        return parts.isEmpty() ? "Cosmetic Trinket" : parts.toString(", ");
+        if (armorBonus != 0f) parts.add((armorBonus > 0 ? "[stat]+" : "[scarlet]") + Math.round(armorBonus) + " ARM[]");
+        if (regenPerSec != 0f) parts.add("[stat]+" + fmtNum(regenPerSec) + "/s[]");
+
+        if (!parts.isEmpty()) {
+            return parts.toString(" ");
+        }
+        if (!craftable && decraftable) {
+            return "[#eab678]Salvageable[]";
+        }
+        if (decraftable && resourceCosts.size == 1 && itemCosts.isEmpty()) {
+            ResourceCost rc = resourceCosts.first();
+            return "[#eab678]Packs " + rc.amount() + " " + capitalize(rc.itemName()) + "[]";
+        }
+        if (decraftable && !resourceCosts.isEmpty()) {
+            return "[#eab678]Resource Pack[]";
+        }
+        return "[lightgray]Relic[]";
+    }
+
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return "";
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private static String fmtPct(float v, String stat) {
@@ -152,6 +404,6 @@ public final class ShopItemDef {
 
     private static String fmtNum(float v) {
         if (Math.abs(v - Math.round(v)) < 0.01f) return Integer.toString(Math.round(v));
-        return String.format(java.util.Locale.ROOT, "%.1f", v);
+        return String.format(Locale.ROOT, "%.1f", v);
     }
 }

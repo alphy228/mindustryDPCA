@@ -2,11 +2,13 @@ package coolplugin.gameplay;
 
 import arc.Events;
 import arc.files.Fi;
+import arc.graphics.Color;
 import arc.math.Angles;
 import arc.math.Mathf;
+import arc.math.geom.Vec2;
+import arc.struct.ObjectIntMap;
 import arc.struct.ObjectMap;
 import arc.struct.Seq;
-import arc.util.Log;
 import arc.util.Nullable;
 import arc.util.Time;
 import coolplugin.database.AccountRecord;
@@ -15,36 +17,56 @@ import coolplugin.database.PlayerDatabase.EquipmentData;
 import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.ShopConfigIO.Catalog;
 import coolplugin.gameplay.ShopItemDef.AttachMode;
+import coolplugin.gameplay.ShopItemDef.HaloAnchor;
 import coolplugin.gameplay.ShopItemDef.ItemIngredient;
+import coolplugin.gameplay.ShopItemDef.MountSubtype;
 import coolplugin.gameplay.ShopItemDef.OrbitalTradeDef;
 import coolplugin.gameplay.ShopItemDef.ResourceCost;
 import coolplugin.gameplay.ShopItemDef.StationTier;
 import mindustry.Vars;
 import mindustry.content.StatusEffects;
+import mindustry.entities.Effect;
+import mindustry.entities.Units;
+import mindustry.entities.units.AIController;
 import mindustry.entities.units.StatusEntry;
+import mindustry.entities.units.WeaponMount;
 import mindustry.game.EventType.PlayerLeave;
 import mindustry.game.EventType.Trigger;
 import mindustry.game.EventType.WorldLoadEvent;
+import mindustry.game.Team;
+import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Player;
+import mindustry.gen.Teamc;
 import mindustry.gen.Unit;
 import mindustry.gen.WorldLabel;
 import mindustry.type.Item;
+import mindustry.type.UnitType;
+import mindustry.type.UnitType.UnitEngine;
 
 import static mindustry.Vars.*;
 
 /**
- * Manages player equipable items (up to 10 equipped slots + unequipped bag), crafting, decrafting,
- * Bazaar orbital ship trades, passive stat bonuses (slots 1–4), overburden speed penalty
- * ({@code -10%} movement speed per item after the 4th, with no passive buffs), and multi-mode
- * in-world unit visual attachments ({@code ORBIT}, {@code MOUNT}, {@code HALO}, {@code TRAIL}).
+ * Manages player equipable items (up to 10 inventory slots), crafting, decrafting,
+ * Bazaar orbital ship trades, passive stat bonuses (positions 1–4), overburden speed penalty
+ * ({@code -10%} movement speed per item after the 4th, with no passive buffs), and 4-mode
+ * world item systems ({@code MOUNT}, {@code HALO}, {@code FOLLOW}, {@code SUBWEAPON} — {@code ORBIT} removed):
+ * <ul>
+ *   <li>{@link AttachMode#MOUNT}: attaches flush to the unit hull sprite with {@link MountSubtype}s;
+ *       automatically duplicates into a symmetrical Left + Right pair whenever placed off the symmetry axis.</li>
+ *   <li>{@link AttachMode#HALO}: renders geometric {@code HaloPart} halos + configurable {@link Effect}s
+ *       on the center of the unit, its weapons, or its engines.</li>
+ *   <li>{@link AttachMode#FOLLOW}: floating companion that smoothly follows the unit and maintains
+ *       its configured standoff distance.</li>
+ *   <li>{@link AttachMode#SUBWEAPON}: becomes an active rotating, recoiling, firing weapon on the unit
+ *       (symmetrically duplicated when placed off the symmetry axis).</li>
+ * </ul>
  */
 public class PlayerItemSystem {
 
     public static final int MAX_EQUIPPED_SLOTS = 10;
     public static final int ACTIVE_PASSIVE_SLOTS = 4;
     public static final float OVERLOAD_SPEED_PENALTY_PER_ITEM = 0.10f;
-    public static final int MAX_BAG_ITEMS = 32;
 
     public record ActionOutcome(boolean success, String message) {}
 
@@ -73,32 +95,155 @@ public class PlayerItemSystem {
         }
     }
 
-    private static final class SlotVisual {
-        final String itemId;
+    private static final class InertVisualAI extends AIController {
+        @Override
+        public void updateUnit() {
+            // Driven strictly by PlayerItemSystem.updateVisualRig
+        }
+    }
+
+    /**
+     * AI controller for {@link AttachMode#SUBWEAPON} carrier units: aims &amp; fires alongside
+     * the host unit when shooting, or auto-targets nearby enemies within weapon range.
+     */
+    private static final class SubweaponAI extends AIController {
+        @Nullable Unit host;
+        boolean activeWeapon;
+
+        SubweaponAI(@Nullable Unit host, boolean activeWeapon) {
+            this.host = host;
+            this.activeWeapon = activeWeapon;
+        }
+
+        @Override
+        public void updateUnit() {
+            if (unit == null) return;
+            if (!activeWeapon || host == null || host.dead() || !host.isValid()) {
+                stopShooting();
+                unit.isShooting = false;
+                return;
+            }
+
+            if (host.isShooting) {
+                driveMounts(host.aimX, host.aimY, true);
+                return;
+            }
+
+            float maxRange = Math.max(80f, unit.range());
+            if (timer.get(timerTarget, 15f)) {
+                target = Units.closestTarget(
+                    host.team,
+                    unit.x,
+                    unit.y,
+                    maxRange,
+                    u -> u.checkTarget(true, true) && !u.type.hidden,
+                    b -> true
+                );
+            }
+
+            if (target != null && unit.within(target, maxRange + 8f)) {
+                driveMounts(target.x(), target.y(), true);
+            } else {
+                float idleX = (host.aimX == 0f && host.aimY == 0f)
+                    ? unit.x + Angles.trnsx(host.rotation, 48f)
+                    : host.aimX;
+                float idleY = (host.aimX == 0f && host.aimY == 0f)
+                    ? unit.y + Angles.trnsy(host.rotation, 48f)
+                    : host.aimY;
+                driveMounts(idleX, idleY, false);
+            }
+        }
+
+        private void driveMounts(float ax, float ay, boolean shoot) {
+            unit.aimX = ax;
+            unit.aimY = ay;
+            unit.isShooting = shoot;
+            if (unit.mounts != null) {
+                for (WeaponMount m : unit.mounts) {
+                    m.aimX = ax;
+                    m.aimY = ay;
+                    m.shoot = shoot;
+                    m.rotate = true;
+                }
+            }
+        }
+    }
+
+    private static final class VisualInstance {
+        final ShopItemDef def;
         final AttachMode mode;
         final boolean overloaded;
+        /** +1 left, -1 right for mirrored off-axis mounts/subweapons; 0 for on-axis / follow / halo. */
+        final float symmetrySideSign;
+        final int subtypeRepeatIndex;
+        final int anchorIndex;
         final int modeIndex;
         final int modeTotal;
-        WorldLabel label;
+        @Nullable Unit spriteUnit;
+        @Nullable WorldLabel fallbackLabel;
         float worldX;
         float worldY;
+        float fxTimer;
 
-        SlotVisual(String itemId, AttachMode mode, boolean overloaded, int modeIndex, int modeTotal, WorldLabel label, float wx, float wy) {
-            this.itemId = itemId;
+        VisualInstance(
+            ShopItemDef def,
+            AttachMode mode,
+            boolean overloaded,
+            float symmetrySideSign,
+            int subtypeRepeatIndex,
+            int anchorIndex,
+            int modeIndex,
+            int modeTotal,
+            @Nullable Unit spriteUnit,
+            @Nullable WorldLabel fallbackLabel,
+            float wx,
+            float wy
+        ) {
+            this.def = def;
             this.mode = mode;
             this.overloaded = overloaded;
+            this.symmetrySideSign = symmetrySideSign;
+            this.subtypeRepeatIndex = subtypeRepeatIndex;
+            this.anchorIndex = anchorIndex;
             this.modeIndex = modeIndex;
             this.modeTotal = modeTotal;
-            this.label = label;
+            this.spriteUnit = spriteUnit;
+            this.fallbackLabel = fallbackLabel;
             this.worldX = wx;
             this.worldY = wy;
+            this.fxTimer = (modeIndex * 7f) % Math.max(8f, def.haloInterval);
+        }
+
+        boolean isAliveInWorld() {
+            if (spriteUnit != null) return spriteUnit.isAdded() && !spriteUnit.dead();
+            if (fallbackLabel != null) return fallbackLabel.isAdded();
+            return false;
+        }
+
+        void removeFromWorld() {
+            if (spriteUnit != null) {
+                try {
+                    spriteUnit.remove();
+                } catch (Throwable ignored) {
+                }
+                spriteUnit = null;
+            }
+            if (fallbackLabel != null) {
+                try {
+                    fallbackLabel.hide();
+                } catch (Throwable ignored) {
+                    fallbackLabel.remove();
+                }
+                fallbackLabel = null;
+            }
         }
     }
 
     private static final class VisualRig {
         int unitId = -1;
+        int teamId = -1;
         String signature = "";
-        final Seq<SlotVisual> slots = new Seq<>();
+        final Seq<VisualInstance> instances = new Seq<>();
     }
 
     private final Fi shopConfigFile;
@@ -108,6 +253,7 @@ public class PlayerItemSystem {
 
     private Catalog catalog;
     private final ObjectMap<String, VisualRig> activeRigs = new ObjectMap<>();
+    private final Seq<Vec2> tmpAnchors = new Seq<>();
     private boolean started = false;
 
     public PlayerItemSystem(
@@ -146,15 +292,33 @@ public class PlayerItemSystem {
         return catalog;
     }
 
-    // ------------------------------------------------------------------ equipment & stat computation
+    // ------------------------------------------------------------------ inventory & stat computation
 
     public EquipmentData getEquipment(Player player) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
         EquipmentData data = database.getEquipmentData(acc.id, factionId);
+
+        boolean dirty = false;
+        if (!data.stash.isEmpty()) {
+            Seq<String> keys = data.stash.keys().toSeq();
+            for (String k : keys) {
+                int cnt = data.stash.get(k, 0);
+                while (cnt > 0 && data.equipped.size < MAX_EQUIPPED_SLOTS) {
+                    data.equipped.add(k);
+                    cnt--;
+                    dirty = true;
+                }
+            }
+            data.stash.clear();
+            dirty = true;
+        }
         while (data.equipped.size > MAX_EQUIPPED_SLOTS) {
-            String extra = data.equipped.pop();
-            data.stash.put(extra, data.stash.get(extra, 0) + 1);
+            data.equipped.pop();
+            dirty = true;
+        }
+        if (dirty) {
+            database.saveEquipmentData(acc.id, factionId, data);
         }
         return data;
     }
@@ -162,29 +326,31 @@ public class PlayerItemSystem {
     public void saveEquipment(Player player, EquipmentData data) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
+        data.stash.clear();
+        while (data.equipped.size > MAX_EQUIPPED_SLOTS) {
+            data.equipped.pop();
+        }
         database.saveEquipmentData(acc.id, factionId, data);
     }
 
+    public void onPlayerDataWiped(@Nullable Player player) {
+        if (player == null) return;
+        destroyRig(player.uuid());
+        Unit unit = PlayerUnitSystem.ownedUnit(player);
+        if (unit == null) unit = player.unit();
+        if (unit != null && unit.hasEffect(StatusEffects.dynamic)) {
+            unit.unapply(StatusEffects.dynamic);
+        }
+    }
+
     public int countOwnedTotal(EquipmentData data, String itemId) {
-        int count = data.stash.get(itemId, 0);
+        int count = 0;
         for (int i = 0; i < data.equipped.size; i++) {
             if (itemId.equals(data.equipped.get(i))) count++;
         }
         return count;
     }
 
-    public static int totalBagCount(EquipmentData data) {
-        int sum = 0;
-        for (var e : data.stash.entries()) {
-            if (e.value > 0) sum += e.value;
-        }
-        return sum;
-    }
-
-    /**
-     * Computes passive bonuses from slots 1–4 (`index 0..3`) and `-10%` movement speed penalty
-     * per item in slots 5–10 (`index 4..9`, which grant zero passive bonuses).
-     */
     public ComputedStats computeStats(Seq<String> equippedIds) {
         ComputedStats st = new ComputedStats();
         if (equippedIds == null || equippedIds.isEmpty()) return st;
@@ -223,49 +389,30 @@ public class PlayerItemSystem {
         return st;
     }
 
-    public ActionOutcome equipFromBag(Player player, String itemId) {
-        ShopItemDef def = getCatalog().findItem(itemId);
-        if (def == null) return new ActionOutcome(false, "[scarlet]Unknown item.[]");
-
-        EquipmentData data = getEquipment(player);
-        int inBag = data.stash.get(itemId, 0);
-        if (inBag <= 0) {
-            return new ActionOutcome(false, "[scarlet]No unequipped " + def.name + " in bag.[]");
-        }
-        if (data.equipped.size >= MAX_EQUIPPED_SLOTS) {
-            return new ActionOutcome(false, "[scarlet]All 10 equip slots are full! Unequip an item first.[]");
-        }
-
-        if (inBag == 1) data.stash.remove(itemId, 0);
-        else data.stash.put(itemId, inBag - 1);
-        data.equipped.add(itemId);
-        saveEquipment(player, data);
-
-        int slotNum = data.equipped.size;
-        if (slotNum > ACTIVE_PASSIVE_SLOTS) {
-            return new ActionOutcome(true,
-                "[#ff9f43]Equipped " + def.name + " in Slot #" + slotNum + " (Overburdened: no buffs, -10% speed).[]");
-        }
-        return new ActionOutcome(true, "[stat]Equipped " + def.name + " in Active Slot #" + slotNum + "![]");
-    }
-
-    public ActionOutcome unequipSlot(Player player, int slotIndex) {
+    public ActionOutcome promoteSlotToActive(Player player, int slotIndex) {
         EquipmentData data = getEquipment(player);
         if (slotIndex < 0 || slotIndex >= data.equipped.size) {
-            return new ActionOutcome(false, "[scarlet]Empty equip slot.[]");
+            return new ActionOutcome(false, "[scarlet]Empty inventory slot.[]");
         }
-        String removedId = data.equipped.remove(slotIndex);
-        ShopItemDef def = getCatalog().findItem(removedId);
-        String name = def != null ? def.name : removedId;
+        if (slotIndex == 0) {
+            return new ActionOutcome(true, "");
+        }
+        String moved = data.equipped.remove(slotIndex);
+        data.equipped.insert(0, moved);
+        saveEquipment(player, data);
+        ShopItemDef def = getCatalog().findItem(moved);
+        return new ActionOutcome(true, "[stat]Moved " + (def != null ? def.name : moved) + " to top of inventory.[]");
+    }
 
-        if (totalBagCount(data) < MAX_BAG_ITEMS) {
-            data.stash.put(removedId, data.stash.get(removedId, 0) + 1);
-            saveEquipment(player, data);
-            return new ActionOutcome(true, "[lightgray]Moved " + name + " to bag.[]");
-        } else {
-            saveEquipment(player, data);
-            return new ActionOutcome(true, "[scarlet]Bag was full - unequipped " + name + " vanished![]");
+    public ActionOutcome discardAtSlot(Player player, int slotIndex) {
+        EquipmentData data = getEquipment(player);
+        if (slotIndex < 0 || slotIndex >= data.equipped.size) {
+            return new ActionOutcome(false, "[scarlet]Empty inventory slot.[]");
         }
+        String removed = data.equipped.remove(slotIndex);
+        saveEquipment(player, data);
+        ShopItemDef def = getCatalog().findItem(removed);
+        return new ActionOutcome(true, "[lightgray]Discarded " + (def != null ? def.name : removed) + ".[]");
     }
 
     // ------------------------------------------------------------------ crafting, decrafting, orbital trades
@@ -298,7 +445,7 @@ public class PlayerItemSystem {
         ShopItemDef item = getCatalog().findItem(itemId);
         if (item == null) return new ActionOutcome(false, "[scarlet]Item not found.[]");
         if (!item.craftable) {
-            return new ActionOutcome(false, "[scarlet]" + item.name + " cannot be crafted (salvage/decraft only).[]");
+            return new ActionOutcome(false, "[scarlet]" + item.name + " cannot be crafted (decraft only).[]");
         }
         if (!isStationAllowedToCraft(station, item)) {
             return new ActionOutcome(false, "[scarlet]" + item.name + " cannot be crafted at this station.[]");
@@ -306,10 +453,9 @@ public class PlayerItemSystem {
 
         EquipmentData data = getEquipment(player);
         if (!canAffordCraft(player, item, data)) {
-            return new ActionOutcome(false, "[scarlet]Missing required map resources or ingredient items.[]");
+            return new ActionOutcome(false, "[scarlet]Missing required resources or ingredient items.[]");
         }
 
-        // Deduct map storage resources
         for (ResourceCost rc : item.resourceCosts) {
             Item mItem = rc.resolveItem();
             if (mItem != null) {
@@ -317,19 +463,40 @@ public class PlayerItemSystem {
             }
         }
 
-        // Deduct ingredient "items" (from Bag first, then Equipped slots from back to front)
         for (ItemIngredient ing : item.itemCosts) {
             consumeOwnedItem(data, ing.shopItemId(), ing.amount());
         }
 
-        String placementNote = grantCraftedOrTradedItem(data, item);
+        boolean stored = grantCraftedOrTradedItem(data, item);
         saveEquipment(player, data);
-        return new ActionOutcome(true, "[stat]Crafted [white]" + item.name + "[stat]! " + placementNote);
+        if (!stored) {
+            return new ActionOutcome(true, "[scarlet]Inventory full (10/10) - crafted " + item.name + " vanished![]");
+        }
+        return new ActionOutcome(true, "[stat]Crafted [white]" + item.name + "[stat].[]");
+    }
+
+    public ActionOutcome decraftAtSlot(Player player, int slotIndex, StationTier station) {
+        if (station == StationTier.CURSED_ALTAR) {
+            return new ActionOutcome(false, "[scarlet]Cursed Altar does not perform decrafting.[]");
+        }
+        EquipmentData data = getEquipment(player);
+        if (slotIndex < 0 || slotIndex >= data.equipped.size) {
+            return new ActionOutcome(false, "[scarlet]Empty inventory slot.[]");
+        }
+        String itemId = data.equipped.get(slotIndex);
+        ShopItemDef item = getCatalog().findItem(itemId);
+        if (item == null) return new ActionOutcome(false, "[scarlet]Item not found.[]");
+        if (!item.decraftable || !item.hasRecipe()) {
+            return new ActionOutcome(false, "[scarlet]" + item.name + " cannot be decrafted.[]");
+        }
+
+        data.equipped.remove(slotIndex);
+        return finishDecraft(player, data, item);
     }
 
     public ActionOutcome decraft(Player player, String itemId, StationTier station) {
         if (station == StationTier.CURSED_ALTAR) {
-            return new ActionOutcome(false, "[scarlet]The Cursed Altar does not perform basic decrafting.[]");
+            return new ActionOutcome(false, "[scarlet]Cursed Altar does not perform decrafting.[]");
         }
         ShopItemDef item = getCatalog().findItem(itemId);
         if (item == null) return new ActionOutcome(false, "[scarlet]Item not found.[]");
@@ -343,14 +510,16 @@ public class PlayerItemSystem {
         }
 
         consumeOwnedItem(data, itemId, 1);
+        return finishDecraft(player, data, item);
+    }
 
-        // Refund sub-items if the recipe used "items"
+    private ActionOutcome finishDecraft(Player player, EquipmentData data, ShopItemDef item) {
         int vanishedSubItems = 0;
         for (ItemIngredient ing : item.itemCosts) {
             ShopItemDef subDef = getCatalog().findItem(ing.shopItemId());
             for (int c = 0; c < ing.amount(); c++) {
-                if (subDef != null && totalBagCount(data) < MAX_BAG_ITEMS) {
-                    data.stash.put(subDef.id, data.stash.get(subDef.id, 0) + 1);
+                if (subDef != null && data.equipped.size < MAX_EQUIPPED_SLOTS) {
+                    data.equipped.add(subDef.id);
                 } else {
                     vanishedSubItems++;
                 }
@@ -358,7 +527,6 @@ public class PlayerItemSystem {
         }
         saveEquipment(player, data);
 
-        // Deposit recipe resources into nearby Map Storage; any overflow beyond map storage vanishes!
         int totalReturned = 0;
         int totalVanished = 0;
         for (ResourceCost rc : item.resourceCosts) {
@@ -372,10 +540,10 @@ public class PlayerItemSystem {
         if (totalVanished > 0 || vanishedSubItems > 0) {
             return new ActionOutcome(true,
                 "[#ffbe76]Decrafted [white]" + item.name + "[#ffbe76]: stored " + totalReturned
-                    + " resources ([scarlet]" + totalVanished + " vanished - insufficient map storage[]).[]");
+                    + " ([scarlet]" + totalVanished + " vanished - insufficient storage[]).[]");
         }
         return new ActionOutcome(true,
-            "[stat]Decrafted [white]" + item.name + "[stat] -> deposited " + totalReturned + " resources into map storage.[]");
+            "[stat]Decrafted [white]" + item.name + "[stat] -> +" + totalReturned + " stored.[]");
     }
 
     public boolean canAffordOrbitalTrade(Player player, OrbitalTradeDef trade) {
@@ -393,7 +561,7 @@ public class PlayerItemSystem {
         OrbitalTradeDef trade = getCatalog().findTrade(tradeId);
         if (trade == null) return new ActionOutcome(false, "[scarlet]Unknown orbital trade.[]");
         if (!canAffordOrbitalTrade(player, trade)) {
-            return new ActionOutcome(false, "[scarlet]Insufficient resources in persistent Launch Pad Orbital Storage.[]");
+            return new ActionOutcome(false, "[scarlet]Insufficient resources in persistent Orbital Storage.[]");
         }
 
         AccountRecord acc = sessionManager.getOrInitSession(player);
@@ -407,9 +575,13 @@ public class PlayerItemSystem {
             ShopItemDef rewardItem = getCatalog().findItem(trade.rewardShopItemId);
             if (rewardItem != null) {
                 EquipmentData data = getEquipment(player);
-                String note = grantCraftedOrTradedItem(data, rewardItem);
+                boolean stored = grantCraftedOrTradedItem(data, rewardItem);
                 saveEquipment(player, data);
-                outcomeMsg.append("received [white]").append(rewardItem.name).append("[] ").append(note);
+                if (stored) {
+                    outcomeMsg.append("received [white]").append(rewardItem.name).append("[]");
+                } else {
+                    outcomeMsg.append("[scarlet]inventory full - ").append(rewardItem.name).append(" vanished![]");
+                }
             }
         }
 
@@ -423,39 +595,24 @@ public class PlayerItemSystem {
                 stored += dep;
                 vanished += Math.max(0, rc.amount() - dep);
             }
-            outcomeMsg.append("dropped ").append(stored).append(" resources into map storage");
+            outcomeMsg.append("dropped ").append(stored).append(" into storage");
             if (vanished > 0) {
-                outcomeMsg.append(" ([scarlet]").append(vanished).append(" vanished - map storage full[])");
+                outcomeMsg.append(" ([scarlet]").append(vanished).append(" vanished[])");
             }
         }
         return new ActionOutcome(true, outcomeMsg.toString());
     }
 
-    private String grantCraftedOrTradedItem(EquipmentData data, ShopItemDef item) {
-        if (data.equipped.size < ACTIVE_PASSIVE_SLOTS) {
-            data.equipped.add(item.id);
-            return "[lightgray](Equipped in Slot #" + data.equipped.size + ")[]";
-        }
-        if (totalBagCount(data) < MAX_BAG_ITEMS) {
-            data.stash.put(item.id, data.stash.get(item.id, 0) + 1);
-            return "[lightgray](Placed in Bag)[]";
-        }
+    private static boolean grantCraftedOrTradedItem(EquipmentData data, ShopItemDef item) {
         if (data.equipped.size < MAX_EQUIPPED_SLOTS) {
             data.equipped.add(item.id);
-            return "[#ff9f43](Equipped in Overburdened Slot #" + data.equipped.size + ": -10% SPD)[]";
+            return true;
         }
-        return "[scarlet](Vanished - all 10 equip slots and bag were full!)[]";
+        return false;
     }
 
     private static void consumeOwnedItem(EquipmentData data, String itemId, int amount) {
         int remaining = amount;
-        int inBag = data.stash.get(itemId, 0);
-        if (inBag > 0) {
-            int take = Math.min(remaining, inBag);
-            if (inBag - take <= 0) data.stash.remove(itemId, 0);
-            else data.stash.put(itemId, inBag - take);
-            remaining -= take;
-        }
         for (int i = data.equipped.size - 1; i >= 0 && remaining > 0; i--) {
             if (itemId.equals(data.equipped.get(i))) {
                 data.equipped.remove(i);
@@ -464,7 +621,7 @@ public class PlayerItemSystem {
         }
     }
 
-    // ------------------------------------------------------------------ live unit stats & multi-style world visuals
+    // ------------------------------------------------------------------ live unit stats & 4-mode world item system
 
     public void updateUnitsAndVisuals() {
         if (state == null || !state.isGame() || state.isPaused()) return;
@@ -484,7 +641,7 @@ public class PlayerItemSystem {
             EquipmentData eq = getEquipment(player);
             ComputedStats stats = computeStats(eq.equipped);
             applyStatsToUnit(unit, stats);
-            updateVisualRig(player.uuid(), unit, eq.equipped);
+            updateVisualRig(player.uuid(), unit, eq.equipped, stats);
         }
     }
 
@@ -514,12 +671,19 @@ public class PlayerItemSystem {
         }
     }
 
-    private void updateVisualRig(String uuid, Unit unit, Seq<String> equippedIds) {
-        String sig = buildSignature(equippedIds);
-        VisualRig rig = activeRigs.get(uuid);
+    public void updateVisualRigForUnit(String rigKey, Unit unit, Seq<String> equippedIds, ComputedStats stats) {
+        updateVisualRig(rigKey, unit, equippedIds, stats);
+    }
 
-        if (rig != null && (rig.unitId != unit.id || !sig.equals(rig.signature) || anyLabelRemoved(rig))) {
-            destroyRig(uuid);
+    private void updateVisualRig(String rigKey, Unit unit, Seq<String> equippedIds, ComputedStats stats) {
+        String sig = buildSignature(equippedIds);
+        VisualRig rig = activeRigs.get(rigKey);
+
+        if (rig != null && (rig.unitId != unit.id
+            || rig.teamId != unit.team.id
+            || !sig.equals(rig.signature)
+            || anyVisualRemoved(rig))) {
+            destroyRig(rigKey);
             rig = null;
         }
 
@@ -527,103 +691,324 @@ public class PlayerItemSystem {
 
         if (rig == null) {
             rig = createRig(unit, equippedIds, sig);
-            activeRigs.put(uuid, rig);
+            activeRigs.put(rigKey, rig);
         }
 
-        float prevTrailX = unit.x;
-        float prevTrailY = unit.y;
-        float rearAngle = unit.rotation + 180f;
+        float hullRadius = Math.max(4f, unit.hitSize * 0.5f);
 
-        for (int i = 0; i < rig.slots.size; i++) {
-            SlotVisual sv = rig.slots.get(i);
-            if (sv.label == null || !sv.label.isAdded()) continue;
+        for (int i = 0; i < rig.instances.size; i++) {
+            VisualInstance vi = rig.instances.get(i);
+            if (!vi.isAliveInWorld()) continue;
 
-            switch (sv.mode) {
-                case ORBIT -> {
-                    float step = 360f / Math.max(1, sv.modeTotal);
-                    float angle = Time.time * 2.1f + sv.modeIndex * step;
-                    float radius = unit.hitSize * 0.85f + 7f + (sv.overloaded ? 4f : 0f);
-                    sv.label.set(Angles.trnsx(angle, radius), Angles.trnsy(angle, radius));
-                }
-                case MOUNT -> {
-                    float sideAngle = unit.rotation + ((sv.modeIndex % 2 == 0) ? 105f : -105f);
-                    float radius = unit.hitSize * 0.65f + 4f + (sv.modeIndex / 2) * 5f;
-                    sv.label.set(Angles.trnsx(sideAngle, radius), Angles.trnsy(sideAngle, radius));
+            float targetX = unit.x;
+            float targetY = unit.y;
+            float targetRot = unit.rotation;
+
+            switch (vi.mode) {
+                case MOUNT, SUBWEAPON -> {
+                    float baseForward = vi.def.computeForwardOffset(hullRadius);
+                    float absSide = Math.abs(vi.def.computeSideOffset(hullRadius));
+                    float angleOff = vi.def.effectiveMountAngleOffset();
+
+                    float forward;
+                    float signedSide;
+                    if (vi.symmetrySideSign != 0f) {
+                        // Off-axis pair: step outward/aft symmetrically on BOTH left (+1) and right (-1)
+                        forward = baseForward - vi.subtypeRepeatIndex * 2.6f;
+                        signedSide = vi.symmetrySideSign * (absSide + vi.subtypeRepeatIndex * 1.6f);
+                        targetRot = unit.rotation + vi.symmetrySideSign * angleOff;
+                    } else {
+                        // On longitudinal symmetry axis: stay squarely on side == 0
+                        forward = baseForward - vi.subtypeRepeatIndex * 3.0f;
+                        signedSide = 0f;
+                        targetRot = unit.rotation + angleOff;
+                    }
+
+                    targetX = unit.x + Angles.trnsx(unit.rotation, forward, signedSide);
+                    targetY = unit.y + Angles.trnsy(unit.rotation, forward, signedSide);
+                    vi.worldX = targetX;
+                    vi.worldY = targetY;
+
+                    if (vi.mode == AttachMode.SUBWEAPON && vi.spriteUnit != null) {
+                        vi.spriteUnit.team(unit.team);
+                        if (!vi.overloaded && (!Mathf.equal(stats.damageMult, 1f) || !Mathf.equal(stats.reloadMult, 1f))) {
+                            StatusEntry subDyn = vi.spriteUnit.applyDynamicStatus();
+                            subDyn.time = Float.POSITIVE_INFINITY;
+                            subDyn.damageMultiplier = stats.damageMult;
+                            subDyn.reloadMultiplier = stats.reloadMult;
+                        }
+                    }
                 }
                 case HALO -> {
-                    float spread = (sv.modeIndex - (sv.modeTotal - 1) * 0.5f) * 6.5f;
-                    float bob = Mathf.sin(Time.time * 0.08f + sv.modeIndex * 1.1f) * 1.6f;
-                    sv.label.set(spread, unit.hitSize * 0.72f + 8f + bob);
+                    collectHaloAnchors(unit, vi.def.haloAnchor, tmpAnchors);
+                    if (!tmpAnchors.isEmpty()) {
+                        int idx = Math.min(vi.anchorIndex, tmpAnchors.size - 1);
+                        Vec2 pt = tmpAnchors.get(idx);
+                        targetX = pt.x;
+                        targetY = pt.y;
+                    }
+                    targetRot = unit.rotation;
+                    vi.worldX = targetX;
+                    vi.worldY = targetY;
+
+                    // Emit configurable Mindustry Fx halo effect periodically at this anchor
+                    Effect fx = vi.def.resolveHaloFx();
+                    if (fx != null && vi.def.haloInterval > 0f) {
+                        vi.fxTimer += Time.delta;
+                        if (vi.fxTimer >= vi.def.haloInterval) {
+                            vi.fxTimer %= Math.max(4f, vi.def.haloInterval);
+                            Color col = vi.def.resolveHaloColor();
+                            Call.effect(fx, targetX, targetY, vi.def.haloRadius, col);
+                        }
+                    }
                 }
-                case TRAIL -> {
-                    float targetDist = (sv.modeIndex == 0) ? (unit.hitSize * 0.75f + 6f) : 7.5f;
-                    float anchorX = (sv.modeIndex == 0)
-                        ? unit.x + Angles.trnsx(rearAngle, targetDist)
-                        : prevTrailX + Angles.trnsx(rearAngle, 4f);
-                    float anchorY = (sv.modeIndex == 0)
-                        ? unit.y + Angles.trnsy(rearAngle, targetDist)
-                        : prevTrailY + Angles.trnsy(rearAngle, 4f);
-                    float lerp = Math.min(1f, 0.22f * Math.max(1f, Time.delta));
-                    sv.worldX = Mathf.lerp(sv.worldX, anchorX, lerp);
-                    sv.worldY = Mathf.lerp(sv.worldY, anchorY, lerp);
-                    sv.label.set(sv.worldX, sv.worldY);
-                    prevTrailX = sv.worldX;
-                    prevTrailY = sv.worldY;
+                case FOLLOW -> {
+                    float desiredDist = hullRadius + Math.max(4f, vi.def.followDistance);
+                    float relAngle = computeSymmetricFollowAngle(vi.modeIndex, vi.modeTotal);
+                    float formAngle = unit.rotation + 180f + relAngle;
+
+                    float bobPhase = Time.time * 0.065f + vi.modeIndex * 1.7f;
+                    float bobX = Angles.trnsx(formAngle + 90f, Mathf.sin(bobPhase) * 0.85f);
+                    float bobY = Angles.trnsy(formAngle + 90f, Mathf.sin(bobPhase) * 0.85f);
+
+                    float idealX = unit.x + Angles.trnsx(formAngle, desiredDist) + bobX;
+                    float idealY = unit.y + Angles.trnsy(formAngle, desiredDist) + bobY;
+
+                    float curDist = Mathf.dst(vi.worldX - unit.x, vi.worldY - unit.y);
+                    if (curDist > desiredDist * 4.5f || curDist < 0.01f) {
+                        // Snap cleanly into formation on initial spawn or teleport
+                        vi.worldX = idealX;
+                        vi.worldY = idealY;
+                    } else {
+                        float alpha = Math.min(1f, 0.13f * Math.max(1f, Time.delta));
+                        vi.worldX = Mathf.lerp(vi.worldX, idealX, alpha);
+                        vi.worldY = Mathf.lerp(vi.worldY, idealY, alpha);
+
+                        // Keep follower floating at its specific standoff band without collapsing onto unit
+                        float newDx = vi.worldX - unit.x;
+                        float newDy = vi.worldY - unit.y;
+                        float newDist = Mathf.len(newDx, newDy);
+                        float minAllowed = desiredDist * 0.82f;
+                        float maxAllowed = desiredDist * 1.35f;
+                        if (newDist > 0.001f && newDist < minAllowed) {
+                            float s = minAllowed / newDist;
+                            vi.worldX = unit.x + newDx * s;
+                            vi.worldY = unit.y + newDy * s;
+                        } else if (newDist > maxAllowed) {
+                            float s = maxAllowed / newDist;
+                            vi.worldX = unit.x + newDx * s;
+                            vi.worldY = unit.y + newDy * s;
+                        }
+                    }
+
+                    targetX = vi.worldX;
+                    targetY = vi.worldY;
+                    targetRot = unit.rotation;
                 }
             }
+
+            if (vi.spriteUnit != null) {
+                vi.spriteUnit.set(targetX, targetY);
+                vi.spriteUnit.rotation = targetRot;
+                vi.spriteUnit.elevation = (vi.mode == AttachMode.FOLLOW) ? 1f : unit.elevation;
+                vi.spriteUnit.vel.setZero();
+            } else if (vi.fallbackLabel != null) {
+                vi.fallbackLabel.set(targetX, targetY);
+            }
+        }
+    }
+
+    /**
+     * Symmetric rear-arc formation angles for floating {@link AttachMode#FOLLOW} companions:
+     * 1 follower -> 0 deg (straight behind);
+     * 2 followers -> +28 / -28 deg;
+     * 3 followers -> 0, +34, -34 deg; etc.
+     */
+    public static float computeSymmetricFollowAngle(int index, int total) {
+        if (total <= 1) return 0f;
+        if (total % 2 == 1) {
+            if (index == 0) return 0f;
+            int pair = (index + 1) / 2;
+            float sign = (index % 2 == 1) ? 1f : -1f;
+            return sign * pair * 32f;
+        } else {
+            int pair = index / 2;
+            float sign = (index % 2 == 0) ? 1f : -1f;
+            return sign * (24f + pair * 30f);
+        }
+    }
+
+    public static void collectHaloAnchors(Unit unit, HaloAnchor anchor, Seq<Vec2> out) {
+        out.clear();
+        if (unit == null) return;
+
+        switch (anchor) {
+            case WEAPONS -> {
+                if (unit.mounts != null && unit.mounts.length > 0) {
+                    for (WeaponMount m : unit.mounts) {
+                        if (m == null || m.weapon == null) continue;
+                        float wx = unit.x + Angles.trnsx(unit.rotation - 90f, m.weapon.x, m.weapon.y);
+                        float wy = unit.y + Angles.trnsy(unit.rotation - 90f, m.weapon.x, m.weapon.y);
+                        out.add(new Vec2(wx, wy));
+                    }
+                }
+                if (out.isEmpty()) {
+                    out.add(new Vec2(unit.x, unit.y));
+                }
+            }
+            case ENGINES -> {
+                if (unit.type != null && unit.type.engines != null && !unit.type.engines.isEmpty()) {
+                    for (UnitEngine eng : unit.type.engines) {
+                        float ex = unit.x + Angles.trnsx(unit.rotation - 90f, eng.x, eng.y);
+                        float ey = unit.y + Angles.trnsy(unit.rotation - 90f, eng.x, eng.y);
+                        out.add(new Vec2(ex, ey));
+                    }
+                }
+                if (out.isEmpty() && unit.type != null && unit.type.engineSize > 0f) {
+                    float ex = unit.x + Angles.trnsx(unit.rotation + 180f, unit.type.engineOffset);
+                    float ey = unit.y + Angles.trnsy(unit.rotation + 180f, unit.type.engineOffset);
+                    out.add(new Vec2(ex, ey));
+                }
+                if (out.isEmpty()) {
+                    float rearOff = Math.max(3f, unit.hitSize * 0.36f);
+                    out.add(new Vec2(
+                        unit.x + Angles.trnsx(unit.rotation + 180f, rearOff),
+                        unit.y + Angles.trnsy(unit.rotation + 180f, rearOff)
+                    ));
+                }
+            }
+            case CENTER -> out.add(new Vec2(unit.x, unit.y));
         }
     }
 
     private VisualRig createRig(Unit unit, Seq<String> equippedIds, String sig) {
         VisualRig rig = new VisualRig();
         rig.unitId = unit.id;
+        rig.teamId = unit.team.id;
         rig.signature = sig;
 
         Catalog cat = getCatalog();
         int n = Math.min(MAX_EQUIPPED_SLOTS, equippedIds.size);
+        float hullRadius = Math.max(4f, unit.hitSize * 0.5f);
 
-        int[] totals = new int[AttachMode.values().length];
+        int followTotal = 0;
         for (int i = 0; i < n; i++) {
             ShopItemDef def = cat.findItem(equippedIds.get(i));
-            AttachMode m = def != null ? def.attachMode : AttachMode.ORBIT;
-            totals[m.ordinal()]++;
+            if (def != null && def.attachMode == AttachMode.FOLLOW) {
+                followTotal++;
+            }
         }
 
-        int[] indices = new int[AttachMode.values().length];
+        ObjectIntMap<MountSubtype> subtypeCounts = new ObjectIntMap<>();
+        int followIdx = 0;
+
         for (int i = 0; i < n; i++) {
             String itemId = equippedIds.get(i);
             ShopItemDef def = cat.findItem(itemId);
-            AttachMode mode = def != null ? def.attachMode : AttachMode.ORBIT;
+            if (def == null) continue;
+
+            AttachMode mode = def.attachMode;
             boolean overloaded = i >= ACTIVE_PASSIVE_SLOTS;
-            int idx = indices[mode.ordinal()]++;
-            int tot = totals[mode.ordinal()];
 
-            String hex = overloaded ? "ff6b6b" : (def != null ? def.colorHex : "ffd37f");
-            String glyph = def != null ? def.worldGlyph() : "*";
+            switch (mode) {
+                case MOUNT, SUBWEAPON -> {
+                    int repeatIdx = subtypeCounts.get(def.mountSubtype, 0);
+                    subtypeCounts.put(def.mountSubtype, repeatIdx + 1);
 
-            WorldLabel wl = WorldLabel.create();
-            if (mode != AttachMode.TRAIL) {
-                wl.parent = unit;
-                wl.set(0f, unit.hitSize);
-            } else {
-                wl.parent = null;
-                wl.set(unit.x, unit.y);
+                    boolean offAxis = def.isSymmetricallyDuplicated(hullRadius);
+                    if (offAxis) {
+                        // Symmetrical duplication across longitudinal axis (+1 left, -1 right)!
+                        rig.instances.add(spawnVisualEntity(unit, def, mode, overloaded, +1f, repeatIdx, 0, 0, 2));
+                        rig.instances.add(spawnVisualEntity(unit, def, mode, overloaded, -1f, repeatIdx, 0, 1, 2));
+                    } else {
+                        rig.instances.add(spawnVisualEntity(unit, def, mode, overloaded, 0f, repeatIdx, 0, 0, 1));
+                    }
+                }
+                case HALO -> {
+                    Seq<Vec2> anchors = new Seq<>();
+                    collectHaloAnchors(unit, def.haloAnchor, anchors);
+                    int count = Math.max(1, anchors.size);
+                    for (int a = 0; a < count; a++) {
+                        rig.instances.add(spawnVisualEntity(unit, def, mode, overloaded, 0f, 0, a, a, count));
+                    }
+                }
+                case FOLLOW -> {
+                    int myFollowIdx = followIdx++;
+                    float desiredDist = hullRadius + Math.max(4f, def.followDistance);
+                    float relAngle = computeSymmetricFollowAngle(myFollowIdx, followTotal);
+                    float startX = unit.x + Angles.trnsx(unit.rotation + 180f + relAngle, desiredDist);
+                    float startY = unit.y + Angles.trnsy(unit.rotation + 180f + relAngle, desiredDist);
+                    VisualInstance inst = spawnVisualEntity(unit, def, mode, overloaded, 0f, 0, 0, myFollowIdx, followTotal);
+                    inst.worldX = startX;
+                    inst.worldY = startY;
+                    if (inst.spriteUnit != null) {
+                        inst.spriteUnit.set(startX, startY);
+                    }
+                    rig.instances.add(inst);
+                }
             }
-            wl.fontSize = overloaded ? 0.65f : 0.78f;
-            wl.flags = WorldLabel.flagOutline;
-            wl.text = "[#" + hex + "]" + glyph + "[]";
-            wl.add();
-
-            rig.slots.add(new SlotVisual(itemId, mode, overloaded, idx, tot, wl, unit.x, unit.y));
         }
 
         return rig;
     }
 
-    private static boolean anyLabelRemoved(VisualRig rig) {
-        for (int i = 0; i < rig.slots.size; i++) {
-            WorldLabel l = rig.slots.get(i).label;
-            if (l == null || !l.isAdded()) return true;
+    private VisualInstance spawnVisualEntity(
+        Unit hostUnit,
+        ShopItemDef def,
+        AttachMode mode,
+        boolean overloaded,
+        float symmetrySideSign,
+        int subtypeRepeatIndex,
+        int anchorIndex,
+        int modeIndex,
+        int modeTotal
+    ) {
+        UnitType visType = (Vars.content != null) ? Vars.content.unit(def.visualUnitName()) : null;
+        Unit spriteUnit = null;
+        WorldLabel fallbackLabel = null;
+
+        if (visType != null) {
+            Team spawnTeam = (mode == AttachMode.SUBWEAPON) ? hostUnit.team : Team.derelict;
+            spriteUnit = visType.create(spawnTeam);
+            if (mode == AttachMode.SUBWEAPON) {
+                spriteUnit.controller(new SubweaponAI(hostUnit, !overloaded));
+            } else {
+                spriteUnit.controller(new InertVisualAI());
+            }
+            spriteUnit.set(hostUnit.x, hostUnit.y);
+            spriteUnit.rotation = hostUnit.rotation;
+            spriteUnit.elevation = (mode == AttachMode.FOLLOW) ? 1f : hostUnit.elevation;
+            spriteUnit.add();
+        } else {
+            String hex = overloaded ? "ff6b6b" : def.colorHex;
+            fallbackLabel = WorldLabel.create();
+            fallbackLabel.parent = null;
+            fallbackLabel.set(hostUnit.x, hostUnit.y);
+            fallbackLabel.fontSize = overloaded ? 0.65f : 0.78f;
+            fallbackLabel.flags = WorldLabel.flagOutline;
+            fallbackLabel.text = "[#" + hex + "]" + def.worldGlyph() + "[]";
+            fallbackLabel.add();
+        }
+
+        return new VisualInstance(
+            def,
+            mode,
+            overloaded,
+            symmetrySideSign,
+            subtypeRepeatIndex,
+            anchorIndex,
+            modeIndex,
+            modeTotal,
+            spriteUnit,
+            fallbackLabel,
+            hostUnit.x,
+            hostUnit.y
+        );
+    }
+
+    private static boolean anyVisualRemoved(VisualRig rig) {
+        for (int i = 0; i < rig.instances.size; i++) {
+            if (!rig.instances.get(i).isAliveInWorld()) return true;
         }
         return false;
     }
@@ -641,28 +1026,38 @@ public class PlayerItemSystem {
     public int countActiveVisualLabelsForPlayer(Player player) {
         if (player == null) return 0;
         VisualRig rig = activeRigs.get(player.uuid());
-        return rig == null ? 0 : rig.slots.size;
+        return rig == null ? 0 : rig.instances.size;
     }
 
-    private void destroyRig(String uuid) {
-        VisualRig old = activeRigs.remove(uuid);
-        if (old == null) return;
-        for (int i = 0; i < old.slots.size; i++) {
-            WorldLabel wl = old.slots.get(i).label;
-            if (wl != null) {
-                try {
-                    wl.hide();
-                } catch (Throwable ignored) {
-                    wl.remove();
-                }
+    public Seq<Unit> getActiveVisualUnitsForPlayer(Player player) {
+        if (player == null) return new Seq<>();
+        return getActiveVisualUnitsByKey(player.uuid());
+    }
+
+    public Seq<Unit> getActiveVisualUnitsByKey(String rigKey) {
+        Seq<Unit> out = new Seq<>();
+        VisualRig rig = activeRigs.get(rigKey);
+        if (rig == null) return out;
+        for (VisualInstance vi : rig.instances) {
+            if (vi.spriteUnit != null && vi.spriteUnit.isAdded()) {
+                out.add(vi.spriteUnit);
             }
         }
-        old.slots.clear();
+        return out;
     }
 
-    private void clearAllRigs() {
-        for (String uuid : activeRigs.keys().toSeq()) {
-            destroyRig(uuid);
+    public void destroyRig(String rigKey) {
+        VisualRig old = activeRigs.remove(rigKey);
+        if (old == null) return;
+        for (int i = 0; i < old.instances.size; i++) {
+            old.instances.get(i).removeFromWorld();
+        }
+        old.instances.clear();
+    }
+
+    public void clearAllRigs() {
+        for (String key : activeRigs.keys().toSeq()) {
+            destroyRig(key);
         }
         activeRigs.clear();
     }

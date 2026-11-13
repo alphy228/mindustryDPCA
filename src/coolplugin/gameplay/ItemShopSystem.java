@@ -9,6 +9,7 @@ import arc.util.Interval;
 import arc.util.Log;
 import arc.util.Nullable;
 import arc.util.Time;
+import coolplugin.database.AccountRecord;
 import coolplugin.database.PlayerDatabase;
 import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.ShopItemDef.StationTier;
@@ -53,6 +54,9 @@ public class ItemShopSystem {
     private final BuildSystem buildSystem;
     private final PlayerUnitSystem playerUnitSystem;
     private final TechTreeService techTree;
+    private final @Nullable LaunchPadSystem launchPadSystem;
+    private final PlayerDatabase database;
+    private final PlayerSessionManager sessionManager;
     private final ItemShopMenu shopMenu;
     private final Interval timer = new Interval(1);
     private float phaseDeg = 0f;
@@ -66,10 +70,25 @@ public class ItemShopSystem {
         PlayerDatabase database,
         PlayerSessionManager sessionManager
     ) {
+        this(itemSystem, buildSystem, playerUnitSystem, techTree, null, database, sessionManager);
+    }
+
+    public ItemShopSystem(
+        PlayerItemSystem itemSystem,
+        BuildSystem buildSystem,
+        PlayerUnitSystem playerUnitSystem,
+        TechTreeService techTree,
+        @Nullable LaunchPadSystem launchPadSystem,
+        PlayerDatabase database,
+        PlayerSessionManager sessionManager
+    ) {
         this.itemSystem = itemSystem;
         this.buildSystem = buildSystem;
         this.playerUnitSystem = playerUnitSystem;
         this.techTree = techTree;
+        this.launchPadSystem = launchPadSystem;
+        this.database = database;
+        this.sessionManager = sessionManager;
         this.shopMenu = new ItemShopMenu(itemSystem, buildSystem, database, sessionManager);
     }
 
@@ -111,6 +130,107 @@ public class ItemShopSystem {
                 }
             }
         );
+
+        handler.register(
+            "wipedata",
+            "<player>",
+            "Wipes all persistent & live gameplay data for a player or account.",
+            args -> wipePlayerData(args[0])
+        );
+
+        handler.register(
+            "infitems",
+            "<player>",
+            "Places an overfilled 'infinite items' container (2147483647 of every item) near a player.",
+            args -> placeInfiniteItemsNear(args[0])
+        );
+
+        handler.register(
+            "infiniteitems",
+            "<player>",
+            "Alias for infitems: places an overfilled container (2147483647 of every item) near a player.",
+            args -> placeInfiniteItemsNear(args[0])
+        );
+    }
+
+    public boolean wipePlayerData(String query) {
+        if (query == null || query.isBlank()) {
+            Log.warn("[CoolPlugin] Usage: wipedata <playerOrLoginOrUuid>");
+            return false;
+        }
+
+        Player online = findOnlinePlayer(query);
+        AccountRecord targetAccount = null;
+
+        if (online != null) {
+            targetAccount = sessionManager.getOrInitSession(online);
+        } else {
+            targetAccount = database.findByLoginOrUuid(query.trim());
+            if (targetAccount != null && Groups.player != null) {
+                long targetId = targetAccount.id;
+                for (Player p : Groups.player) {
+                    if (p == null || p.con == null || !p.con.isConnected()) continue;
+                    AccountRecord active = sessionManager.getActiveSession(p.uuid());
+                    if (active != null && active.id == targetId) {
+                        online = p;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (targetAccount == null) {
+            Log.warn("[CoolPlugin] wipedata: No online player or saved account matched '@'.", query);
+            return false;
+        }
+
+        if (!database.wipeAccountData(targetAccount.id)) {
+            Log.warn("[CoolPlugin] wipedata: Database wipe failed for account #@.", targetAccount.id);
+            return false;
+        }
+
+        if (launchPadSystem != null) {
+            launchPadSystem.onAccountWiped(targetAccount.id);
+        }
+        itemSystem.onPlayerDataWiped(online);
+        playerUnitSystem.onPlayerDataWiped(online);
+        techTree.onAccountWiped(targetAccount.id, online);
+        shopMenu.refreshOpenSession(online);
+
+        if (online != null) {
+            online.sendMessage("[scarlet]Your player data has been wiped by the server.[]");
+        }
+
+        String label = targetAccount.login != null
+            ? targetAccount.login
+            : (targetAccount.lastName != null ? targetAccount.lastName : ("#" + targetAccount.id));
+        Log.info(
+            "[CoolPlugin] Wiped all data for account #@ ('@', online=@).",
+            targetAccount.id, label, online != null
+        );
+        return true;
+    }
+
+    public @Nullable Building placeInfiniteItemsNear(String query) {
+        Player target = findOnlinePlayer(query);
+        if (target == null) {
+            Log.warn("[CoolPlugin] infitems: No connected player matched '@'.", query);
+            return null;
+        }
+        Building placed = buildSystem.placeInfiniteItemsContainerNear(target);
+        if (placed == null) {
+            Log.warn("[CoolPlugin] infitems: Could not find a valid tile near '@'.", target.plainName());
+            return null;
+        }
+        target.sendMessage(
+            "[accent]An overfilled Infinite Items container (" + Integer.MAX_VALUE
+                + " of every item) was placed near you at (" + placed.tileX() + ", " + placed.tileY() + ").[]"
+        );
+        Log.info(
+            "[CoolPlugin] Placed Infinite Items container (@ of every item) near '@' at (@, @).",
+            Integer.MAX_VALUE, target.plainName(), placed.tileX(), placed.tileY()
+        );
+        return placed;
     }
 
     public boolean forceOpenMenuForPlayer(Player player, String menuKey) {

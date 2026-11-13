@@ -1066,6 +1066,51 @@ public class PlayerDatabase implements AutoCloseable {
         }
     }
 
+    /**
+     * Wipes all gameplay data for {@code accountId} across every faction:
+     * saved faction units, Tech Tree unlocks/payments/flags, persistent Launch Pad orbital storage,
+     * and equipped/stashed shop items.
+     */
+    public synchronized boolean wipeAccountData(long accountId) {
+        ensureOpen();
+        try {
+            boolean origAuto = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                for (String table : new String[]{
+                    "account_factions",
+                    "account_tech_progress",
+                    "account_orbital_storage",
+                    "account_equipped_items"
+                }) {
+                    try (PreparedStatement del = connection.prepareStatement(
+                        "DELETE FROM " + table + " WHERE account_id = ?"
+                    )) {
+                        del.setLong(1, accountId);
+                        del.executeUpdate();
+                    }
+                }
+                try (PreparedStatement upd = connection.prepareStatement(
+                    "UPDATE accounts SET updated_at = ? WHERE id = ?"
+                )) {
+                    upd.setLong(1, System.currentTimeMillis());
+                    upd.setLong(2, accountId);
+                    upd.executeUpdate();
+                }
+                connection.commit();
+                return true;
+            } catch (SQLException ex) {
+                connection.rollback();
+                throw ex;
+            } finally {
+                connection.setAutoCommit(origAuto);
+            }
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] Failed wiping data for account #" + accountId, e);
+            return false;
+        }
+    }
+
     private static AccountRecord mapAccount(ResultSet rs) throws SQLException {
         return new AccountRecord(
             rs.getLong("id"),

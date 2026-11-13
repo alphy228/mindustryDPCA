@@ -9,9 +9,12 @@ import arc.util.serialization.JsonReader;
 import arc.util.serialization.JsonValue;
 import arc.util.serialization.Jval;
 import coolplugin.gameplay.ShopItemDef.AttachMode;
+import coolplugin.gameplay.ShopItemDef.HaloAnchor;
 import coolplugin.gameplay.ShopItemDef.ItemIngredient;
+import coolplugin.gameplay.ShopItemDef.MountSubtype;
 import coolplugin.gameplay.ShopItemDef.OrbitalTradeDef;
 import coolplugin.gameplay.ShopItemDef.ResourceCost;
+import coolplugin.gameplay.ShopItemDef.ShopCategory;
 import coolplugin.gameplay.ShopItemDef.StationTier;
 
 /**
@@ -20,6 +23,10 @@ import coolplugin.gameplay.ShopItemDef.StationTier;
  *   <li>15 placeholder items for {@link StationTier#WORKBENCH} ({@code wb-01 .. wb-15})</li>
  *   <li>15 placeholder items for {@link StationTier#BAZAAR} ({@code bz-01 .. bz-15})</li>
  *   <li>15 placeholder items for {@link StationTier#CURSED_ALTAR} ({@code ca-01 .. ca-15})</li>
+ *   <li>4 Deadlock-style categories ({@code Resource}, {@code Attack}, {@code Defense}, {@code Utility})</li>
+ *   <li>4 world attachment systems ({@code MOUNT} with subtypes &amp; auto-symmetry, {@code HALO} on
+ *       {@code CENTER}/{@code WEAPONS}/{@code ENGINES} with configurable {@code Fx} effects,
+ *       {@code FOLLOW} floating standoff companions, and {@code SUBWEAPON} active unit weapons).</li>
  *   <li>Orbital merchant ship trades for the Bazaar (exchanging persistent Launch Pad orbital storage).</li>
  * </ul>
  */
@@ -52,6 +59,10 @@ public final class ShopConfigIO {
 
         public Seq<ShopItemDef> itemsForTier(StationTier tier) {
             return items.select(i -> i.tier == tier);
+        }
+
+        public Seq<ShopItemDef> itemsForTierAndCategory(StationTier tier, ShopCategory category) {
+            return items.select(i -> i.tier == tier && i.category == category);
         }
     }
 
@@ -89,9 +100,25 @@ public final class ShopConfigIO {
                 item.description = v.getString("description", "");
                 StationTier tier = StationTier.byIdOrBlock(v.getString("tier", "workbench"));
                 item.tier = tier != null ? tier : StationTier.WORKBENCH;
+                item.category = ShopCategory.parse(v.getString("category", inferCategory(item).id));
+                item.sprite = v.getString("sprite", "shop-" + item.id);
                 item.iconItem = v.getString("iconItem", "copper");
                 item.colorHex = v.getString("colorHex", item.tier.accentHex);
-                item.attachMode = AttachMode.parse(v.getString("attachMode", "ORBIT"));
+                item.attachMode = AttachMode.parse(v.getString("attachMode", "FOLLOW"));
+
+                item.mountSubtype = MountSubtype.parse(v.getString("mountSubtype", null), item.attachMode);
+                item.mountForwardOffset = v.getFloat("mountForwardOffset", 0f);
+                item.mountSideOffset = v.getFloat("mountSideOffset", 0f);
+                item.mountAngleOffset = v.has("mountAngleOffset") ? v.getFloat("mountAngleOffset", 0f) : Float.NaN;
+
+                item.haloAnchor = HaloAnchor.parse(v.getString("haloAnchor", "CENTER"));
+                item.haloEffect = v.getString("haloEffect", "dynamicWave");
+                item.haloColorHex = v.getString("haloColorHex", "");
+                item.haloRadius = v.getFloat("haloRadius", 12f);
+                item.haloInterval = v.getFloat("haloInterval", 26f);
+
+                item.followDistance = v.getFloat("followDistance", 10.5f);
+
                 item.craftable = v.getBoolean("craftable", true);
                 item.decraftable = v.getBoolean("decraftable", true);
 
@@ -112,6 +139,9 @@ public final class ShopConfigIO {
                             item.itemCosts.add(new ItemIngredient(e.name, amt));
                         }
                     }
+                }
+                if (!v.has("category")) {
+                    item.category = inferCategory(item);
                 }
                 cat.items.add(item);
             }
@@ -137,352 +167,123 @@ public final class ShopConfigIO {
         return cat;
     }
 
-    private static void parseResourceMap(@Nullable JsonValue obj, Seq<ResourceCost> target) {
+    private static ShopCategory inferCategory(ShopItemDef item) {
+        if (!item.craftable && item.decraftable) return ShopCategory.RESOURCE;
+        if (item.damageMultBonus > 0f || item.reloadMultBonus > 0f) return ShopCategory.ATTACK;
+        if (item.healthMultBonus > 0f || item.armorBonus > 0f || item.regenPerSec > 0f) return ShopCategory.DEFENSE;
+        if (item.speedMultBonus > 0f || item.buildSpeedMultBonus > 0f) return ShopCategory.UTILITY;
+        return ShopCategory.RESOURCE;
+    }
+
+    private static void parseResourceMap(@Nullable JsonValue obj, Seq<ResourceCost> dest) {
         if (obj == null || !obj.isObject()) return;
         for (JsonValue e = obj.child; e != null; e = e.next) {
             int amt = e.asInt();
             if (e.name != null && amt > 0) {
-                target.add(new ResourceCost(e.name, amt));
+                dest.add(new ResourceCost(e.name, amt));
             }
         }
     }
 
-    public static Catalog createDefaultCatalog() {
-        Catalog cat = new Catalog();
-
-        // =========================================================================
-        // TIER 1: WORKBENCH — 15 Placeholder Items (wb-01 .. wb-15)
-        // Includes standard crafts, item-ingredient upgrades, and decraft-only salvage relics!
-        // =========================================================================
-        cat.items.add(item("wb-01", "Copper Plating I", "Basic hull plating bolted onto unit frame.",
-            StationTier.WORKBENCH, "copper", "d99d73", AttachMode.MOUNT, true, true,
-            0.08f, 0f, 0f, 0f, 0f, 1f, 0f,
-            res("copper", 80, "lead", 40), noItems()));
-
-        cat.items.add(item("wb-02", "Lead Counterweight", "Stabilizes recoil for heavier shots.",
-            StationTier.WORKBENCH, "lead", "8c7fa9", AttachMode.MOUNT, true, true,
-            0f, 0.08f, 0f, 0f, 0f, 0f, 0f,
-            res("lead", 90, "copper", 45), noItems()));
-
-        cat.items.add(item("wb-03", "Graphite Gyro", "Revolving gyroscopic ring boosting maneuver speed.",
-            StationTier.WORKBENCH, "graphite", "b2c6d2", AttachMode.ORBIT, true, true,
-            0f, 0f, 0.08f, 0f, 0f, 0f, 0f,
-            res("graphite", 45, "copper", 60), noItems()));
-
-        cat.items.add(item("wb-04", "Sandglass Capacitor", "Cycles weapon chambers slightly faster.",
-            StationTier.WORKBENCH, "metaglass", "ebeef5", AttachMode.HALO, true, true,
-            0f, 0f, 0f, 0.08f, 0f, 0f, 0f,
-            res("metaglass", 40, "lead", 60), noItems()));
-
-        cat.items.add(item("wb-05", "Builder's Servo", "Auxiliary construction drone trailing your unit.",
-            StationTier.WORKBENCH, "silicon", "8e909c", AttachMode.TRAIL, true, true,
-            0f, 0f, 0f, 0f, 0.20f, 0f, 0f,
-            res("silicon", 50, "copper", 80), noItems()));
-
-        cat.items.add(item("wb-06", "Coal Burner Core", "Warm trailing ember granting mild hull repair.",
-            StationTier.WORKBENCH, "coal", "ffb36b", AttachMode.TRAIL, true, true,
-            0f, 0f, 0.04f, 0f, 0f, 0f, 2.0f,
-            res("coal", 60, "copper", 70), noItems()));
-
-        cat.items.add(item("wb-07", "Scrap Buckler", "Improvised orbiting debris shield.",
-            StationTier.WORKBENCH, "scrap", "b08968", AttachMode.ORBIT, true, true,
-            0.05f, 0f, 0f, 0f, 0f, 2f, 0f,
-            res("scrap", 100, "lead", 50), noItems()));
-
-        cat.items.add(item("wb-08", "Pyratite Sparkplug", "Volatile igniter boosting weapon output.",
-            StationTier.WORKBENCH, "pyratite", "ffaa5f", AttachMode.MOUNT, true, true,
-            0f, 0.12f, 0f, 0.04f, 0f, 0f, 0f,
-            res("pyratite", 25, "lead", 80), noItems()));
-
-        cat.items.add(item("wb-09", "Spore Poultice", "Living spore halo that slowly mends armor cracks.",
-            StationTier.WORKBENCH, "spore-pod", "9d7fe8", AttachMode.HALO, true, true,
-            0.06f, 0f, 0f, 0f, 0f, 0f, 3.0f,
-            res("spore-pod", 35, "graphite", 40), noItems()));
-
-        cat.items.add(item("wb-10", "Silicon Sight", "Precision targeting halo.",
-            StationTier.WORKBENCH, "silicon", "a3e7fc", AttachMode.HALO, true, true,
-            0f, 0.07f, 0f, 0.09f, 0f, 0f, 0f,
-            res("silicon", 75, "metaglass", 40), noItems()));
-
-        // Workbench composite crafts consuming earlier Workbench "items" + resources!
-        cat.items.add(item("wb-11", "Reinforced Copper Aegis", "Upgrades Copper Plating I with Graphite Gyro.",
-            StationTier.WORKBENCH, "copper", "ffd37f", AttachMode.ORBIT, true, true,
-            0.14f, 0f, 0.06f, 0f, 0f, 3f, 0f,
-            res("copper", 120, "graphite", 50), ing("wb-01", 1, "wb-03", 1)));
-
-        cat.items.add(item("wb-12", "Overclocked Rig", "Fuses Builder's Servo and Sandglass Capacitor.",
-            StationTier.WORKBENCH, "metaglass", "98ffd9", AttachMode.TRAIL, true, true,
-            0f, 0f, 0.05f, 0.10f, 0.30f, 0f, 0f,
-            res("silicon", 60, "graphite", 40), ing("wb-04", 1, "wb-05", 1)));
-
-        cat.items.add(item("wb-13", "Heavy Striker Frame", "Combines Lead Counterweight with Pyratite Sparkplug.",
-            StationTier.WORKBENCH, "pyratite", "ff8c66", AttachMode.MOUNT, true, true,
-            0.05f, 0.16f, 0f, 0.06f, 0f, 1f, 0f,
-            res("lead", 120, "silicon", 40), ing("wb-02", 1, "wb-08", 1)));
-
-        // Non-craftable Workbench salvage items (craftable=false, decraftable=true) — break down into resources!
-        cat.items.add(item("wb-14", "Ancient Copper Relic", "Non-craftable salvage core. Can be equipped or decrafted for rich copper & silicon.",
-            StationTier.WORKBENCH, "copper", "ffbe76", AttachMode.HALO, false, true,
-            0.10f, 0.05f, 0f, 0f, 0.15f, 2f, 0f,
-            res("copper", 220, "silicon", 90, "graphite", 60), noItems()));
-
-        cat.items.add(item("wb-15", "Sealed Smelter Core", "Non-craftable salvaged furnace heart. Decraft at Workbench/Bazaar to reclaim materials.",
-            StationTier.WORKBENCH, "graphite", "ff9f43", AttachMode.ORBIT, false, true,
-            0f, 0.10f, 0.05f, 0.05f, 0f, 0f, 2.5f,
-            res("lead", 200, "graphite", 120, "metaglass", 80), noItems()));
-
-        // =========================================================================
-        // TIER 2: BAZAAR — 15 Placeholder Items (bz-01 .. bz-15)
-        // =========================================================================
-        cat.items.add(item("bz-01", "Titanium Carapace", "High-grade titanium hull plates.",
-            StationTier.BAZAAR, "titanium", "8da1e3", AttachMode.MOUNT, true, true,
-            0.18f, 0f, 0f, 0f, 0f, 4f, 0f,
-            res("titanium", 120, "graphite", 90), ing("wb-01", 1)));
-
-        cat.items.add(item("bz-02", "Cryo-Cooled Breech", "Rapid-fire weapon cycling module.",
-            StationTier.BAZAAR, "titanium", "7fe6ff", AttachMode.MOUNT, true, true,
-            0f, 0.08f, 0f, 0.18f, 0f, 0f, 0f,
-            res("titanium", 90, "metaglass", 80, "silicon", 100), noItems()));
-
-        cat.items.add(item("bz-03", "Orbital Thruster Ring", "Sleek cyan thruster ring accelerating movement.",
-            StationTier.BAZAAR, "silicon", "66f2ff", AttachMode.ORBIT, true, true,
-            0f, 0f, 0.16f, 0f, 0f, 0f, 0f,
-            res("titanium", 80, "silicon", 140, "graphite", 80), ing("wb-03", 1)));
-
-        cat.items.add(item("bz-04", "Blast Munitions Rack", "Explosive payload feed boosting weapon damage.",
-            StationTier.BAZAAR, "blast-compound", "ff795e", AttachMode.MOUNT, true, true,
-            0f, 0.22f, 0f, 0f, 0f, 0f, 0f,
-            res("blast-compound", 45, "titanium", 80, "lead", 150), noItems()));
-
-        cat.items.add(item("bz-05", "Plastanium Dampener", "Absorptive composite ring reducing incoming trauma.",
-            StationTier.BAZAAR, "plastanium", "cbd97e", AttachMode.ORBIT, true, true,
-            0.15f, 0f, 0.04f, 0f, 0f, 5f, 3.0f,
-            res("plastanium", 60, "titanium", 100, "silicon", 80), noItems()));
-
-        cat.items.add(item("bz-06", "Architect Drone Swarm", "Twin trailing fab-drones dramatically boosting build speed.",
-            StationTier.BAZAAR, "silicon", "98ffd9", AttachMode.TRAIL, true, true,
-            0f, 0f, 0.06f, 0f, 0.55f, 0f, 0f,
-            res("silicon", 180, "titanium", 90, "graphite", 100), ing("wb-05", 1)));
-
-        cat.items.add(item("bz-07", "Thorium Reactor Core", "Dense fissile power pack amplifying damage & reload.",
-            StationTier.BAZAAR, "thorium", "f9a3c7", AttachMode.HALO, true, true,
-            0.08f, 0.16f, 0f, 0.12f, 0f, 0f, 0f,
-            res("thorium", 80, "titanium", 100, "lead", 200), noItems()));
-
-        cat.items.add(item("bz-08", "Phase Blink Feather", "Shifting phase wake increasing speed and regeneration.",
-            StationTier.BAZAAR, "phase-fabric", "f4ba6e", AttachMode.TRAIL, true, true,
-            0f, 0f, 0.18f, 0.06f, 0f, 0f, 5.0f,
-            res("phase-fabric", 40, "silicon", 150), noItems()));
-
-        cat.items.add(item("bz-09", "Surge Dynamo", " Crackling arc halo supercharging weapons and servos.",
-            StationTier.BAZAAR, "surge-alloy", "f3e979", AttachMode.HALO, true, true,
-            0f, 0.20f, 0.08f, 0.14f, 0f, 0f, 0f,
-            res("surge-alloy", 40, "titanium", 120, "silicon", 140), noItems()));
-
-        cat.items.add(item("bz-10", "Beryllium Lattice", "Lightweight off-world lattice plating.",
-            StationTier.BAZAAR, "beryllium", "8be89c", AttachMode.ORBIT, true, true,
-            0.14f, 0f, 0.08f, 0f, 0.25f, 3f, 0f,
-            res("titanium", 110, "silicon", 110, "metaglass", 90), noItems()));
-
-        cat.items.add(item("bz-11", "Vanguard Bastion Rig", "Fuses Reinforced Copper Aegis with Titanium Carapace.",
-            StationTier.BAZAAR, "titanium", "74b9ff", AttachMode.ORBIT, true, true,
-            0.28f, 0f, 0.05f, 0f, 0f, 7f, 4.0f,
-            res("titanium", 180, "silicon", 120), ing("wb-11", 1, "bz-01", 1)));
-
-        cat.items.add(item("bz-12", "Starlance Targeting Array", "Combines Heavy Striker Frame and Cryo-Cooled Breech.",
-            StationTier.BAZAAR, "surge-alloy", "ffeaa7", AttachMode.HALO, true, true,
-            0f, 0.26f, 0f, 0.20f, 0f, 0f, 0f,
-            res("silicon", 200, "titanium", 120), ing("wb-13", 1, "bz-02", 1)));
-
-        cat.items.add(item("bz-13", "Slipstream Vector Engine", "Combines Orbital Thruster Ring with Overclocked Rig.",
-            StationTier.BAZAAR, "phase-fabric", "81ecec", AttachMode.TRAIL, true, true,
-            0f, 0f, 0.22f, 0.12f, 0.40f, 0f, 0f,
-            res("titanium", 140, "silicon", 160), ing("bz-03", 1, "wb-12", 1)));
-
-        // Non-craftable Bazaar orbital salvage items (traded from ships; decraftable at Workbench/Bazaar!)
-        cat.items.add(item("bz-14", "Orbital Vault Capsule", "Non-craftable merchant capsule. Equip for armor or decraft into titanium & silicon.",
-            StationTier.BAZAAR, "titanium", "7fe6ff", AttachMode.ORBIT, false, true,
-            0.16f, 0f, 0.06f, 0f, 0.20f, 4f, 3.0f,
-            res("titanium", 260, "silicon", 220, "graphite", 180), noItems()));
-
-        cat.items.add(item("bz-15", "Starfarer's Blackbox", "Non-craftable orbital flight core. Equip or decraft to harvest surge, thorium & phase.",
-            StationTier.BAZAAR, "surge-alloy", "ffd37f", AttachMode.HALO, false, true,
-            0.12f, 0.14f, 0.10f, 0.10f, 0f, 2f, 4.0f,
-            res("thorium", 150, "plastanium", 120, "phase-fabric", 80, "surge-alloy", 60), noItems()));
-
-        // =========================================================================
-        // TIER 3: CURSED ALTAR — 15 Placeholder Items (ca-01 .. ca-15)
-        // Exclusive Cursed Altar ritual crafts (not part of Workbench/Bazaar craft tabs)
-        // =========================================================================
-        cat.items.add(item("ca-01", "Crimson Soulshard", "Throbbing blood-red crystal orbiting its host.",
-            StationTier.CURSED_ALTAR, "thorium", "ff4b6e", AttachMode.ORBIT, true, true,
-            0.25f, 0.25f, 0f, 0f, 0f, 0f, 6.0f,
-            res("copper", 300, "lead", 300, "silicon", 200), noItems()));
-
-        cat.items.add(item("ca-02", "Abyssal Fang", "Twin cursed fangs mounted to your unit's flanks.",
-            StationTier.CURSED_ALTAR, "blast-compound", "ff2e63", AttachMode.MOUNT, true, true,
-            0f, 0.40f, 0.05f, 0.15f, 0f, 0f, 0f,
-            res("blast-compound", 80, "pyratite", 80, "silicon", 200), noItems()));
-
-        cat.items.add(item("ca-03", "Wraithstep Shroud", "Ghostly trailing wake bending inertia.",
-            StationTier.CURSED_ALTAR, "spore-pod", "b565ff", AttachMode.TRAIL, true, true,
-            0f, 0f, 0.32f, 0.15f, 0f, 0f, 5.0f,
-            res("spore-pod", 120, "graphite", 250, "silicon", 200), noItems()));
-
-        cat.items.add(item("ca-04", "Crown of Embers", "Blazing ritual halo raining rapid devastation.",
-            StationTier.CURSED_ALTAR, "pyratite", "ff6b4a", AttachMode.HALO, true, true,
-            0f, 0.25f, 0f, 0.35f, 0f, 0f, 0f,
-            res("coal", 300, "pyratite", 120, "metaglass", 200), noItems()));
-
-        cat.items.add(item("ca-05", "Obsidian Carapace", "Impenetrable cursed monolith plates.",
-            StationTier.CURSED_ALTAR, "carbide", "9d4edd", AttachMode.MOUNT, true, true,
-            0.45f, 0f, -0.04f, 0f, 0f, 12f, 8.0f,
-            res("titanium", 300, "graphite", 300, "lead", 500), noItems()));
-
-        cat.items.add(item("ca-06", "Bloodforged Architect", "Forbidden flesh-metal drone weaving structures instantly.",
-            StationTier.CURSED_ALTAR, "oxide", "ff5d8f", AttachMode.TRAIL, true, true,
-            0.10f, 0f, 0.10f, 0f, 1.00f, 0f, 4.0f,
-            res("silicon", 350, "copper", 400, "titanium", 200), ing("bz-06", 1)));
-
-        cat.items.add(item("ca-07", "Eye of Malice", "Unblinking violet halo amplifying lethal precision.",
-            StationTier.CURSED_ALTAR, "spore-pod", "c77dff", AttachMode.HALO, true, true,
-            0f, 0.35f, 0.08f, 0.25f, 0f, 0f, 0f,
-            res("silicon", 300, "metaglass", 250, "titanium", 200), ing("wb-10", 1)));
-
-        cat.items.add(item("ca-08", "Neoplasmic Symbiote", "Pulsating organic orbit feeding constant regeneration.",
-            StationTier.CURSED_ALTAR, "pyratite", "e05438", AttachMode.ORBIT, true, true,
-            0.30f, 0.10f, 0.08f, 0f, 0f, 4f, 18.0f,
-            res("spore-pod", 200, "coal", 250, "silicon", 200), ing("wb-09", 1)));
-
-        cat.items.add(item("ca-09", "Voidpendulum", "Swinging dark matter orb accelerating reload and speed.",
-            StationTier.CURSED_ALTAR, "phase-fabric", "d980fa", AttachMode.ORBIT, true, true,
-            0f, 0.15f, 0.22f, 0.28f, 0f, 0f, 0f,
-            res("titanium", 250, "silicon", 300, "graphite", 250), ing("bz-03", 1)));
-
-        cat.items.add(item("ca-10", "Hellfire Singularity", "Superheated core fusing Bazaar Starlance into cursed power.",
-            StationTier.CURSED_ALTAR, "surge-alloy", "ff3838", AttachMode.HALO, true, true,
-            0.15f, 0.45f, 0f, 0.25f, 0f, 3f, 0f,
-            res("silicon", 400, "titanium", 300), ing("bz-12", 1, "ca-01", 1)));
-
-        cat.items.add(item("ca-11", "Dreadnought Bastion", "Cursed evolution of the Vanguard Bastion Rig.",
-            StationTier.CURSED_ALTAR, "carbide", "ff4b6e", AttachMode.MOUNT, true, true,
-            0.55f, 0.15f, 0f, 0f, 0f, 15f, 12.0f,
-            res("titanium", 400, "lead", 600), ing("bz-11", 1, "ca-05", 1)));
-
-        cat.items.add(item("ca-12", "Phantom Astral Wake", "Transcends physical drag with Wraithstep + Slipstream.",
-            StationTier.CURSED_ALTAR, "phase-fabric", "e056fd", AttachMode.TRAIL, true, true,
-            0.10f, 0.15f, 0.40f, 0.20f, 0.50f, 0f, 6.0f,
-            res("silicon", 350, "metaglass", 300), ing("bz-13", 1, "ca-03", 1)));
-
-        cat.items.add(item("ca-13", "Harbinger's Seal", "Tri-rune orbital seal of ruin.",
-            StationTier.CURSED_ALTAR, "thorium", "ff5252", AttachMode.ORBIT, true, true,
-            0.25f, 0.30f, 0.15f, 0.20f, 0.30f, 6f, 8.0f,
-            res("copper", 500, "lead", 500, "titanium", 300, "silicon", 300), ing("ca-02", 1)));
-
-        cat.items.add(item("ca-14", "Eclipse Covenant", "Twin-star cursed crown uniting offense and speed.",
-            StationTier.CURSED_ALTAR, "surge-alloy", "ff7979", AttachMode.HALO, true, true,
-            0.30f, 0.35f, 0.20f, 0.25f, 0f, 8f, 10.0f,
-            res("titanium", 450, "silicon", 450, "graphite", 400), ing("ca-04", 1, "ca-07", 1)));
-
-        cat.items.add(item("ca-15", "Apotheosis Core", "Ultimate cursed artifact forged from abyssal relics.",
-            StationTier.CURSED_ALTAR, "carbide", "ff3b6b", AttachMode.ORBIT, true, true,
-            0.50f, 0.50f, 0.25f, 0.30f, 0.60f, 12f, 15.0f,
-            res("copper", 800, "lead", 800, "titanium", 600, "silicon", 600), ing("ca-10", 1, "ca-11", 1)));
-
-        // =========================================================================
-        // BAZAAR ORBITAL MERCHANT SHIP TRADES (spends persistent Launch Pad orbital storage!)
-        // =========================================================================
-        cat.trades.add(trade("ship-01", "ISS Copperfield", " Salvaged Ancient Copper Relic",
-            "Trade orbital copper & lead for a non-craftable Ancient Copper Relic (equip or decraft!).",
-            res("copper", 300, "lead", 150), "wb-14", noRes()));
-
-        cat.trades.add(trade("ship-02", "ISS Hephaestus", "Salvaged Smelter Core",
-            "Trade orbital coal & graphite for a non-craftable Sealed Smelter Core.",
-            res("graphite", 180, "coal", 120), "wb-15", noRes()));
-
-        cat.trades.add(trade("ship-03", "HSV Horizon", "Orbital Vault Capsule",
-            "Exchange orbital copper & silicon for a sealed Orbital Vault Capsule.",
-            res("copper", 500, "silicon", 250), "bz-14", noRes()));
-
-        cat.trades.add(trade("ship-04", "HSV Astral Nomad", "Starfarer's Blackbox",
-            "Exchange heavy orbital titanium & silicon for a high-tech Starfarer's Blackbox.",
-            res("titanium", 400, "silicon", 400), "bz-15", noRes()));
-
-        cat.trades.add(trade("ship-05", "CSV Ironclad", "Titanium Carapace",
-            "Commission an off-world Titanium Carapace straight from orbit.",
-            res("copper", 600, "lead", 400, "titanium", 150), "bz-01", noRes()));
-
-        cat.trades.add(trade("ship-06", "CSV Velocity", "Orbital Thruster Ring",
-            "Purchase a factory-tuned Orbital Thruster Ring using orbital reserves.",
-            res("silicon", 320, "graphite", 220), "bz-03", noRes()));
-
-        cat.trades.add(trade("ship-07", "CSV Stormbringer", "Surge Dynamo",
-            "Acquire a Surge Dynamo directly from an orbital weapons barge.",
-            res("titanium", 350, "silicon", 350, "copper", 500), "bz-09", noRes()));
-
-        cat.trades.add(trade("ship-08", "Drop-Pod Alpha", "Titanium Drop Crate (x200)",
-            "Call down 200 Titanium into nearby map containers (excess vanishes if storage is full).",
-            res("copper", 450, "lead", 300), null, res("titanium", 200)));
-
-        cat.trades.add(trade("ship-09", "Drop-Pod Beta", "Silicon & Metaglass Crate (x200)",
-            "Call down 200 Silicon + 150 Metaglass into nearby map storage.",
-            res("copper", 500, "graphite", 250), null, res("silicon", 200, "metaglass", 150)));
-
-        cat.trades.add(trade("ship-10", "Drop-Pod Gamma", "Exotic Alloy Drop (Thorium/Plast/Surge)",
-            "Call down exotic off-world alloys into nearby map storage.",
-            res("titanium", 500, "silicon", 500), null, res("thorium", 120, "plastanium", 80, "surge-alloy", 50)));
-
-        cat.rebuildIndexes();
-        return cat;
-    }
-
-    public static void save(Fi file, Catalog catalog) {
+    public static void save(Fi file, Catalog cat) {
         if (file.parent() != null) file.parent().mkdirs();
-        StringBuilder sb = new StringBuilder(16384);
-        sb.append("# Item Shop Catalog (config/alphystuff/shop.hjson)\n");
-        sb.append("# Tiers: workbench (15 items), bazaar (15 items), cursed-altar (15 items)\n");
-        sb.append("# Attach modes: ORBIT | MOUNT | HALO | TRAIL\n\n");
+        StringBuilder sb = new StringBuilder(20480);
+        sb.append("# Item Shop Catalog (45 Placeholder Items + Bazaar Orbital Ship Trades)\n");
+        sb.append("# Categories: resource | attack | defense | utility\n");
+        sb.append("# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON (ORBIT removed)\n");
+        sb.append("# mountSubtype: SIDE_SHIELD | WING_BLADE | SHOULDER_PAD | REAR_THRUSTER | SIDE_POD | WING_POD | NOSE_PROW | SPINE_CORE | TAIL_BOOSTER | DORSAL_TURRET\n");
+        sb.append("# haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)\n");
+        sb.append("# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.\n\n");
 
         sb.append("items: [\n");
-        for (ShopItemDef it : catalog.items) {
+        for (ShopItemDef it : cat.items) {
             sb.append("  {\n");
-            sb.append("    id: ").append(it.id).append("\n");
-            sb.append("    name: \"").append(esc(it.name)).append("\"\n");
-            sb.append("    description: \"").append(esc(it.description)).append("\"\n");
+            sb.append("    id: ").append(quote(it.id)).append("\n");
+            sb.append("    name: ").append(quote(it.name)).append("\n");
+            sb.append("    description: ").append(quote(it.description)).append("\n");
             sb.append("    tier: ").append(it.tier.id).append("\n");
+            sb.append("    category: ").append(it.category.id).append("\n");
+            sb.append("    sprite: ").append(quote(it.effectiveSprite())).append("\n");
             sb.append("    iconItem: ").append(it.iconItem).append("\n");
-            sb.append("    colorHex: \"").append(it.colorHex).append("\"\n");
+            sb.append("    colorHex: ").append(quote(it.colorHex)).append("\n");
             sb.append("    attachMode: ").append(it.attachMode.name()).append("\n");
+
+            if (it.attachMode == AttachMode.MOUNT || it.attachMode == AttachMode.SUBWEAPON) {
+                sb.append("    mountSubtype: ").append(it.mountSubtype.name()).append("\n");
+                if (it.mountForwardOffset != 0f) sb.append("    mountForwardOffset: ").append(fmt(it.mountForwardOffset)).append("\n");
+                if (it.mountSideOffset != 0f) sb.append("    mountSideOffset: ").append(fmt(it.mountSideOffset)).append("\n");
+                if (!Float.isNaN(it.mountAngleOffset)) sb.append("    mountAngleOffset: ").append(fmt(it.mountAngleOffset)).append("\n");
+            } else if (it.attachMode == AttachMode.HALO) {
+                sb.append("    haloAnchor: ").append(it.haloAnchor.name()).append("\n");
+                sb.append("    haloEffect: ").append(quote(it.haloEffect)).append("\n");
+                if (it.haloColorHex != null && !it.haloColorHex.isEmpty()) {
+                    sb.append("    haloColorHex: ").append(quote(it.haloColorHex)).append("\n");
+                }
+                sb.append("    haloRadius: ").append(fmt(it.haloRadius)).append("\n");
+                sb.append("    haloInterval: ").append(fmt(it.haloInterval)).append("\n");
+            } else if (it.attachMode == AttachMode.FOLLOW) {
+                sb.append("    followDistance: ").append(fmt(it.followDistance)).append("\n");
+            }
+
             sb.append("    craftable: ").append(it.craftable).append("\n");
             sb.append("    decraftable: ").append(it.decraftable).append("\n");
-            if (it.healthMultBonus != 0f) sb.append("    healthMultBonus: ").append(it.healthMultBonus).append("\n");
-            if (it.damageMultBonus != 0f) sb.append("    damageMultBonus: ").append(it.damageMultBonus).append("\n");
-            if (it.speedMultBonus != 0f) sb.append("    speedMultBonus: ").append(it.speedMultBonus).append("\n");
-            if (it.reloadMultBonus != 0f) sb.append("    reloadMultBonus: ").append(it.reloadMultBonus).append("\n");
-            if (it.buildSpeedMultBonus != 0f) sb.append("    buildSpeedMultBonus: ").append(it.buildSpeedMultBonus).append("\n");
-            if (it.armorBonus != 0f) sb.append("    armorBonus: ").append(it.armorBonus).append("\n");
-            if (it.regenPerSec != 0f) sb.append("    regenPerSec: ").append(it.regenPerSec).append("\n");
-            sb.append("    resources: ").append(fmtRes(it.resourceCosts)).append("\n");
+            if (it.healthMultBonus != 0f) sb.append("    healthMultBonus: ").append(fmt(it.healthMultBonus)).append("\n");
+            if (it.damageMultBonus != 0f) sb.append("    damageMultBonus: ").append(fmt(it.damageMultBonus)).append("\n");
+            if (it.speedMultBonus != 0f) sb.append("    speedMultBonus: ").append(fmt(it.speedMultBonus)).append("\n");
+            if (it.reloadMultBonus != 0f) sb.append("    reloadMultBonus: ").append(fmt(it.reloadMultBonus)).append("\n");
+            if (it.buildSpeedMultBonus != 0f) sb.append("    buildSpeedMultBonus: ").append(fmt(it.buildSpeedMultBonus)).append("\n");
+            if (it.armorBonus != 0f) sb.append("    armorBonus: ").append(fmt(it.armorBonus)).append("\n");
+            if (it.regenPerSec != 0f) sb.append("    regenPerSec: ").append(fmt(it.regenPerSec)).append("\n");
+
+            if (!it.resourceCosts.isEmpty()) {
+                sb.append("    resources: { ");
+                for (int i = 0; i < it.resourceCosts.size; i++) {
+                    ResourceCost rc = it.resourceCosts.get(i);
+                    if (i > 0) sb.append(", ");
+                    sb.append(rc.itemName()).append(": ").append(rc.amount());
+                }
+                sb.append(" }\n");
+            }
             if (!it.itemCosts.isEmpty()) {
-                sb.append("    items: ").append(fmtIng(it.itemCosts)).append("\n");
+                sb.append("    items: { ");
+                for (int i = 0; i < it.itemCosts.size; i++) {
+                    ItemIngredient ic = it.itemCosts.get(i);
+                    if (i > 0) sb.append(", ");
+                    sb.append(quote(ic.shopItemId())).append(": ").append(ic.amount());
+                }
+                sb.append(" }\n");
             }
             sb.append("  }\n");
         }
         sb.append("]\n\n");
 
         sb.append("orbitalTrades: [\n");
-        for (OrbitalTradeDef tr : catalog.trades) {
+        for (OrbitalTradeDef tr : cat.trades) {
             sb.append("  {\n");
-            sb.append("    id: ").append(tr.id).append("\n");
-            sb.append("    shipName: \"").append(esc(tr.shipName)).append("\"\n");
-            sb.append("    title: \"").append(esc(tr.title)).append("\"\n");
-            sb.append("    description: \"").append(esc(tr.description)).append("\"\n");
-            sb.append("    orbitalCost: ").append(fmtRes(tr.orbitalCosts)).append("\n");
-            if (tr.rewardShopItemId != null) {
-                sb.append("    rewardItem: ").append(tr.rewardShopItemId).append("\n");
+            sb.append("    id: ").append(quote(tr.id)).append("\n");
+            sb.append("    shipName: ").append(quote(tr.shipName)).append("\n");
+            sb.append("    title: ").append(quote(tr.title)).append("\n");
+            sb.append("    description: ").append(quote(tr.description)).append("\n");
+            if (!tr.orbitalCosts.isEmpty()) {
+                sb.append("    orbitalCost: { ");
+                for (int i = 0; i < tr.orbitalCosts.size; i++) {
+                    ResourceCost rc = tr.orbitalCosts.get(i);
+                    if (i > 0) sb.append(", ");
+                    sb.append(rc.itemName()).append(": ").append(rc.amount());
+                }
+                sb.append(" }\n");
+            }
+            if (tr.rewardShopItemId != null && !tr.rewardShopItemId.isEmpty()) {
+                sb.append("    rewardItem: ").append(quote(tr.rewardShopItemId)).append("\n");
             }
             if (!tr.rewardMapResources.isEmpty()) {
-                sb.append("    rewardResources: ").append(fmtRes(tr.rewardMapResources)).append("\n");
+                sb.append("    rewardResources: { ");
+                for (int i = 0; i < tr.rewardMapResources.size; i++) {
+                    ResourceCost rc = tr.rewardMapResources.get(i);
+                    if (i > 0) sb.append(", ");
+                    sb.append(rc.itemName()).append(": ").append(rc.amount());
+                }
+                sb.append(" }\n");
             }
             sb.append("  }\n");
         }
@@ -491,18 +292,302 @@ public final class ShopConfigIO {
         file.writeString(sb.toString(), false, "UTF-8");
     }
 
+    public static Catalog createDefaultCatalog() {
+        Catalog c = new Catalog();
+
+        // =========================================================================
+        // TIER 1: WORKBENCH (15 Placeholder Items: 4 Resource, 4 Attack, 4 Defense, 3 Utility)
+        // =========================================================================
+        // Resource (4)
+        add(c, follow(item("wb-01", "Copper Chunk", "300 copper compacted into a dense transport crate.",
+            StationTier.WORKBENCH, ShopCategory.RESOURCE, "copper", "d99d73", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, res("copper", 300), items()), 10.0f));
+        add(c, follow(item("wb-02", "Lead Bundle", "300 lead bars strapped together for field hauling.",
+            StationTier.WORKBENCH, ShopCategory.RESOURCE, "lead", "8c7fa9", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, res("lead", 300), items()), 11.0f));
+        add(c, follow(item("wb-03", "Graphite Brick", "200 pressed carbon plates locked in a heavy frame.",
+            StationTier.WORKBENCH, ShopCategory.RESOURCE, "graphite", "95abd9", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, res("graphite", 200), items()), 12.0f));
+        add(c, mount(item("wb-04", "Scrap Relic Core", "Recovered core husk; cannot be crafted, only decrafted for resources.",
+            StationTier.WORKBENCH, ShopCategory.RESOURCE, "copper", "eab678", AttachMode.MOUNT, false, true,
+            0.04f, 0f, 0f, 0f, 0f, 0f, 0f, res("copper", 140, "lead", 110, "graphite", 55), items()),
+            MountSubtype.SPINE_CORE));
+
+        // Attack (4)
+        add(c, mount(item("wb-05", "Copper Fang", "Sharpened copper wing blades boosting weapon damage.",
+            StationTier.WORKBENCH, ShopCategory.ATTACK, "copper", "eab678", AttachMode.MOUNT, true, true,
+            0f, 0.12f, 0f, 0f, 0f, 0f, 0f, res("copper", 110, "lead", 60), items()),
+            MountSubtype.WING_BLADE));
+        add(c, mount(item("wb-06", "Graphite Striker", "Twin hull-mounted autocannon pods firing kinetic bolts.",
+            StationTier.WORKBENCH, ShopCategory.ATTACK, "graphite", "95abd9", AttachMode.SUBWEAPON, true, true,
+            0f, 0f, 0f, 0.12f, 0f, 0f, 0f, res("graphite", 65, "copper", 90), items()),
+            MountSubtype.SIDE_POD));
+        add(c, mount(item("wb-07", "Silicon Sight", "Prow-mounted optical rangefinder improving damage and fire rate.",
+            StationTier.WORKBENCH, ShopCategory.ATTACK, "silicon", "8e94a4", AttachMode.MOUNT, true, true,
+            0f, 0.10f, 0f, 0.08f, 0f, 0f, 0f, res("silicon", 70, "metaglass", 35), items()),
+            MountSubtype.NOSE_PROW));
+        add(c, mount(item("wb-08", "Twin Fang Array", "Dual linked Copper Fangs forged into symmetrical wing blades.",
+            StationTier.WORKBENCH, ShopCategory.ATTACK, "copper", "ffd37f", AttachMode.MOUNT, true, true,
+            0f, 0.22f, 0f, 0.06f, 0f, 0f, 0f, res("silicon", 60, "graphite", 40), items("wb-05", 2)),
+            MountSubtype.WING_BLADE));
+
+        // Defense (4)
+        add(c, mount(item("wb-09", "Lead Buckler", "Riveted flank shields bolstering hull health and armor.",
+            StationTier.WORKBENCH, ShopCategory.DEFENSE, "lead", "8c7fa9", AttachMode.MOUNT, true, true,
+            0.18f, 0f, 0f, 0f, 0f, 2f, 0f, res("lead", 150, "copper", 80), items()),
+            MountSubtype.SIDE_SHIELD));
+        add(c, mount(item("wb-10", "Ceramic Plate", "Kiln-fired metaglass cheek armor plating.",
+            StationTier.WORKBENCH, ShopCategory.DEFENSE, "metaglass", "d8e2ee", AttachMode.MOUNT, true, true,
+            0.22f, 0f, 0f, 0f, 0f, 3f, 0f, res("metaglass", 75, "lead", 90), items()),
+            MountSubtype.SIDE_SHIELD));
+        add(c, halo(item("wb-11", "Mending Vial", "Pressurized repair gel projecting a restorative core halo.",
+            StationTier.WORKBENCH, ShopCategory.DEFENSE, "silicon", "84f491", AttachMode.HALO, true, true,
+            0.08f, 0f, 0f, 0f, 0f, 0f, 2.5f, res("silicon", 60, "lead", 80, "copper", 80), items()),
+            HaloAnchor.CENTER, "healWaveDynamic", 10f, 30f));
+        add(c, mount(item("wb-12", "Bastion Carapace", "Reinforced Lead Bucklers layered with dense graphite ribs.",
+            StationTier.WORKBENCH, ShopCategory.DEFENSE, "graphite", "eab678", AttachMode.MOUNT, true, true,
+            0.30f, 0f, 0f, 0f, 0f, 4f, 0f, res("graphite", 80, "metaglass", 45), items("wb-09", 1)),
+            MountSubtype.SIDE_SHIELD));
+
+        // Utility (3)
+        add(c, mount(item("wb-13", "Glass Thruster", "Centerline metaglass jet nozzle boosting movement speed.",
+            StationTier.WORKBENCH, ShopCategory.UTILITY, "metaglass", "7fe6ff", AttachMode.MOUNT, true, true,
+            0f, 0f, 0.14f, 0f, 0f, 0f, 0f, res("metaglass", 55, "copper", 95), items()),
+            MountSubtype.TAIL_BOOSTER));
+        add(c, mount(item("wb-14", "Builder's Servo", "Symmetrical shoulder construction claws accelerating build speed.",
+            StationTier.WORKBENCH, ShopCategory.UTILITY, "silicon", "ffd37f", AttachMode.MOUNT, true, true,
+            0f, 0f, 0f, 0f, 0.28f, 0f, 0f, res("silicon", 65, "graphite", 50, "copper", 80), items()),
+            MountSubtype.SHOULDER_PAD));
+        add(c, follow(item("wb-15", "Scout Gyro", "Floating telemetry gyroscope enhancing speed and construction.",
+            StationTier.WORKBENCH, ShopCategory.UTILITY, "silicon", "84f491", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0.10f, 0f, 0.15f, 0f, 0f, res("silicon", 85, "metaglass", 40), items()), 9.0f));
+
+        // =========================================================================
+        // TIER 2: BAZAAR (15 Placeholder Items: 4 Resource, 4 Attack, 4 Defense, 3 Utility)
+        // =========================================================================
+        // Resource (4)
+        add(c, follow(item("bz-01", "Titanium Crate", "400 titanium rods locked inside a floating cargo pod.",
+            StationTier.BAZAAR, ShopCategory.RESOURCE, "titanium", "8da1e3", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, res("titanium", 400), items()), 11.0f));
+        add(c, follow(item("bz-02", "Silicon Wafer Pack", "350 high-purity silicon wafers sealed for transit.",
+            StationTier.BAZAAR, ShopCategory.RESOURCE, "silicon", "7fe6ff", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, res("silicon", 350), items()), 12.0f));
+        add(c, follow(item("bz-03", "Thorium Cell", "300 thorium rods encased in a shielded floating canister.",
+            StationTier.BAZAAR, ShopCategory.RESOURCE, "thorium", "f9a3c7", AttachMode.FOLLOW, true, true,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, res("thorium", 300), items()), 13.0f));
+        add(c, mount(item("bz-04", "Orbital Blackbox", "Orbital ship salvage; non-craftable, decrafts into advanced alloys.",
+            StationTier.BAZAAR, ShopCategory.RESOURCE, "plastanium", "7fe6ff", AttachMode.MOUNT, false, true,
+            0f, 0f, 0.06f, 0f, 0.12f, 0f, 0f, res("silicon", 220, "titanium", 180, "plastanium", 90), items()),
+            MountSubtype.SPINE_CORE));
+
+        // Attack (4)
+        add(c, mount(item("bz-05", "Plastanium Repeater", "Twin rotary subweapon pods unloading rapid plastanium flechettes.",
+            StationTier.BAZAAR, ShopCategory.ATTACK, "plastanium", "cbd97e", AttachMode.SUBWEAPON, true, true,
+            0f, 0.12f, 0f, 0.22f, 0f, 0f, 0f, res("plastanium", 110, "silicon", 140, "titanium", 90), items()),
+            MountSubtype.SIDE_POD));
+        add(c, mount(item("bz-06", "Surge Sabre", "Twin Fang Array reforged with high-voltage surge wing blades.",
+            StationTier.BAZAAR, ShopCategory.ATTACK, "surge-alloy", "f3e979", AttachMode.MOUNT, true, true,
+            0f, 0.32f, 0f, 0.10f, 0f, 0f, 0f, res("surge-alloy", 80, "silicon", 140), items("wb-08", 1)),
+            MountSubtype.WING_BLADE));
+        add(c, mount(item("bz-07", "Blast Cannon Pod", "Dorsal artillery subweapon firing high-explosive blast shells.",
+            StationTier.BAZAAR, ShopCategory.ATTACK, "blast-compound", "ff795e", AttachMode.SUBWEAPON, true, true,
+            0f, 0.26f, 0f, 0.10f, 0f, 0f, 0f, res("blast-compound", 90, "titanium", 120, "graphite", 100), items()),
+            MountSubtype.DORSAL_TURRET));
+        add(c, mount(item("bz-08", "Phase Lance", "Wing-mounted phase lance subweapons firing armor-piercing bolts.",
+            StationTier.BAZAAR, ShopCategory.ATTACK, "phase-fabric", "f4ba6e", AttachMode.SUBWEAPON, true, true,
+            0f, 0.38f, 0f, 0.15f, 0f, 0f, 0f, res("phase-fabric", 95, "thorium", 130, "silicon", 150), items()),
+            MountSubtype.WING_POD));
+
+        // Defense (4)
+        add(c, mount(item("bz-09", "Titanium Aegis", "Bastion Carapace reinforced with heavy titanium flank kite plates.",
+            StationTier.BAZAAR, ShopCategory.DEFENSE, "titanium", "7595e6", AttachMode.MOUNT, true, true,
+            0.38f, 0f, 0f, 0f, 0f, 6f, 0f, res("titanium", 150, "silicon", 100), items("wb-12", 1)),
+            MountSubtype.SIDE_SHIELD));
+        add(c, halo(item("bz-10", "Thorium Reactor Core", "Miniature thorium core radiating a hexagonal reactor halo.",
+            StationTier.BAZAAR, ShopCategory.DEFENSE, "thorium", "f9a3c7", AttachMode.HALO, true, true,
+            0.45f, 0f, 0f, 0f, 0f, 2f, 6.0f, res("thorium", 160, "silicon", 130, "metaglass", 80), items()),
+            HaloAnchor.CENTER, "dynamicWave", 12f, 28f));
+        add(c, mount(item("bz-11", "Plastanium Mesh", "Impact-absorbing honeycomb shoulder armor shells.",
+            StationTier.BAZAAR, ShopCategory.DEFENSE, "plastanium", "a8d474", AttachMode.MOUNT, true, true,
+            0.32f, 0f, 0f, 0f, 0f, 8f, 0f, res("plastanium", 130, "titanium", 120, "graphite", 90), items()),
+            MountSubtype.SHOULDER_PAD));
+        add(c, halo(item("bz-12", "Regen Halo", "Projector ring bathing the unit center in rapid repair waves.",
+            StationTier.BAZAAR, ShopCategory.DEFENSE, "plastanium", "84f491", AttachMode.HALO, true, true,
+            0.20f, 0f, 0f, 0f, 0f, 0f, 12.0f, res("plastanium", 100, "phase-fabric", 65, "silicon", 140), items()),
+            HaloAnchor.CENTER, "healWaveDynamic", 14f, 24f));
+
+        // Utility (3)
+        add(c, mount(item("bz-13", "Phase Blink Drive", "Glass Thruster upgraded into twin phase-folded rear nacelles.",
+            StationTier.BAZAAR, ShopCategory.UTILITY, "phase-fabric", "f4ba6e", AttachMode.MOUNT, true, true,
+            0f, 0f, 0.26f, 0f, 0f, 0f, 0f, res("phase-fabric", 90, "silicon", 130), items("wb-13", 1)),
+            MountSubtype.REAR_THRUSTER));
+        add(c, halo(item("bz-14", "Nano Fabricator", "Autonomous nanobot halos energizing every weapon mount.",
+            StationTier.BAZAAR, ShopCategory.UTILITY, "plastanium", "84f491", AttachMode.HALO, true, true,
+            0f, 0f, 0f, 0f, 0.55f, 0f, 4.0f, res("plastanium", 110, "silicon", 180, "titanium", 100), items()),
+            HaloAnchor.WEAPONS, "shieldApply", 6.0f, 26f));
+        add(c, halo(item("bz-15", "Astral Compass", "Engine-core overdrive halos boosting flight speed and building.",
+            StationTier.BAZAAR, ShopCategory.UTILITY, "surge-alloy", "7fe6ff", AttachMode.HALO, true, true,
+            0f, 0f, 0.20f, 0f, 0.35f, 0f, 0f, res("surge-alloy", 75, "phase-fabric", 60, "silicon", 150), items()),
+            HaloAnchor.ENGINES, "dynamicWave", 6.5f, 22f));
+
+        // =========================================================================
+        // TIER 3: CURSED ALTAR (15 Placeholder Items: 3 Resource, 4 Attack, 4 Defense, 4 Utility)
+        // =========================================================================
+        // Resource (3)
+        add(c, halo(item("ca-01", "Philosopher's Husk", "Condensed forbidden matter radiating a spiked crimson core halo.",
+            StationTier.CURSED_ALTAR, ShopCategory.RESOURCE, "surge-alloy", "d9385a", AttachMode.HALO, true, false,
+            0.25f, 0.25f, 0f, 0f, 0f, 0f, 0f, res("surge-alloy", 500, "phase-fabric", 500, "thorium", 1000), items()),
+            HaloAnchor.CENTER, "dynamicSpikes", 14f, 26f));
+        add(c, follow(item("ca-02", "Void Reliquary", "Abyssal coffer floating silently at fixed standoff behind its bearer.",
+            StationTier.CURSED_ALTAR, ShopCategory.RESOURCE, "thorium", "bf92f9", AttachMode.FOLLOW, true, false,
+            0.30f, 0f, 0f, 0f, 0.40f, 4f, 0f, res("plastanium", 800, "silicon", 1200, "titanium", 1000), items()), 12.0f));
+        add(c, follow(item("ca-03", "Blood Ingot", "Floating scarlet alloy bar empowering weapons at hull cost.",
+            StationTier.CURSED_ALTAR, ShopCategory.RESOURCE, "blast-compound", "ff4b6e", AttachMode.FOLLOW, true, false,
+            -0.08f, 0.35f, 0f, 0f, 0f, 0f, 0f, res("blast-compound", 700, "pyratite", 700, "copper", 2000), items()), 10.0f));
+
+        // Attack (4)
+        add(c, mount(item("ca-04", "Bloodthirst Scythe", "Twin reaper wing blades granting massive damage at health cost.",
+            StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "blast-compound", "ff4b6e", AttachMode.MOUNT, true, false,
+            -0.15f, 0.75f, 0f, 0.15f, 0f, 0f, 0f, res("surge-alloy", 450, "blast-compound", 600), items()),
+            MountSubtype.WING_BLADE));
+        add(c, mount(item("ca-05", "Abyssal Gatling", "Twin demonic rotary subweapons unleashing incendiary barrages.",
+            StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "pyratite", "ff6b5b", AttachMode.SUBWEAPON, true, false,
+            0f, 0.30f, -0.10f, 0.65f, 0f, 0f, 0f, res("pyratite", 650, "surge-alloy", 400, "silicon", 900), items()),
+            MountSubtype.SIDE_POD));
+        add(c, mount(item("ca-06", "Ruinblade", "Corrupted Surge Sabres mounted symmetrically across the hull.",
+            StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "surge-alloy", "ff2e55", AttachMode.MOUNT, true, false,
+            0f, 0.90f, 0f, 0.20f, -0.20f, 0f, 0f, res("surge-alloy", 600, "thorium", 800), items("bz-06", 1)),
+            MountSubtype.WING_BLADE));
+        add(c, halo(item("ca-07", "Eye of Malice", "Crimson sigil halos wreathed around every weapon mount.",
+            StationTier.CURSED_ALTAR, ShopCategory.ATTACK, "phase-fabric", "ff5e7e", AttachMode.HALO, true, false,
+            -0.12f, 0.55f, 0f, 0.45f, 0f, 0f, 0f, res("phase-fabric", 550, "silicon", 1000, "spore-pod", 600), items()),
+            HaloAnchor.WEAPONS, "hitSquaresColor", 6.5f, 22f));
+
+        // Defense (4)
+        add(c, mount(item("ca-08", "Leviathan Husk", "Colossal obsidian flank carapaces doubling hull health and armor.",
+            StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "thorium", "ff4b6e", AttachMode.MOUNT, true, false,
+            1.20f, 0f, -0.12f, 0f, 0f, 18f, 0f, res("thorium", 1200, "plastanium", 800, "titanium", 1200), items()),
+            MountSubtype.SIDE_SHIELD));
+        add(c, halo(item("ca-09", "Undying Heart", "Pulsing crimson core halo regenerating tremendous health.",
+            StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "phase-fabric", "ff2e55", AttachMode.HALO, true, false,
+            0.60f, -0.15f, 0f, 0f, 0f, 0f, 35.0f, res("phase-fabric", 650, "plastanium", 700, "spore-pod", 800), items()),
+            HaloAnchor.CENTER, "shieldApply", 13f, 20f));
+        add(c, mount(item("ca-10", "Dread Bulwark", "Titanium Aegis fused with cursed spikes for extreme flank armor.",
+            StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "surge-alloy", "ffd37f", AttachMode.MOUNT, true, false,
+            0.90f, 0f, 0f, -0.15f, 0f, 25f, 0f, res("surge-alloy", 550, "thorium", 900), items("bz-09", 1)),
+            MountSubtype.SIDE_SHIELD));
+        add(c, halo(item("ca-11", "Martyr's Crown", "Iron-ember halo crown sustaining the bearer through heavy fire.",
+            StationTier.CURSED_ALTAR, ShopCategory.DEFENSE, "pyratite", "ff6b5b", AttachMode.HALO, true, false,
+            0.80f, 0f, 0f, 0f, 0f, 8f, 20.0f, res("pyratite", 700, "thorium", 800, "metaglass", 900), items()),
+            HaloAnchor.CENTER, "pointShockwave", 15f, 30f));
+
+        // Utility (4)
+        add(c, mount(item("ca-12", "Wraith Stride", "Phase Blink Drive twisted into spectral crimson tail wings.",
+            StationTier.CURSED_ALTAR, ShopCategory.UTILITY, "phase-fabric", "ff4b6e", AttachMode.MOUNT, true, false,
+            -0.18f, 0f, 0.50f, 0f, 0f, 0f, 0f, res("phase-fabric", 700, "surge-alloy", 350), items("bz-13", 1)),
+            MountSubtype.REAR_THRUSTER));
+        add(c, mount(item("ca-13", "Architect's Curse", "Forbidden golden shoulder claws erecting structures at blinding speed.",
+            StationTier.CURSED_ALTAR, ShopCategory.UTILITY, "surge-alloy", "ffd37f", AttachMode.MOUNT, true, false,
+            0f, -0.15f, 0f, 0f, 1.40f, 0f, 0f, res("silicon", 1500, "surge-alloy", 500, "plastanium", 600), items()),
+            MountSubtype.SHOULDER_PAD));
+        add(c, follow(item("ca-14", "Chrono Hourglass", "Floating crimson sandglass bending movement and reload time.",
+            StationTier.CURSED_ALTAR, ShopCategory.UTILITY, "phase-fabric", "ff5e7e", AttachMode.FOLLOW, true, false,
+            -0.15f, 0f, 0.35f, 0.40f, 0f, 0f, 0f, res("phase-fabric", 800, "silicon", 1100), items()), 9.5f));
+        add(c, halo(item("ca-15", "Apotheosis Halo", "Ultimate grand crown halo converging offense, bastion, and flight.",
+            StationTier.CURSED_ALTAR, ShopCategory.UTILITY, "surge-alloy", "ffd37f", AttachMode.HALO, true, false,
+            0.50f, 0.50f, 0.30f, 0.25f, 0.50f, 12f, 15.0f,
+            res("surge-alloy", 1000, "phase-fabric", 1000),
+            items("ca-04", 1, "ca-08", 1, "ca-12", 1)),
+            HaloAnchor.CENTER, "dynamicSpikes", 18f, 22f));
+
+        // =========================================================================
+        // BAZAAR ORBITAL SHIP TRADES (Spend persistent Launch Pad orbital storage)
+        // =========================================================================
+        c.trades.add(trade("ship-01", "ISV Heliotrope", "Scrap Relic Salvage Drop",
+            "Exchange launched orbital copper & lead for a Scrap Relic Core.",
+            res("copper", 500, "lead", 400), "wb-04", res()));
+        c.trades.add(trade("ship-02", "ISV Meridian", "Orbital Blackbox Recovery",
+            "Trade launched silicon & titanium for an Orbital Blackbox.",
+            res("silicon", 450, "titanium", 350), "bz-04", res()));
+        c.trades.add(trade("ship-03", "CSV Starfarer", "Silicon Drop-Pod",
+            "Ship 600 orbital copper & 400 coal; drops 300 silicon into map storage.",
+            res("copper", 600, "coal", 400), null, res("silicon", 300)));
+        c.trades.add(trade("ship-04", "CSV Ironclad", "Titanium Cargo Pod",
+            "Exchange 800 orbital lead & 400 graphite for 350 titanium in map storage.",
+            res("lead", 800, "graphite", 400), null, res("titanium", 350)));
+        c.trades.add(trade("ship-05", "ISV Halcyon", "Thorium Isotope Cask",
+            "Exchange 500 orbital titanium & 400 silicon for 260 thorium in map storage.",
+            res("titanium", 500, "silicon", 400), null, res("thorium", 260)));
+        c.trades.add(trade("ship-06", "MSV Vespera", "Plastanium Polymer Crate",
+            "Trade 600 orbital titanium & 300 spore-pod for 220 plastanium in map storage.",
+            res("titanium", 600, "spore-pod", 300), null, res("plastanium", 220)));
+        c.trades.add(trade("ship-07", "MSV Auric", "Surge Smelter Shipment",
+            "Trade 700 orbital copper, 700 lead & 500 silicon for 140 surge-alloy.",
+            res("copper", 700, "lead", 700, "silicon", 500), null, res("surge-alloy", 140)));
+        c.trades.add(trade("ship-08", "ISV Loomweaver", "Phase Weave Bundle",
+            "Trade 500 orbital thorium & 600 sand for 150 phase-fabric.",
+            res("thorium", 500, "sand", 600), null, res("phase-fabric", 150)));
+        c.trades.add(trade("ship-09", "CSV Vanguard", "Chartered Surge Sabre",
+            "Commission an orbital armorer to deliver a Surge Sabre directly to your inventory.",
+            res("surge-alloy", 220, "silicon", 400, "titanium", 300), "bz-06", res()));
+        c.trades.add(trade("ship-10", "ISV Celestia", "Chartered Astral Compass",
+            "Acquire an Astral Compass from the deep-space guild fleet.",
+            res("surge-alloy", 180, "phase-fabric", 180, "silicon", 400), "bz-15", res()));
+
+        c.rebuildIndexes();
+        return c;
+    }
+
+    private static void add(Catalog c, ShopItemDef def) {
+        c.items.add(def);
+    }
+
+    private static ShopItemDef mount(ShopItemDef d, MountSubtype subtype) {
+        d.mountSubtype = subtype;
+        return d;
+    }
+
+    private static ShopItemDef halo(ShopItemDef d, HaloAnchor anchor, String fx, float radius, float interval) {
+        d.haloAnchor = anchor;
+        d.haloEffect = fx;
+        d.haloRadius = radius;
+        d.haloInterval = interval;
+        return d;
+    }
+
+    private static ShopItemDef follow(ShopItemDef d, float distance) {
+        d.followDistance = distance;
+        return d;
+    }
+
     private static ShopItemDef item(
-        String id, String name, String desc, StationTier tier,
-        String iconItem, String colorHex, AttachMode mode,
-        boolean craftable, boolean decraftable,
-        float hp, float dmg, float spd, float rld, float bld, float arm, float regen,
-        Seq<ResourceCost> resources, Seq<ItemIngredient> items
+        String id,
+        String name,
+        String desc,
+        StationTier tier,
+        ShopCategory category,
+        String iconItem,
+        String colorHex,
+        AttachMode mode,
+        boolean craftable,
+        boolean decraftable,
+        float hp,
+        float dmg,
+        float spd,
+        float rld,
+        float bld,
+        float armor,
+        float regen,
+        Seq<ResourceCost> resources,
+        Seq<ItemIngredient> items
     ) {
         ShopItemDef d = new ShopItemDef();
         d.id = id;
         d.name = name;
         d.description = desc;
         d.tier = tier;
+        d.category = category;
+        d.sprite = "shop-" + id;
         d.iconItem = iconItem;
         d.colorHex = colorHex;
         d.attachMode = mode;
@@ -513,7 +598,7 @@ public final class ShopConfigIO {
         d.speedMultBonus = spd;
         d.reloadMultBonus = rld;
         d.buildSpeedMultBonus = bld;
-        d.armorBonus = arm;
+        d.armorBonus = armor;
         d.regenPerSec = regen;
         d.resourceCosts.addAll(resources);
         d.itemCosts.addAll(items);
@@ -521,17 +606,22 @@ public final class ShopConfigIO {
     }
 
     private static OrbitalTradeDef trade(
-        String id, String shipName, String title, String desc,
-        Seq<ResourceCost> orbitalCosts, @Nullable String rewardItem, Seq<ResourceCost> rewardMapRes
+        String id,
+        String shipName,
+        String title,
+        String desc,
+        Seq<ResourceCost> cost,
+        @Nullable String rewardItem,
+        Seq<ResourceCost> rewardRes
     ) {
         OrbitalTradeDef t = new OrbitalTradeDef();
         t.id = id;
         t.shipName = shipName;
         t.title = title;
         t.description = desc;
-        t.orbitalCosts.addAll(orbitalCosts);
+        t.orbitalCosts.addAll(cost);
         t.rewardShopItemId = rewardItem;
-        t.rewardMapResources.addAll(rewardMapRes);
+        t.rewardMapResources.addAll(rewardRes);
         return t;
     }
 
@@ -543,11 +633,7 @@ public final class ShopConfigIO {
         return out;
     }
 
-    private static Seq<ResourceCost> noRes() {
-        return new Seq<>();
-    }
-
-    private static Seq<ItemIngredient> ing(Object... kv) {
+    private static Seq<ItemIngredient> items(Object... kv) {
         Seq<ItemIngredient> out = new Seq<>();
         for (int i = 0; i + 1 < kv.length; i += 2) {
             out.add(new ItemIngredient((String) kv[i], ((Number) kv[i + 1]).intValue()));
@@ -555,33 +641,13 @@ public final class ShopConfigIO {
         return out;
     }
 
-    private static Seq<ItemIngredient> noItems() {
-        return new Seq<>();
+    private static String fmt(float v) {
+        if (Math.abs(v - Math.round(v)) < 0.0001f) return Integer.toString(Math.round(v));
+        return String.format(java.util.Locale.ROOT, "%.3f", v).replaceAll("0+$", "").replaceAll("\\.$", "");
     }
 
-    private static String fmtRes(Seq<ResourceCost> list) {
-        if (list.isEmpty()) return "{}";
-        StringBuilder sb = new StringBuilder("{ ");
-        for (int i = 0; i < list.size; i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(list.get(i).itemName()).append(": ").append(list.get(i).amount());
-        }
-        sb.append(" }");
-        return sb.toString();
-    }
-
-    private static String fmtIng(Seq<ItemIngredient> list) {
-        if (list.isEmpty()) return "{}";
-        StringBuilder sb = new StringBuilder("{ ");
-        for (int i = 0; i < list.size; i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(list.get(i).shopItemId()).append(": ").append(list.get(i).amount());
-        }
-        sb.append(" }");
-        return sb.toString();
-    }
-
-    private static String esc(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    private static String quote(String s) {
+        if (s == null) return "\"\"";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 }

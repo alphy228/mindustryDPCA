@@ -376,4 +376,27 @@ public class LaunchPadSystem {
         }
         return closest;
     }
+
+    /** Removes active map Launch Pad ownership markers belonging to {@code accountId} after {@code wipedata}. */
+    public void onAccountWiped(long accountId) {
+        Seq<Integer> toRemove = new Seq<>();
+        for (IntMap.Entry<PadOwnership> e : padOwners.entries()) {
+            if (e.value != null && e.value.accountId == accountId) {
+                toRemove.add(e.key);
+            }
+        }
+        for (int i = 0; i < toRemove.size; i++) {
+            removePadOwner(toRemove.get(i));
+        }
+
+        Seq<Integer> pendingRemove = new Seq<>();
+        for (IntMap.Entry<PadOwnership> e : pendingBuildOwners.entries()) {
+            if (e.value != null && e.value.accountId == accountId) {
+                pendingRemove.add(e.key);
+            }
+        }
+        for (int i = 0; i < pendingRemove.size; i++) {
+            pendingBuildOwners.remove(pendingRemove.get(i));
+        }
+    }
 }

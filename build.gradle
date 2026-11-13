@@ -26,9 +26,14 @@ repositories {
 
 ext {
     mindustryVersion = project.findProperty('mindustryVersion') ?: 'v160.7'
+    sqliteJdbcVersion = '3.47.1.0'
+    slf4jVersion = '2.0.16'
 }
 
 dependencies {
+    implementation "org.xerial:sqlite-jdbc:${sqliteJdbcVersion}"
+    implementation "org.slf4j:slf4j-nop:${slf4jVersion}"
+
     def localServerJar = project.findProperty('serverJar')
     if (localServerJar != null && file(localServerJar).exists()) {
         compileOnly files(localServerJar)
@@ -48,5 +53,9 @@ tasks.named('jar', Jar) {
     destinationDirectory.set(layout.projectDirectory.dir('config/mods'))
     archiveFileName.set('coolplugin.jar')
     from('plugin.json')
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

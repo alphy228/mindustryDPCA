@@ -2,11 +2,15 @@ package coolplugin.techtree;
 
 import arc.Events;
 import arc.files.Fi;
+import arc.func.Cons;
 import arc.struct.ObjectMap;
 import arc.struct.ObjectSet;
 import arc.struct.Seq;
 import arc.util.Log;
 import arc.util.Nullable;
+import coolplugin.database.PlayerDatabase;
+import coolplugin.database.PlayerSessionManager;
+import coolplugin.gameplay.FactionDef;
 import mindustry.Vars;
 import mindustry.content.SectorPresets;
 import mindustry.core.NetServer.TeamAssigner;
@@ -65,6 +69,7 @@ public class TechTreeService {
     private final TechTreeMenu menu;
 
     private TechResourceStorage storage = new CoreResourceStorage();
+    private @Nullable Cons<Player> worldStreamListener;
 
     private TechNodeDef root;
     private final Seq<String> whitelistOrder = new Seq<>();
@@ -83,9 +88,19 @@ public class TechTreeService {
     private final ObjectSet<String> worldStreamSyncedUuids = new ObjectSet<>();
 
     public TechTreeService(Fi configDir) {
+        this(configDir, null, null);
+    }
+
+    public TechTreeService(
+        Fi configDir,
+        @Nullable PlayerDatabase database,
+        @Nullable PlayerSessionManager sessionManager
+    ) {
         this.configDir = configDir;
         this.treeFile = configDir.child("techtree.hjson");
-        this.progressStore = new TechProgressStore(configDir.child("techtree-progress.hjson"));
+        this.progressStore = (database != null && sessionManager != null)
+            ? new TechProgressStore(database, sessionManager)
+            : new TechProgressStore(configDir.child("techtree-progress.hjson"));
         this.menu = new TechTreeMenu(this);
     }
 
@@ -141,6 +156,7 @@ public class TechTreeService {
 
     private void applyServerHideBannedBlocksAndCaptureMapBans() {
         if (Vars.state == null || Vars.state.rules == null) return;
+        FactionDef.applyGlobalTeamRules(Vars.state.rules);
         Vars.state.rules.hideBannedBlocks = true;
         if (!applyingTempWorldRules) {
             mapBannedBlocks.clear();
@@ -175,6 +191,10 @@ public class TechTreeService {
         }
     }
 
+    public void setWorldStreamListener(@Nullable Cons<Player> listener) {
+        this.worldStreamListener = listener;
+    }
+
     /** Executes {@code action} (such as {@code netServer.sendWorldData(player)}) while {@code state.rules} holds {@code player}'s bans. */
     public synchronized void withPlayerWorldRules(@Nullable Player player, Runnable action) {
         if (player == null || Vars.state == null || Vars.state.rules == null) {
@@ -186,6 +206,9 @@ public class TechTreeService {
             action.run();
         } finally {
             restoreServerGlobalBansAfterWorldStream();
+            if (worldStreamListener != null) {
+                worldStreamListener.get(player);
+            }
         }
     }
 

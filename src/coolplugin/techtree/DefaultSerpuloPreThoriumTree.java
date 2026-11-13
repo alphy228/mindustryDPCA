@@ -41,7 +41,10 @@ public final class DefaultSerpuloPreThoriumTree {
         dagger.children.add(singleBlockNode(Blocks.coreFoundation, TechNodeDef.DIR_UP));
 
         TechNodeDef conveyorUp = copySerpuloSubtree(Blocks.conveyor, lateItems, TechNodeDef.DIR_UP);
-        if (conveyorUp != null) dagger.children.add(conveyorUp);
+        if (conveyorUp != null) {
+            attachCustomLogisticsAndShops(conveyorUp);
+            dagger.children.add(conveyorUp);
+        }
 
         // === LEFT OF DAGGER: Flare, Mono, Risso (with T2/T3 & Air/Naval factories going DOWN) ===
         TechNodeDef flare = unitNode(UnitTypes.flare, false, TechNodeDef.DIR_LEFT);
@@ -197,5 +200,85 @@ public final class DefaultSerpuloPreThoriumTree {
         for (TechNodeDef child : node.children) {
             assignParents(child, node);
         }
+    }
+
+    private static void attachCustomLogisticsAndShops(TechNodeDef conveyorSubtree) {
+        TechNodeDef router = findById(conveyorSubtree, "router");
+        if (router != null) {
+            router.children.insert(0, customBlockNode(
+                "dp-copper-container",
+                TechNodeDef.DIR_UP,
+                new ItemStack[]{new ItemStack(Items.copper, 35)}
+            ));
+            router.children.insert(1, customBlockNode(
+                "launch-pad",
+                TechNodeDef.DIR_UP,
+                new ItemStack[]{
+                    new ItemStack(Items.copper, 4000),
+                    new ItemStack(Items.lead, 2500),
+                    new ItemStack(Items.titanium, 1800),
+                    new ItemStack(Items.silicon, 1500)
+                }
+            ));
+        }
+
+        TechNodeDef container = findById(conveyorSubtree, "container");
+        if (container != null) {
+            TechNodeDef workbench = customBlockNode(
+                "dp-workbench",
+                TechNodeDef.DIR_UP,
+                new ItemStack[]{
+                    new ItemStack(Items.copper, 200),
+                    new ItemStack(Items.lead, 120),
+                    new ItemStack(Items.graphite, 30)
+                }
+            );
+            TechNodeDef bazaar = customBlockNode(
+                "dp-bazaar",
+                TechNodeDef.DIR_UP,
+                new ItemStack[]{
+                    new ItemStack(Items.copper, 120),
+                    new ItemStack(Items.lead, 1200),
+                    new ItemStack(Items.graphite, 250),
+                    new ItemStack(Items.titanium, 70),
+                    new ItemStack(Items.silicon, 320)
+                }
+            );
+            Seq<ItemStack> altarCosts = new Seq<>();
+            for (Item it : mindustry.Vars.content.items()) {
+                if (it != null && !it.hidden) {
+                    altarCosts.add(new ItemStack(it, 9_999_999));
+                }
+            }
+            TechNodeDef cursedAltar = customBlockNode(
+                "dp-cursed-altar",
+                TechNodeDef.DIR_UP,
+                altarCosts.toArray(ItemStack.class)
+            );
+            bazaar.children.add(cursedAltar);
+            workbench.children.add(bazaar);
+            container.children.add(workbench);
+        }
+    }
+
+    private static TechNodeDef customBlockNode(String id, String dir, ItemStack[] costs) {
+        TechNodeDef def = new TechNodeDef();
+        def.id = id;
+        def.contentType = ContentType.block.name();
+        def.contentName = id;
+        def.direction = dir;
+        def.content = TechTreeConfigIO.resolveContent(ContentType.block.name(), id);
+        def.costs = costs != null ? costs : ItemStack.empty;
+        return def;
+    }
+
+    private static TechNodeDef findById(TechNodeDef current, String id) {
+        if (current == null) return null;
+        if (id.equals(current.id)) return current;
+        for (TechNodeDef ch : current.children) {
+            TechNodeDef hit = findById(ch, id);
+            if (hit != null) return hit;
+        }
+        return null;
     }
 }

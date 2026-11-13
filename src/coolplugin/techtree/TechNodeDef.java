@@ -110,9 +110,12 @@ public class TechNodeDef {
     }
 
     public String resolvedIcon() {
-        if (icon != null && !icon.isEmpty()) return icon;
+        if (icon != null && !icon.isEmpty()) return coolplugin.gameplay.UiSpriteSync.resolveMenuDrawable(icon);
         if (content != null) {
             if (isCustomOrModContent(content)) {
+                if (coolplugin.gameplay.UiSpriteSync.hasSprite(content.name)) {
+                    return coolplugin.gameplay.UiSpriteSync.resolveMenuDrawable(content.name);
+                }
                 return content.name + "-ui";
             }
             ContentType ct = content.getContentType();

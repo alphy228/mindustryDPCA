@@ -1,0 +1,14 @@
+type: StorageBlock
+name: Copper Container
+localizedName: Copper Container
+description: Early-game storage container integrated with unit reach building. Holds up to 150 of each item and cannot be unloaded by unloaders.
+size: 2
+health: 110
+itemCapacity: 150
+unloadable: false
+coreMerge: false
+category: effect
+buildVisibility: shown
+requirements: [
+  copper/35
+]

@@ -327,12 +327,6 @@ public class PlayerUnitSystem {
 
     public void requestOpenFactionMenu(Player player) {
         if (!valid(player)) return;
-        Long cooldownUntil = respawnAt.get(player.uuid());
-        if (cooldownUntil != null && Time.millis() < cooldownUntil) {
-            int left = (int) Math.ceil((cooldownUntil - Time.millis()) / 1000.0);
-            player.sendMessage("[scarlet]Wait " + left + "s for death cooldown before switching factions.[]");
-            return;
-        }
         factionMenu.open(player);
     }
 
@@ -496,15 +490,14 @@ public class PlayerUnitSystem {
         String uuid = player.uuid();
         activeJoinMenus.remove(uuid);
 
-        Long cooldownUntil = respawnAt.get(uuid);
-        if (cooldownUntil != null && Time.millis() < cooldownUntil) {
-            int left = (int) Math.ceil((cooldownUntil - Time.millis()) / 1000.0);
-            player.sendMessage("[scarlet]Wait " + left + "s for death cooldown before switching factions.[]");
-            return;
-        }
-
+        boolean currentlyDead = respawnAt.containsKey(uuid);
         FactionDef previousFaction = chosenFactions.get(uuid);
         if (previousFaction == faction) {
+            if (currentlyDead) {
+                player.team(faction.team());
+                player.clearUnit();
+                return;
+            }
             Unit existing = owned.get(uuid);
             if (existing != null
                 && !existing.dead()
@@ -523,8 +516,6 @@ public class PlayerUnitSystem {
         if (sessionManager != null) {
             sessionManager.setActiveFaction(uuid, faction);
         }
-        respawnAt.remove(uuid);
-        lastRespawnOffer.remove(uuid);
 
         player.team(faction.team());
         buildSystem.onPlayerWorldSynced(player);
@@ -532,6 +523,14 @@ public class PlayerUnitSystem {
             techTree.syncPlayerRulesLive(player, null);
         }
 
+        // Changing faction while dead updates active faction & team without respawning the player
+        if (currentlyDead) {
+            player.clearUnit();
+            return;
+        }
+
+        respawnAt.remove(uuid);
+        lastRespawnOffer.remove(uuid);
         spawnFor(player, faction, resolveStarterUnit(player, faction));
     }
 

@@ -139,9 +139,10 @@ public final class TechTreeConfigIO {
     public static boolean rebindContentRecursive(TechNodeDef node) {
         if (node == null) return false;
         boolean changed = false;
-        if (!node.virtual && node.content == null && node.contentName != null && !node.contentName.isEmpty()) {
-            node.content = resolveContent(node.contentType, node.contentName);
-            if (node.content != null) {
+        if (!node.virtual && node.contentName != null && !node.contentName.isEmpty()) {
+            UnlockableContent resolved = resolveContent(node.contentType, node.contentName);
+            if (resolved != null && resolved != node.content) {
+                node.content = resolved;
                 if ("resource".equalsIgnoreCase(node.contentType) || "database".equalsIgnoreCase(node.contentType)) {
                     node.contentType = node.content.getContentType().name();
                 }

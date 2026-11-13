@@ -7,7 +7,11 @@ import coolplugin.database.PlayerDatabase;
 import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.BuildResourceStorage;
 import coolplugin.gameplay.BuildSystem;
+import coolplugin.gameplay.ItemShopSystem;
+import coolplugin.gameplay.LaunchPadSystem;
+import coolplugin.gameplay.PlayerItemSystem;
 import coolplugin.gameplay.PlayerUnitSystem;
+import coolplugin.gameplay.UiSpriteSync;
 import coolplugin.gameplay.UnitPatchManager;
 import coolplugin.techtree.TechNodeDef;
 import coolplugin.techtree.TechResourceStorage;
@@ -22,28 +26,38 @@ import mindustry.mod.Plugin;
  * Main Mindustry server plugin entry point (`config/mods/coolplugin.jar`).
  * Wires together:
  * <ul>
- *   <li>{@code coolplugin.database} — Embedded SQLite (`config/alphystuff/players.db`) guest UUID + {@code login + password} accounts.</li>
+ *   <li>{@code coolplugin.database} — Embedded SQLite (`config/alphystuff/players.db`) guest UUID + {@code login + password} accounts,
+ *       per-faction persistent Launch Pad orbital storage, and per-faction equipped items.</li>
  *   <li>{@code coolplugin.techtree} — Per-player Tech Tree, HJSON config, and building bans.</li>
- *   <li>{@code coolplugin.gameplay} — Coreless {@link BuildSystem}, {@link FactionJoinMenu}, and single-unit {@link PlayerUnitSystem}.</li>
+ *   <li>{@code coolplugin.gameplay} — Coreless {@link BuildSystem}, reconnect-safe {@link UiSpriteSync},
+ *       {@link FactionJoinMenu}, {@link PlayerUnitSystem}, {@link LaunchPadSystem}, {@link PlayerItemSystem}, and {@link ItemShopSystem}.</li>
  * </ul>
  */
 public class CoolPlugin extends Plugin {
 
+    private Fi configBaseDir;
     private PlayerDatabase playerDatabase;
     private PlayerSessionManager sessionManager;
     private UnitPatchManager unitPatchManager;
     private TechTreeService techTree;
     private BuildSystem buildSystem;
     private PlayerUnitSystem playerUnitSystem;
+    private LaunchPadSystem launchPadSystem;
+    private PlayerItemSystem playerItemSystem;
+    private ItemShopSystem itemShopSystem;
 
     @Override
     public void init() {
         ensureSystemsCreated();
+        UiSpriteSync.init(configBaseDir);
         unitPatchManager.runOnServerLoad();
         sessionManager.start();
         techTree.init();
         buildSystem.start();
         playerUnitSystem.start();
+        launchPadSystem.start();
+        playerItemSystem.start();
+        itemShopSystem.start();
     }
 
     @Override
@@ -51,6 +65,8 @@ public class CoolPlugin extends Plugin {
         ensureSystemsCreated();
         TechTreeCommands.registerServerCommands(handler, techTree);
         AccountCommands.registerServerCommands(handler, sessionManager);
+        launchPadSystem.registerServerCommands(handler);
+        itemShopSystem.registerServerCommands(handler);
     }
 
     @Override
@@ -86,6 +102,21 @@ public class CoolPlugin extends Plugin {
         return playerUnitSystem;
     }
 
+    public LaunchPadSystem getLaunchPadSystem() {
+        ensureSystemsCreated();
+        return launchPadSystem;
+    }
+
+    public PlayerItemSystem getPlayerItemSystem() {
+        ensureSystemsCreated();
+        return playerItemSystem;
+    }
+
+    public ItemShopSystem getItemShopSystem() {
+        ensureSystemsCreated();
+        return itemShopSystem;
+    }
+
     public void setTechResourceStorage(TechResourceStorage storage) {
         ensureSystemsCreated();
         techTree.setStorage(storage);
@@ -114,9 +145,9 @@ public class CoolPlugin extends Plugin {
 
     private void ensureSystemsCreated() {
         if (techTree == null) {
-            Fi configBase = Vars.dataDirectory != null ? Vars.dataDirectory : new Fi("config");
-            Fi alphyDir = configBase.child("alphystuff");
-            unitPatchManager = new UnitPatchManager(configBase);
+            configBaseDir = Vars.dataDirectory != null ? Vars.dataDirectory : new Fi("config");
+            Fi alphyDir = configBaseDir.child("alphystuff");
+            unitPatchManager = new UnitPatchManager(configBaseDir);
             playerDatabase = new PlayerDatabase(alphyDir.child("players.db"));
             sessionManager = new PlayerSessionManager(playerDatabase);
             techTree = new TechTreeService(alphyDir, playerDatabase, sessionManager);
@@ -124,6 +155,16 @@ public class CoolPlugin extends Plugin {
             techTree.setStorage(new BuildResourceStorage(buildSystem));
             techTree.setWorldStreamListener(buildSystem::onPlayerWorldSynced);
             playerUnitSystem = new PlayerUnitSystem(buildSystem, techTree, sessionManager);
+            launchPadSystem = new LaunchPadSystem(playerDatabase, sessionManager);
+            playerItemSystem = new PlayerItemSystem(alphyDir, playerDatabase, sessionManager, buildSystem);
+            itemShopSystem = new ItemShopSystem(
+                playerItemSystem,
+                buildSystem,
+                playerUnitSystem,
+                techTree,
+                playerDatabase,
+                sessionManager
+            );
         }
     }
 }

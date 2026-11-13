@@ -69,6 +69,13 @@ public class PlayerDatabase implements AutoCloseable {
         }
     }
 
+    public static final class EquipmentData {
+        /** Ordered list of equipped item IDs (max 10; indices 0..3 grant passive bonuses, 4..9 apply -10% speed each). */
+        public final Seq<String> equipped = new Seq<>();
+        /** Unequipped owned item counts per item ID. */
+        public final ObjectIntMap<String> stash = new ObjectIntMap<>();
+    }
+
     public record Stats(
         int totalAccounts,
         int registeredAccounts,
@@ -139,6 +146,30 @@ public class PlayerDatabase implements AutoCloseable {
                         unlocked_json TEXT NOT NULL DEFAULT '[]',
                         paid_json     TEXT NOT NULL DEFAULT '{}',
                         flags_json    TEXT NOT NULL DEFAULT '[]',
+                        updated_at    INTEGER NOT NULL,
+                        PRIMARY KEY (account_id, faction_id),
+                        FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                    )
+                    """);
+
+                st.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS account_orbital_storage (
+                        account_id    INTEGER NOT NULL,
+                        faction_id    TEXT NOT NULL,
+                        item_name     TEXT NOT NULL,
+                        amount        INTEGER NOT NULL DEFAULT 0,
+                        updated_at    INTEGER NOT NULL,
+                        PRIMARY KEY (account_id, faction_id, item_name),
+                        FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                    )
+                    """);
+
+                st.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS account_equipped_items (
+                        account_id    INTEGER NOT NULL,
+                        faction_id    TEXT NOT NULL,
+                        equipped_json TEXT NOT NULL DEFAULT '[]',
+                        stash_json    TEXT NOT NULL DEFAULT '{}',
                         updated_at    INTEGER NOT NULL,
                         PRIMARY KEY (account_id, faction_id),
                         FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
@@ -682,6 +713,186 @@ public class PlayerDatabase implements AutoCloseable {
         }
     }
 
+    // ------------------------------------------------------------------ per-faction orbital storage (Launch Pads)
+
+    public synchronized ObjectIntMap<String> getOrbitalStorage(long accountId, String factionId) {
+        ensureOpen();
+        String normalizedFaction = normalizeFaction(factionId);
+        ObjectIntMap<String> out = new ObjectIntMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(
+            "SELECT item_name, amount FROM account_orbital_storage WHERE account_id = ? AND faction_id = ? AND amount > 0"
+        )) {
+            ps.setLong(1, accountId);
+            ps.setString(2, normalizedFaction);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = rs.getString("item_name");
+                    int amt = rs.getInt("amount");
+                    if (name != null && amt > 0) {
+                        out.put(name, amt);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] SQLite error in getOrbitalStorage", e);
+        }
+        return out;
+    }
+
+    public synchronized int getOrbitalItemAmount(long accountId, String factionId, String itemName) {
+        ensureOpen();
+        if (itemName == null || itemName.isEmpty()) return 0;
+        String normalizedFaction = normalizeFaction(factionId);
+        try (PreparedStatement ps = connection.prepareStatement(
+            "SELECT amount FROM account_orbital_storage WHERE account_id = ? AND faction_id = ? AND item_name = ?"
+        )) {
+            ps.setLong(1, accountId);
+            ps.setString(2, normalizedFaction);
+            ps.setString(3, itemName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Math.max(0, rs.getInt("amount"));
+                }
+            }
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] SQLite error in getOrbitalItemAmount", e);
+        }
+        return 0;
+    }
+
+    /**
+     * Adds {@code delta} of {@code itemName} into persistent orbital storage, saturating at
+     * {@link Integer#MAX_VALUE} ({@code 2,147,483,647}) without signed 32-bit overflow.
+     *
+     * @return the new stored amount.
+     */
+    public synchronized int addOrbitalItem(long accountId, String factionId, String itemName, int delta) {
+        ensureOpen();
+        if (itemName == null || itemName.isEmpty()) return 0;
+        int current = getOrbitalItemAmount(accountId, factionId, itemName);
+        if (delta == 0) return current;
+        long sum = (long) current + (long) delta;
+        int next = (int) Math.min(Integer.MAX_VALUE, Math.max(0L, sum));
+        setOrbitalItemAmount(accountId, factionId, itemName, next);
+        return next;
+    }
+
+    public synchronized boolean takeOrbitalItem(long accountId, String factionId, String itemName, int amount) {
+        ensureOpen();
+        if (amount <= 0) return true;
+        int current = getOrbitalItemAmount(accountId, factionId, itemName);
+        if (current < amount) return false;
+        setOrbitalItemAmount(accountId, factionId, itemName, current - amount);
+        return true;
+    }
+
+    public synchronized void setOrbitalItemAmount(long accountId, String factionId, String itemName, int amount) {
+        ensureOpen();
+        if (itemName == null || itemName.isEmpty()) return;
+        String normalizedFaction = normalizeFaction(factionId);
+        int clamped = Math.max(0, amount);
+        long now = System.currentTimeMillis();
+
+        try (PreparedStatement ps = connection.prepareStatement("""
+            INSERT INTO account_orbital_storage (account_id, faction_id, item_name, amount, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, faction_id, item_name) DO UPDATE SET
+                amount = excluded.amount,
+                updated_at = excluded.updated_at
+            """)) {
+            ps.setLong(1, accountId);
+            ps.setString(2, normalizedFaction);
+            ps.setString(3, itemName);
+            ps.setInt(4, clamped);
+            ps.setLong(5, now);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] SQLite error in setOrbitalItemAmount", e);
+        }
+    }
+
+    /** Fills every item in {@code itemNames} in persistent orbital storage up to {@link Integer#MAX_VALUE}. */
+    public synchronized int fillOrbitalStorageToMax(long accountId, String factionId, Iterable<String> itemNames) {
+        ensureOpen();
+        if (itemNames == null) return 0;
+        String normalizedFaction = normalizeFaction(factionId);
+        long now = System.currentTimeMillis();
+        int count = 0;
+
+        try (PreparedStatement ps = connection.prepareStatement("""
+            INSERT INTO account_orbital_storage (account_id, faction_id, item_name, amount, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, faction_id, item_name) DO UPDATE SET
+                amount = excluded.amount,
+                updated_at = excluded.updated_at
+            """)) {
+            for (String itemName : itemNames) {
+                if (itemName == null || itemName.isEmpty()) continue;
+                ps.setLong(1, accountId);
+                ps.setString(2, normalizedFaction);
+                ps.setString(3, itemName);
+                ps.setInt(4, Integer.MAX_VALUE);
+                ps.setLong(5, now);
+                ps.addBatch();
+                count++;
+            }
+            ps.executeBatch();
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] SQLite error in fillOrbitalStorageToMax", e);
+        }
+        return count;
+    }
+
+    // ------------------------------------------------------------------ per-faction equipped items & bag
+
+    public synchronized EquipmentData getEquipmentData(long accountId, String factionId) {
+        ensureOpen();
+        String normalizedFaction = normalizeFaction(factionId);
+        EquipmentData out = new EquipmentData();
+        try (PreparedStatement ps = connection.prepareStatement(
+            "SELECT equipped_json, stash_json FROM account_equipped_items WHERE account_id = ? AND faction_id = ?"
+        )) {
+            ps.setLong(1, accountId);
+            ps.setString(2, normalizedFaction);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    parseStringSeqJson(rs.getString("equipped_json"), out.equipped);
+                    parseIntMapJson(rs.getString("stash_json"), out.stash);
+                }
+            }
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] SQLite error in getEquipmentData", e);
+        }
+        return out;
+    }
+
+    public synchronized void saveEquipmentData(long accountId, String factionId, EquipmentData data) {
+        ensureOpen();
+        if (data == null) return;
+        String normalizedFaction = normalizeFaction(factionId);
+        long now = System.currentTimeMillis();
+        String eqJson = toStringSeqJson(data.equipped);
+        String stashJson = toIntMapJson(data.stash);
+
+        try (PreparedStatement ps = connection.prepareStatement("""
+            INSERT INTO account_equipped_items (account_id, faction_id, equipped_json, stash_json, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, faction_id) DO UPDATE SET
+                equipped_json = excluded.equipped_json,
+                stash_json = excluded.stash_json,
+                updated_at = excluded.updated_at
+            """)) {
+            ps.setLong(1, accountId);
+            ps.setString(2, normalizedFaction);
+            ps.setString(3, eqJson);
+            ps.setString(4, stashJson);
+            ps.setLong(5, now);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            Log.err("[CoolPlugin] SQLite error in saveEquipmentData", e);
+        }
+    }
+
     public synchronized Stats getStats() {
         ensureOpen();
         int total = queryCount("SELECT COUNT(*) FROM accounts");
@@ -707,6 +918,65 @@ public class PlayerDatabase implements AutoCloseable {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private static void parseStringSeqJson(@Nullable String json, Seq<String> target) {
+        if (json == null || json.isBlank()) return;
+        try {
+            JsonValue arr = new JsonReader().parse(json);
+            if (arr == null) return;
+            for (JsonValue v = arr.child; v != null; v = v.next) {
+                String s = v.asString();
+                if (s != null && !s.isEmpty()) target.add(s);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void parseIntMapJson(@Nullable String json, ObjectIntMap<String> target) {
+        if (json == null || json.isBlank()) return;
+        try {
+            JsonValue root = new JsonReader().parse(json);
+            if (root == null) return;
+            for (JsonValue e = root.child; e != null; e = e.next) {
+                int amt = e.asInt();
+                if (e.name != null && amt > 0) {
+                    target.put(e.name, amt);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String toStringSeqJson(Seq<String> list) {
+        if (list == null || list.isEmpty()) return "[]";
+        StringBuilder sb = new StringBuilder();
+        sb.append('[');
+        boolean first = true;
+        for (int i = 0; i < list.size; i++) {
+            String s = list.get(i);
+            if (s == null || s.isEmpty()) continue;
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(escapeJson(s)).append('"');
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
+    private static String toIntMapJson(ObjectIntMap<String> map) {
+        if (map == null || map.isEmpty()) return "{}";
+        StringBuilder sb = new StringBuilder();
+        sb.append('{');
+        boolean first = true;
+        for (var e : map.entries()) {
+            if (e.key == null || e.value <= 0) continue;
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(escapeJson(e.key)).append("\":").append(e.value);
+        }
+        sb.append('}');
+        return sb.toString();
     }
 
     private static void parsePaidMapJson(@Nullable String json, ObjectMap<String, ObjectIntMap<String>> target) {

@@ -1,0 +1,14 @@
+type: SwitchBlock
+name: Workbench
+localizedName: Workbench
+description: Tier 1 Item Shop. Flip the switch while inside its 10-tile area to craft, decraft, and equip basic items.
+size: 2
+health: 320
+solid: true
+category: effect
+buildVisibility: shown
+requirements: [
+  copper/200
+  lead/120
+  graphite/30
+]

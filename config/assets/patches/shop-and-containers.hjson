@@ -1,0 +1,25 @@
+name: Copper Container, Item Shops, and Launch Pad
+block.launch-pad.buildVisibility: shown
+block.dp-copper-container: {
+  region: dp-copper-container
+  fullIcon: dp-copper-container
+  uiIcon: dp-copper-container
+}
+block.dp-workbench: {
+  region: dp-workbench
+  onRegion: dp-workbench-on
+  fullIcon: dp-workbench
+  uiIcon: dp-workbench
+}
+block.dp-bazaar: {
+  region: dp-bazaar
+  onRegion: dp-bazaar-on
+  fullIcon: dp-bazaar
+  uiIcon: dp-bazaar
+}
+block.dp-cursed-altar: {
+  region: dp-cursed-altar
+  onRegion: dp-cursed-altar-on
+  fullIcon: dp-cursed-altar
+  uiIcon: dp-cursed-altar
+}

@@ -1,0 +1,16 @@
+type: SwitchBlock
+name: Bazaar
+localizedName: Bazaar
+description: Tier 2 Item Shop. Flip the switch while inside its 10-tile area to craft, decraft, equip items, and trade with orbital ships.
+size: 3
+health: 720
+solid: true
+category: effect
+buildVisibility: shown
+requirements: [
+  copper/120
+  lead/1200
+  graphite/250
+  titanium/70
+  silicon/320
+]

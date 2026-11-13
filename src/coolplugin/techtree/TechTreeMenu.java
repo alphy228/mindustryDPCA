@@ -73,6 +73,7 @@ public class TechTreeMenu {
     public void open(Player player) {
         if (player == null || player.con == null) return;
         register();
+        coolplugin.gameplay.UiSpriteSync.ensureSent(player);
         service.ensurePlayerInitialized(player);
 
         PlayerMenuSession session = getOrInitSession(player);

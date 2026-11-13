@@ -292,6 +292,20 @@ public class PlayerSessionManager {
         database.setFactionUnitType(acc.id, faction.id, unitType.name);
     }
 
+    public synchronized @Nullable AccountRecord resolveTargetAccount(String query) {
+        String key = findTargetKeyForQuery(query);
+        if (key == null) return null;
+        return resolveOrCreateAccountByUuid(key, null);
+    }
+
+    public synchronized String resolveTargetFactionId(String query, @Nullable String explicitFaction) {
+        if (explicitFaction != null && !explicitFaction.isBlank()) {
+            return explicitFaction.trim().toLowerCase(Locale.ROOT);
+        }
+        String key = findTargetKeyForQuery(query);
+        return getActiveFactionId(key);
+    }
+
     public static UnitType lookupUnitTypeOrDefault(@Nullable String name) {
         if (name != null && !name.isEmpty() && Vars.content != null) {
             UnitType direct = Vars.content.unit(name);

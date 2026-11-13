@@ -1,0 +1,791 @@
+# Item Shop Catalog (config/alphystuff/shop.hjson)
+# Tiers: workbench (15 items), bazaar (15 items), cursed-altar (15 items)
+# Attach modes: ORBIT | MOUNT | HALO | TRAIL
+
+items: [
+  {
+    id: wb-01
+    name: "Copper Plating I"
+    description: "Basic hull plating bolted onto unit frame."
+    tier: workbench
+    iconItem: copper
+    colorHex: "d99d73"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.08
+    armorBonus: 1.0
+    resources: { copper: 80, lead: 40 }
+  }
+  {
+    id: wb-02
+    name: "Lead Counterweight"
+    description: "Stabilizes recoil for heavier shots."
+    tier: workbench
+    iconItem: lead
+    colorHex: "8c7fa9"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.08
+    resources: { lead: 90, copper: 45 }
+  }
+  {
+    id: wb-03
+    name: "Graphite Gyro"
+    description: "Revolving gyroscopic ring boosting maneuver speed."
+    tier: workbench
+    iconItem: graphite
+    colorHex: "b2c6d2"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.08
+    resources: { graphite: 45, copper: 60 }
+  }
+  {
+    id: wb-04
+    name: "Sandglass Capacitor"
+    description: "Cycles weapon chambers slightly faster."
+    tier: workbench
+    iconItem: metaglass
+    colorHex: "ebeef5"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    reloadMultBonus: 0.08
+    resources: { metaglass: 40, lead: 60 }
+  }
+  {
+    id: wb-05
+    name: "Builder's Servo"
+    description: "Auxiliary construction drone trailing your unit."
+    tier: workbench
+    iconItem: silicon
+    colorHex: "8e909c"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    buildSpeedMultBonus: 0.2
+    resources: { silicon: 50, copper: 80 }
+  }
+  {
+    id: wb-06
+    name: "Coal Burner Core"
+    description: "Warm trailing ember granting mild hull repair."
+    tier: workbench
+    iconItem: coal
+    colorHex: "ffb36b"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.04
+    regenPerSec: 2.0
+    resources: { coal: 60, copper: 70 }
+  }
+  {
+    id: wb-07
+    name: "Scrap Buckler"
+    description: "Improvised orbiting debris shield."
+    tier: workbench
+    iconItem: scrap
+    colorHex: "b08968"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.05
+    armorBonus: 2.0
+    resources: { scrap: 100, lead: 50 }
+  }
+  {
+    id: wb-08
+    name: "Pyratite Sparkplug"
+    description: "Volatile igniter boosting weapon output."
+    tier: workbench
+    iconItem: pyratite
+    colorHex: "ffaa5f"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.12
+    reloadMultBonus: 0.04
+    resources: { pyratite: 25, lead: 80 }
+  }
+  {
+    id: wb-09
+    name: "Spore Poultice"
+    description: "Living spore halo that slowly mends armor cracks."
+    tier: workbench
+    iconItem: spore-pod
+    colorHex: "9d7fe8"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.06
+    regenPerSec: 3.0
+    resources: { spore-pod: 35, graphite: 40 }
+  }
+  {
+    id: wb-10
+    name: "Silicon Sight"
+    description: "Precision targeting halo."
+    tier: workbench
+    iconItem: silicon
+    colorHex: "a3e7fc"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.07
+    reloadMultBonus: 0.09
+    resources: { silicon: 75, metaglass: 40 }
+  }
+  {
+    id: wb-11
+    name: "Reinforced Copper Aegis"
+    description: "Upgrades Copper Plating I with Graphite Gyro."
+    tier: workbench
+    iconItem: copper
+    colorHex: "ffd37f"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.14
+    speedMultBonus: 0.06
+    armorBonus: 3.0
+    resources: { copper: 120, graphite: 50 }
+    items: { wb-01: 1, wb-03: 1 }
+  }
+  {
+    id: wb-12
+    name: "Overclocked Rig"
+    description: "Fuses Builder's Servo and Sandglass Capacitor."
+    tier: workbench
+    iconItem: metaglass
+    colorHex: "98ffd9"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.05
+    reloadMultBonus: 0.1
+    buildSpeedMultBonus: 0.3
+    resources: { silicon: 60, graphite: 40 }
+    items: { wb-04: 1, wb-05: 1 }
+  }
+  {
+    id: wb-13
+    name: "Heavy Striker Frame"
+    description: "Combines Lead Counterweight with Pyratite Sparkplug."
+    tier: workbench
+    iconItem: pyratite
+    colorHex: "ff8c66"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.05
+    damageMultBonus: 0.16
+    reloadMultBonus: 0.06
+    armorBonus: 1.0
+    resources: { lead: 120, silicon: 40 }
+    items: { wb-02: 1, wb-08: 1 }
+  }
+  {
+    id: wb-14
+    name: "Ancient Copper Relic"
+    description: "Non-craftable salvage core. Can be equipped or decrafted for rich copper & silicon."
+    tier: workbench
+    iconItem: copper
+    colorHex: "ffbe76"
+    attachMode: HALO
+    craftable: false
+    decraftable: true
+    healthMultBonus: 0.1
+    damageMultBonus: 0.05
+    buildSpeedMultBonus: 0.15
+    armorBonus: 2.0
+    resources: { copper: 220, silicon: 90, graphite: 60 }
+  }
+  {
+    id: wb-15
+    name: "Sealed Smelter Core"
+    description: "Non-craftable salvaged furnace heart. Decraft at Workbench/Bazaar to reclaim materials."
+    tier: workbench
+    iconItem: graphite
+    colorHex: "ff9f43"
+    attachMode: ORBIT
+    craftable: false
+    decraftable: true
+    damageMultBonus: 0.1
+    speedMultBonus: 0.05
+    reloadMultBonus: 0.05
+    regenPerSec: 2.5
+    resources: { lead: 200, graphite: 120, metaglass: 80 }
+  }
+  {
+    id: bz-01
+    name: "Titanium Carapace"
+    description: "High-grade titanium hull plates."
+    tier: bazaar
+    iconItem: titanium
+    colorHex: "8da1e3"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.18
+    armorBonus: 4.0
+    resources: { titanium: 120, graphite: 90 }
+    items: { wb-01: 1 }
+  }
+  {
+    id: bz-02
+    name: "Cryo-Cooled Breech"
+    description: "Rapid-fire weapon cycling module."
+    tier: bazaar
+    iconItem: titanium
+    colorHex: "7fe6ff"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.08
+    reloadMultBonus: 0.18
+    resources: { titanium: 90, metaglass: 80, silicon: 100 }
+  }
+  {
+    id: bz-03
+    name: "Orbital Thruster Ring"
+    description: "Sleek cyan thruster ring accelerating movement."
+    tier: bazaar
+    iconItem: silicon
+    colorHex: "66f2ff"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.16
+    resources: { titanium: 80, silicon: 140, graphite: 80 }
+    items: { wb-03: 1 }
+  }
+  {
+    id: bz-04
+    name: "Blast Munitions Rack"
+    description: "Explosive payload feed boosting weapon damage."
+    tier: bazaar
+    iconItem: blast-compound
+    colorHex: "ff795e"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.22
+    resources: { blast-compound: 45, titanium: 80, lead: 150 }
+  }
+  {
+    id: bz-05
+    name: "Plastanium Dampener"
+    description: "Absorptive composite ring reducing incoming trauma."
+    tier: bazaar
+    iconItem: plastanium
+    colorHex: "cbd97e"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.15
+    speedMultBonus: 0.04
+    armorBonus: 5.0
+    regenPerSec: 3.0
+    resources: { plastanium: 60, titanium: 100, silicon: 80 }
+  }
+  {
+    id: bz-06
+    name: "Architect Drone Swarm"
+    description: "Twin trailing fab-drones dramatically boosting build speed."
+    tier: bazaar
+    iconItem: silicon
+    colorHex: "98ffd9"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.06
+    buildSpeedMultBonus: 0.55
+    resources: { silicon: 180, titanium: 90, graphite: 100 }
+    items: { wb-05: 1 }
+  }
+  {
+    id: bz-07
+    name: "Thorium Reactor Core"
+    description: "Dense fissile power pack amplifying damage & reload."
+    tier: bazaar
+    iconItem: thorium
+    colorHex: "f9a3c7"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.08
+    damageMultBonus: 0.16
+    reloadMultBonus: 0.12
+    resources: { thorium: 80, titanium: 100, lead: 200 }
+  }
+  {
+    id: bz-08
+    name: "Phase Blink Feather"
+    description: "Shifting phase wake increasing speed and regeneration."
+    tier: bazaar
+    iconItem: phase-fabric
+    colorHex: "f4ba6e"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.18
+    reloadMultBonus: 0.06
+    regenPerSec: 5.0
+    resources: { phase-fabric: 40, silicon: 150 }
+  }
+  {
+    id: bz-09
+    name: "Surge Dynamo"
+    description: " Crackling arc halo supercharging weapons and servos."
+    tier: bazaar
+    iconItem: surge-alloy
+    colorHex: "f3e979"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.2
+    speedMultBonus: 0.08
+    reloadMultBonus: 0.14
+    resources: { surge-alloy: 40, titanium: 120, silicon: 140 }
+  }
+  {
+    id: bz-10
+    name: "Beryllium Lattice"
+    description: "Lightweight off-world lattice plating."
+    tier: bazaar
+    iconItem: beryllium
+    colorHex: "8be89c"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.14
+    speedMultBonus: 0.08
+    buildSpeedMultBonus: 0.25
+    armorBonus: 3.0
+    resources: { titanium: 110, silicon: 110, metaglass: 90 }
+  }
+  {
+    id: bz-11
+    name: "Vanguard Bastion Rig"
+    description: "Fuses Reinforced Copper Aegis with Titanium Carapace."
+    tier: bazaar
+    iconItem: titanium
+    colorHex: "74b9ff"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.28
+    speedMultBonus: 0.05
+    armorBonus: 7.0
+    regenPerSec: 4.0
+    resources: { titanium: 180, silicon: 120 }
+    items: { wb-11: 1, bz-01: 1 }
+  }
+  {
+    id: bz-12
+    name: "Starlance Targeting Array"
+    description: "Combines Heavy Striker Frame and Cryo-Cooled Breech."
+    tier: bazaar
+    iconItem: surge-alloy
+    colorHex: "ffeaa7"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.26
+    reloadMultBonus: 0.2
+    resources: { silicon: 200, titanium: 120 }
+    items: { wb-13: 1, bz-02: 1 }
+  }
+  {
+    id: bz-13
+    name: "Slipstream Vector Engine"
+    description: "Combines Orbital Thruster Ring with Overclocked Rig."
+    tier: bazaar
+    iconItem: phase-fabric
+    colorHex: "81ecec"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.22
+    reloadMultBonus: 0.12
+    buildSpeedMultBonus: 0.4
+    resources: { titanium: 140, silicon: 160 }
+    items: { bz-03: 1, wb-12: 1 }
+  }
+  {
+    id: bz-14
+    name: "Orbital Vault Capsule"
+    description: "Non-craftable merchant capsule. Equip for armor or decraft into titanium & silicon."
+    tier: bazaar
+    iconItem: titanium
+    colorHex: "7fe6ff"
+    attachMode: ORBIT
+    craftable: false
+    decraftable: true
+    healthMultBonus: 0.16
+    speedMultBonus: 0.06
+    buildSpeedMultBonus: 0.2
+    armorBonus: 4.0
+    regenPerSec: 3.0
+    resources: { titanium: 260, silicon: 220, graphite: 180 }
+  }
+  {
+    id: bz-15
+    name: "Starfarer's Blackbox"
+    description: "Non-craftable orbital flight core. Equip or decraft to harvest surge, thorium & phase."
+    tier: bazaar
+    iconItem: surge-alloy
+    colorHex: "ffd37f"
+    attachMode: HALO
+    craftable: false
+    decraftable: true
+    healthMultBonus: 0.12
+    damageMultBonus: 0.14
+    speedMultBonus: 0.1
+    reloadMultBonus: 0.1
+    armorBonus: 2.0
+    regenPerSec: 4.0
+    resources: { thorium: 150, plastanium: 120, phase-fabric: 80, surge-alloy: 60 }
+  }
+  {
+    id: ca-01
+    name: "Crimson Soulshard"
+    description: "Throbbing blood-red crystal orbiting its host."
+    tier: cursed-altar
+    iconItem: thorium
+    colorHex: "ff4b6e"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.25
+    damageMultBonus: 0.25
+    regenPerSec: 6.0
+    resources: { copper: 300, lead: 300, silicon: 200 }
+  }
+  {
+    id: ca-02
+    name: "Abyssal Fang"
+    description: "Twin cursed fangs mounted to your unit's flanks."
+    tier: cursed-altar
+    iconItem: blast-compound
+    colorHex: "ff2e63"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.4
+    speedMultBonus: 0.05
+    reloadMultBonus: 0.15
+    resources: { blast-compound: 80, pyratite: 80, silicon: 200 }
+  }
+  {
+    id: ca-03
+    name: "Wraithstep Shroud"
+    description: "Ghostly trailing wake bending inertia."
+    tier: cursed-altar
+    iconItem: spore-pod
+    colorHex: "b565ff"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    speedMultBonus: 0.32
+    reloadMultBonus: 0.15
+    regenPerSec: 5.0
+    resources: { spore-pod: 120, graphite: 250, silicon: 200 }
+  }
+  {
+    id: ca-04
+    name: "Crown of Embers"
+    description: "Blazing ritual halo raining rapid devastation."
+    tier: cursed-altar
+    iconItem: pyratite
+    colorHex: "ff6b4a"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.25
+    reloadMultBonus: 0.35
+    resources: { coal: 300, pyratite: 120, metaglass: 200 }
+  }
+  {
+    id: ca-05
+    name: "Obsidian Carapace"
+    description: "Impenetrable cursed monolith plates."
+    tier: cursed-altar
+    iconItem: carbide
+    colorHex: "9d4edd"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.45
+    speedMultBonus: -0.04
+    armorBonus: 12.0
+    regenPerSec: 8.0
+    resources: { titanium: 300, graphite: 300, lead: 500 }
+  }
+  {
+    id: ca-06
+    name: "Bloodforged Architect"
+    description: "Forbidden flesh-metal drone weaving structures instantly."
+    tier: cursed-altar
+    iconItem: oxide
+    colorHex: "ff5d8f"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.1
+    speedMultBonus: 0.1
+    buildSpeedMultBonus: 1.0
+    regenPerSec: 4.0
+    resources: { silicon: 350, copper: 400, titanium: 200 }
+    items: { bz-06: 1 }
+  }
+  {
+    id: ca-07
+    name: "Eye of Malice"
+    description: "Unblinking violet halo amplifying lethal precision."
+    tier: cursed-altar
+    iconItem: spore-pod
+    colorHex: "c77dff"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.35
+    speedMultBonus: 0.08
+    reloadMultBonus: 0.25
+    resources: { silicon: 300, metaglass: 250, titanium: 200 }
+    items: { wb-10: 1 }
+  }
+  {
+    id: ca-08
+    name: "Neoplasmic Symbiote"
+    description: "Pulsating organic orbit feeding constant regeneration."
+    tier: cursed-altar
+    iconItem: pyratite
+    colorHex: "e05438"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.3
+    damageMultBonus: 0.1
+    speedMultBonus: 0.08
+    armorBonus: 4.0
+    regenPerSec: 18.0
+    resources: { spore-pod: 200, coal: 250, silicon: 200 }
+    items: { wb-09: 1 }
+  }
+  {
+    id: ca-09
+    name: "Voidpendulum"
+    description: "Swinging dark matter orb accelerating reload and speed."
+    tier: cursed-altar
+    iconItem: phase-fabric
+    colorHex: "d980fa"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    damageMultBonus: 0.15
+    speedMultBonus: 0.22
+    reloadMultBonus: 0.28
+    resources: { titanium: 250, silicon: 300, graphite: 250 }
+    items: { bz-03: 1 }
+  }
+  {
+    id: ca-10
+    name: "Hellfire Singularity"
+    description: "Superheated core fusing Bazaar Starlance into cursed power."
+    tier: cursed-altar
+    iconItem: surge-alloy
+    colorHex: "ff3838"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.15
+    damageMultBonus: 0.45
+    reloadMultBonus: 0.25
+    armorBonus: 3.0
+    resources: { silicon: 400, titanium: 300 }
+    items: { bz-12: 1, ca-01: 1 }
+  }
+  {
+    id: ca-11
+    name: "Dreadnought Bastion"
+    description: "Cursed evolution of the Vanguard Bastion Rig."
+    tier: cursed-altar
+    iconItem: carbide
+    colorHex: "ff4b6e"
+    attachMode: MOUNT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.55
+    damageMultBonus: 0.15
+    armorBonus: 15.0
+    regenPerSec: 12.0
+    resources: { titanium: 400, lead: 600 }
+    items: { bz-11: 1, ca-05: 1 }
+  }
+  {
+    id: ca-12
+    name: "Phantom Astral Wake"
+    description: "Transcends physical drag with Wraithstep + Slipstream."
+    tier: cursed-altar
+    iconItem: phase-fabric
+    colorHex: "e056fd"
+    attachMode: TRAIL
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.1
+    damageMultBonus: 0.15
+    speedMultBonus: 0.4
+    reloadMultBonus: 0.2
+    buildSpeedMultBonus: 0.5
+    regenPerSec: 6.0
+    resources: { silicon: 350, metaglass: 300 }
+    items: { bz-13: 1, ca-03: 1 }
+  }
+  {
+    id: ca-13
+    name: "Harbinger's Seal"
+    description: "Tri-rune orbital seal of ruin."
+    tier: cursed-altar
+    iconItem: thorium
+    colorHex: "ff5252"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.25
+    damageMultBonus: 0.3
+    speedMultBonus: 0.15
+    reloadMultBonus: 0.2
+    buildSpeedMultBonus: 0.3
+    armorBonus: 6.0
+    regenPerSec: 8.0
+    resources: { copper: 500, lead: 500, titanium: 300, silicon: 300 }
+    items: { ca-02: 1 }
+  }
+  {
+    id: ca-14
+    name: "Eclipse Covenant"
+    description: "Twin-star cursed crown uniting offense and speed."
+    tier: cursed-altar
+    iconItem: surge-alloy
+    colorHex: "ff7979"
+    attachMode: HALO
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.3
+    damageMultBonus: 0.35
+    speedMultBonus: 0.2
+    reloadMultBonus: 0.25
+    armorBonus: 8.0
+    regenPerSec: 10.0
+    resources: { titanium: 450, silicon: 450, graphite: 400 }
+    items: { ca-04: 1, ca-07: 1 }
+  }
+  {
+    id: ca-15
+    name: "Apotheosis Core"
+    description: "Ultimate cursed artifact forged from abyssal relics."
+    tier: cursed-altar
+    iconItem: carbide
+    colorHex: "ff3b6b"
+    attachMode: ORBIT
+    craftable: true
+    decraftable: true
+    healthMultBonus: 0.5
+    damageMultBonus: 0.5
+    speedMultBonus: 0.25
+    reloadMultBonus: 0.3
+    buildSpeedMultBonus: 0.6
+    armorBonus: 12.0
+    regenPerSec: 15.0
+    resources: { copper: 800, lead: 800, titanium: 600, silicon: 600 }
+    items: { ca-10: 1, ca-11: 1 }
+  }
+]
+
+orbitalTrades: [
+  {
+    id: ship-01
+    shipName: "ISS Copperfield"
+    title: " Salvaged Ancient Copper Relic"
+    description: "Trade orbital copper & lead for a non-craftable Ancient Copper Relic (equip or decraft!)."
+    orbitalCost: { copper: 300, lead: 150 }
+    rewardItem: wb-14
+  }
+  {
+    id: ship-02
+    shipName: "ISS Hephaestus"
+    title: "Salvaged Smelter Core"
+    description: "Trade orbital coal & graphite for a non-craftable Sealed Smelter Core."
+    orbitalCost: { graphite: 180, coal: 120 }
+    rewardItem: wb-15
+  }
+  {
+    id: ship-03
+    shipName: "HSV Horizon"
+    title: "Orbital Vault Capsule"
+    description: "Exchange orbital copper & silicon for a sealed Orbital Vault Capsule."
+    orbitalCost: { copper: 500, silicon: 250 }
+    rewardItem: bz-14
+  }
+  {
+    id: ship-04
+    shipName: "HSV Astral Nomad"
+    title: "Starfarer's Blackbox"
+    description: "Exchange heavy orbital titanium & silicon for a high-tech Starfarer's Blackbox."
+    orbitalCost: { titanium: 400, silicon: 400 }
+    rewardItem: bz-15
+  }
+  {
+    id: ship-05
+    shipName: "CSV Ironclad"
+    title: "Titanium Carapace"
+    description: "Commission an off-world Titanium Carapace straight from orbit."
+    orbitalCost: { copper: 600, lead: 400, titanium: 150 }
+    rewardItem: bz-01
+  }
+  {
+    id: ship-06
+    shipName: "CSV Velocity"
+    title: "Orbital Thruster Ring"
+    description: "Purchase a factory-tuned Orbital Thruster Ring using orbital reserves."
+    orbitalCost: { silicon: 320, graphite: 220 }
+    rewardItem: bz-03
+  }
+  {
+    id: ship-07
+    shipName: "CSV Stormbringer"
+    title: "Surge Dynamo"
+    description: "Acquire a Surge Dynamo directly from an orbital weapons barge."
+    orbitalCost: { titanium: 350, silicon: 350, copper: 500 }
+    rewardItem: bz-09
+  }
+  {
+    id: ship-08
+    shipName: "Drop-Pod Alpha"
+    title: "Titanium Drop Crate (x200)"
+    description: "Call down 200 Titanium into nearby map containers (excess vanishes if storage is full)."
+    orbitalCost: { copper: 450, lead: 300 }
+    rewardResources: { titanium: 200 }
+  }
+  {
+    id: ship-09
+    shipName: "Drop-Pod Beta"
+    title: "Silicon & Metaglass Crate (x200)"
+    description: "Call down 200 Silicon + 150 Metaglass into nearby map storage."
+    orbitalCost: { copper: 500, graphite: 250 }
+    rewardResources: { silicon: 200, metaglass: 150 }
+  }
+  {
+    id: ship-10
+    shipName: "Drop-Pod Gamma"
+    title: "Exotic Alloy Drop (Thorium/Plast/Surge)"
+    description: "Call down exotic off-world alloys into nearby map storage."
+    orbitalCost: { titanium: 500, silicon: 500 }
+    rewardResources: { thorium: 120, plastanium: 80, surge-alloy: 50 }
+  }
+]

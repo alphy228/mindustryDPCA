@@ -214,6 +214,7 @@ public class TechTreeService {
 
     private synchronized void applyTempWorldRulesForPlayer(@Nullable Player player) {
         if (player == null || Vars.state == null || Vars.state.rules == null) return;
+        rebindDataPatchContentIfNeeded();
         ensurePlayerInitialized(player);
         if (!applyingTempWorldRules) {
             mapBannedBlocks.clear();
@@ -382,7 +383,13 @@ public class TechTreeService {
     }
 
     public TechNodeDef findNodeByContent(UnlockableContent content) {
-        return content == null ? null : nodesByContent.get(content);
+        if (content == null) return null;
+        TechNodeDef hit = nodesByContent.get(content);
+        if (hit == null && content.name != null && content.name.startsWith("dp-")) {
+            rebindDataPatchContentIfNeeded();
+            hit = nodesByContent.get(content);
+        }
+        return hit;
     }
 
     /**

@@ -313,6 +313,8 @@ root: {
               id: router
               costs: { copper: 100 }
               children: [
+                { id: "dp-copper-container", costs: { copper: 35 } }
+                { id: "launch-pad", costs: { copper: 4000, lead: 2500, titanium: 1800, silicon: 1500 } }
                 {
                   id: advanced-launch-pad
                   costs: { copper: 13000, lead: 11000, titanium: 7200, silicon: 9200 }
@@ -340,6 +342,43 @@ root: {
                   costs: { titanium: 3300 }
                   children: [
                     { id: "unloader", costs: { titanium: 700, silicon: 900 } }
+                    {
+                      id: dp-workbench
+                      costs: { copper: 200, lead: 120, graphite: 30 }
+                      children: [
+                        {
+                          id: dp-bazaar
+                          costs: { copper: 120, lead: 1200, graphite: 250, titanium: 70, silicon: 320 }
+                          children: [
+                            {
+                              id: dp-cursed-altar
+                              costs: {
+                                copper: 9999999
+                                lead: 9999999
+                                metaglass: 9999999
+                                graphite: 9999999
+                                sand: 9999999
+                                coal: 9999999
+                                titanium: 9999999
+                                thorium: 9999999
+                                scrap: 9999999
+                                silicon: 9999999
+                                plastanium: 9999999
+                                phase-fabric: 9999999
+                                surge-alloy: 9999999
+                                spore-pod: 9999999
+                                blast-compound: 9999999
+                                pyratite: 9999999
+                                beryllium: 9999999
+                                tungsten: 9999999
+                                oxide: 9999999
+                                carbide: 9999999
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
                   ]
                 }
                 {

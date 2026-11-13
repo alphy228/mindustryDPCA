@@ -182,10 +182,13 @@ public class BuildSystem {
     }
 
     public static boolean isStore(@Nullable Block b) {
+        if (b == null) return false;
         return b == Blocks.container
             || b == Blocks.vault
             || b == Blocks.reinforcedContainer
-            || b == Blocks.reinforcedVault;
+            || b == Blocks.reinforcedVault
+            || "dp-copper-container".equals(b.name)
+            || "copper-container".equals(b.name);
     }
 
     // ------------------------------------------------------------------ world setup
@@ -444,6 +447,36 @@ public class BuildSystem {
         res.take(item, toTake);
         syncClientCoreNow(player);
         return toTake;
+    }
+
+    /**
+     * Deposits up to {@code amount} of {@code item} into {@code player}'s nearby reach storage
+     * (containers, vaults, copper containers, and unit stack). Any excess that cannot fit vanishes.
+     *
+     * @return the exact amount successfully deposited into map storage.
+     */
+    public int giveItems(@Nullable Player player, @Nullable Item item, int amount) {
+        if (player == null || item == null || amount <= 0) return 0;
+        Res res = gather(player);
+        int before = res.available.get(item, 0);
+        res.give(item, amount);
+        Res afterRes = gather(player);
+        int after = afterRes.available.get(item, 0);
+        syncClientCoreNow(player);
+        return Math.max(0, after - before);
+    }
+
+    /** Returns an immutable snapshot of all non-zero map reach resources available to {@code player}. */
+    public ObjectIntMap<Item> getAvailableSnapshot(@Nullable Player player) {
+        ObjectIntMap<Item> copy = new ObjectIntMap<>();
+        if (player == null) return copy;
+        Res res = gather(player);
+        for (ObjectIntMap.Entry<Item> e : res.available) {
+            if (e.value > 0) {
+                copy.put(e.key, e.value);
+            }
+        }
+        return copy;
     }
 
     final class Res {

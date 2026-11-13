@@ -1,0 +1,31 @@
+type: SwitchBlock
+name: Cursed Altar
+localizedName: Cursed Altar
+description: Tier 3 Item Shop. Flip the switch while inside its 10-tile area to open the Cursed Altar craft menu.
+size: 5
+health: 3000
+solid: true
+category: effect
+buildVisibility: shown
+requirements: [
+  copper/9999999
+  lead/9999999
+  metaglass/9999999
+  graphite/9999999
+  sand/9999999
+  coal/9999999
+  titanium/9999999
+  thorium/9999999
+  scrap/9999999
+  silicon/9999999
+  plastanium/9999999
+  phase-fabric/9999999
+  surge-alloy/9999999
+  spore-pod/9999999
+  blast-compound/9999999
+  pyratite/9999999
+  beryllium/9999999
+  tungsten/9999999
+  oxide/9999999
+  carbide/9999999
+]

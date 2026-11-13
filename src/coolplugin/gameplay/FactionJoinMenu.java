@@ -77,6 +77,7 @@ public class FactionJoinMenu {
     public void open(Player player) {
         if (player == null || player.con == null || !player.con.isConnected()) return;
         register();
+        UiSpriteSync.ensureSent(player);
         long token = tokenSeq.incrementAndGet();
         Call.menuBuilder(player.con, menuId, token, null, true, true, false, buildRoot(player));
     }
@@ -167,7 +168,7 @@ public class FactionJoinMenu {
             .height(COL_HEIGHT);
 
         // Layer 0: 6-sided vertical hexagon sprite (2 angled sides top, 2 vertical sides, 2 angled sides bottom)
-        ImageBuilder bgImg = image(faction.colBgRegion)
+        ImageBuilder bgImg = image(UiSpriteSync.resolveMenuDrawable(faction.colBgRegion))
             .placeholder(enabled ? "button" : "button-disabled")
             .scaling(Scaling.stretch);
         colStack.add(bgImg);
@@ -177,7 +178,7 @@ public class FactionJoinMenu {
 
         // 1. Upper Pointed Hexagon Peak: [Faction Symbol] + [Faction Name]
         TableBuilder headerRow = table().align("center");
-        ImageBuilder symbol = image(faction.iconRegion)
+        ImageBuilder symbol = image(UiSpriteSync.resolveMenuDrawable(faction.iconRegion))
             .scaling(Scaling.fit)
             .size(24f)
             .padRight(7f);
@@ -197,7 +198,7 @@ public class FactionJoinMenu {
         inner.add(image("whiteui").color(dividerHex).width(COL_WIDTH - 28f).height(2f).padBottom(4f)).row();
 
         // 2. Center: Borderless Tilted Faction Art (Scaling.fit)
-        ImageBuilder artImg = image(faction.artRegion)
+        ImageBuilder artImg = image(UiSpriteSync.resolveMenuDrawable(faction.artRegion))
             .placeholder(faction.artPlaceholder)
             .scaling(Scaling.fit)
             .width(ART_BOX_WIDTH)
@@ -209,7 +210,7 @@ public class FactionJoinMenu {
         inner.add(artImg).row();
 
         // 3. Compact Reduced-Size Faction Bonus Description (below render, above Current unit)
-        ImageBuilder descImg = image(faction.descRegion)
+        ImageBuilder descImg = image(UiSpriteSync.resolveMenuDrawable(faction.descRegion))
             .placeholder("clear")
             .scaling(Scaling.fit)
             .width(DESC_BOX_WIDTH)
@@ -224,14 +225,15 @@ public class FactionJoinMenu {
 
         // 4. Lower Pointed Hexagon Peak:
         //    - existing faction unit -> "Current:" + [unit uiIcon + unit name]
-        //    - never started faction -> "New game" (no "Current:", no "null")
+        //    - never started available faction -> "New game"
+        //    - unavailable faction -> blank (write nothing)
         TableBuilder bottomStatus = table().align("center").height(45f);
         if (currentUnit != null) {
             String currentLabelMarkup = enabled ? "[lightgray]Current:[]" : "[#828290]Current:[]";
             bottomStatus.add(label(currentLabelMarkup).labelAlign("center").padBottom(3f)).row();
 
             TableBuilder unitRow = table().align("center").height(22f);
-            ImageBuilder unitIcon = image(unitUiIconRegion(currentUnit))
+            ImageBuilder unitIcon = image(UiSpriteSync.resolveMenuDrawable(unitUiIconRegion(currentUnit)))
                 .placeholder("unit-dagger-ui")
                 .scaling(Scaling.fit)
                 .size(22f)
@@ -245,9 +247,8 @@ public class FactionJoinMenu {
             String unitMarkup = enabled ? ("[white]" + unitName + "[]") : ("[#9696a4]" + unitName + "[]");
             unitRow.add(label(unitMarkup).labelAlign("left"));
             bottomStatus.add(unitRow);
-        } else {
-            String newGameMarkup = enabled ? "[white]New game[]" : "[#8a8a98]New game[]";
-            bottomStatus.add(label(newGameMarkup).labelAlign("center"));
+        } else if (enabled) {
+            bottomStatus.add(label("[white]New game[]").labelAlign("center"));
         }
         inner.add(bottomStatus.padBottom(35f));
 

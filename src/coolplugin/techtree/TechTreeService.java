@@ -149,10 +149,22 @@ public class TechTreeService {
     }
 
     private synchronized void rebindDataPatchContentIfNeeded() {
+        migrateCopperContainer();
         migrateColouringStations();
         if (TechTreeConfigIO.rebindContentRecursive(root)) {
             rebuildIndexes();
         }
+    }
+
+    /** Reparent the existing node, retaining costs, children and saved research IDs. */
+    private void migrateCopperContainer() {
+        TechNodeDef copper=findNode("dp-copper-container"), conveyor=findNode("conveyor");
+        if(copper==null || conveyor==null || copper.parent==null || !"router".equals(copper.parent.id))return;
+        copper.parent.children.remove(copper,true);
+        conveyor.children.insert(0,copper);
+        copper.parent=conveyor;
+        rebuildIndexes();
+        TechTreeConfigIO.save(treeFile,root,whitelistOrder);
     }
 
     private void migrateColouringStations() {
@@ -264,6 +276,7 @@ public class TechTreeService {
         this.root = cfg.root;
         setWhitelistInternal(cfg.whitelist);
         rebuildIndexes();
+        migrateCopperContainer();
         progressStore.reseedAll(root);
         applyServerHideBannedBlocksAndCaptureMapBans();
     }

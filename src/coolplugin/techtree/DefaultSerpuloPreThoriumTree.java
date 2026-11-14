@@ -208,14 +208,14 @@ public final class DefaultSerpuloPreThoriumTree {
     }
 
     private static void attachCustomLogisticsAndShops(TechNodeDef conveyorSubtree) {
-        TechNodeDef router = findById(conveyorSubtree, "router");
-        if (router != null) {
-            router.children.insert(0, customBlockNode(
+        conveyorSubtree.children.insert(0, customBlockNode(
                 "dp-copper-container",
                 TechNodeDef.DIR_UP,
                 new ItemStack[]{new ItemStack(Items.copper, 35)}
             ));
-            router.children.insert(1, customBlockNode(
+        TechNodeDef router = findById(conveyorSubtree, "router");
+        if (router != null) {
+            router.children.insert(0, customBlockNode(
                 "launch-pad",
                 TechNodeDef.DIR_UP,
                 new ItemStack[]{

@@ -27,7 +27,8 @@ public final class ColouringSystem {
     private final PlayerUnitSystem units;
     private final Fi data;
     private final ObjectMap<String, Session> sessions=new ObjectMap<>();
-    private final IntSet seen=new IntSet();
+    // Unit IDs change on the app frame after native payload entry. Track object identity.
+    private final Seq<Unit> seen=new Seq<>();
     private int menu=-1;
     private long tokens;
     private static final class Session {
@@ -62,7 +63,7 @@ public final class ColouringSystem {
             if(!isStation(b))continue;
             UnitPayload up=payload(b);
             if(up==null){continue;}
-            if(seen.contains(up.unit.id))continue;
+            if(seen.contains(up.unit,true))continue;
             Player owner=null;
             for(Player p:Groups.player)if(PlayerUnitSystem.ownedUnit(p)==up.unit || p.unit()==up.unit){owner=p;break;}
             if(owner==null || owner.team()!=b.team){
@@ -70,25 +71,25 @@ public final class ColouringSystem {
                 if(b instanceof PayloadBlockBuild<?> pb)pb.moveOutPayload();
                 continue;
             }
-            seen.add(up.unit.id);
+            seen.add(up.unit);
             open(owner,b,up.unit);
         }
         // Forget ejected units so they can enter a station again.
-        IntSet held=new IntSet();
-        for(Building b:Groups.build)if(isStation(b)&&payload(b)!=null)held.add(payload(b).unit.id);
-        IntSet remove=new IntSet();
-        var sit=seen.iterator();while(sit.hasNext){int id=sit.next();if(!held.contains(id))remove.add(id);}
-        var rit=remove.iterator();while(rit.hasNext)seen.remove(rit.next());
+        Seq<Unit> held=new Seq<>();
+        for(Building b:Groups.build)if(isStation(b)&&payload(b)!=null)held.add(payload(b).unit);
+        for(int i=seen.size-1;i>=0;i--)if(!held.contains(seen.get(i),true))seen.remove(i);
     }
     private static void lock(Building b,boolean locked){
         boolean changed=b.enabled==locked;
         b.enabled=!locked;
-        if(b instanceof PayloadConveyorBuild c && locked){c.progress=0f;c.item.set(b.x,b.y,c.item.rotation());}
+        if(b instanceof PayloadConveyorBuild c && locked && c.item!=null){c.progress=0f;c.item.set(b.x,b.y,c.item.rotation());}
         if(changed){sync(b);Time.run(2f,()->{if(b.isValid())sync(b);});}
     }
     public void open(Player player,Building station,Unit unit){
         if(player==null||player.con==null||!player.con.isConnected()||!isStation(station)||station.team!=player.team()||payload(station)==null||payload(station).unit!=unit)return;
-        if(sessions.containsKey(player.uuid()))release(player);
+        Session existing=sessions.get(player.uuid());
+        if(existing!=null && existing.station==station && existing.unit==unit){lock(station,true);return;}
+        if(existing!=null)release(player);
         Session s=new Session();s.player=player;s.station=station;s.unit=unit;s.token=++tokens;
         var available=available(player,tier(station));if(!available.isEmpty())s.selected=available.first().id();
         sessions.put(player.uuid(),s);lock(station,true);show(s);
@@ -183,12 +184,15 @@ public final class ColouringSystem {
         if(taken==null && b instanceof PayloadConveyorBuild c){taken=c.item;c.item=null;}
         if(taken!=up){if(taken!=null)b.handlePayload(b,taken);return true;}
         float edge=b.block.size*Vars.tilesize/2f+s.unit.hitSize/2f+3f;
-        boolean dumped=false;
+        // Flying and stepping units can leave on top. dump() checks native terrain/collision
+        // rules; only units that cannot stand here need an adjacent fallback.
+        up.set(b.x,b.y,up.rotation());
+        boolean dumped=up.dump();
         for(int i=0;i<8&&!dumped;i++){
             double angle=i*Math.PI/4;
             up.set(b.x+(float)Math.cos(angle)*edge,b.y+(float)Math.sin(angle)*edge,up.rotation());dumped=up.dump();
         }
-        if(!dumped){b.handlePayload(b,up);seen.add(up.unit.id);
+        if(!dumped){b.handlePayload(b,up);seen.add(up.unit);
             if(player.con!=null&&player.con.isConnected())player.sendMessage("[lightgray]Exit blocked. Clear space beside the station and use /exit.[]");}
         sync(b);return true;
     }

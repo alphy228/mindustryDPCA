@@ -181,7 +181,7 @@ public class VerifyColouringGeneration {
         check(!coolplugin.gameplay.ColouringAssets.palettes.contains(scheme->scheme.id().startsWith("turret-")),"No turret palettes generated");
         var report=arc.util.serialization.Jval.read(workConfig.child("colouring-cache/manifest.json").readString());
         check(report.get("bulkRgbaBytes").asDouble()<=coolplugin.gameplay.ColouringAssets.BULK_RGBA_BUDGET_BYTES,"Bulk RGBA stays within the hard 144 MiB generation budget");
-        check(workConfig.child("assets/sprites/colouring-generated").findAll(f->f.extension().equals("png")&&(f.name().contains("-wreck")||f.name().endsWith("-full.png")||f.name().endsWith("-ui.png"))).isEmpty(),"No recoloured wreck or full/UI icon copies in the bulk datapatch");
+        check(workConfig.child("assets/sprites/colouring-generated").findAll(f->f.extension().equals("png")&&f.name().startsWith("paint-")&&(f.name().contains("-wreck")||f.name().endsWith("-full.png")||f.name().endsWith("-ui.png"))).isEmpty(),"No recoloured wreck or full/UI icon copies in the bulk datapatch");
         check(workConfig.child("colouring-cache/previews/"+copy.name.substring(3)+".png").exists(),"Selected full icon is available in the server-only preview cache");
         check(copy!=null && copy.hidden && copy.internal,"Hidden unit variant exists");
         check(copy.health==base.health && copy.speed==base.speed && copy.weapons.size==base.weapons.size,
@@ -208,6 +208,25 @@ public class VerifyColouringGeneration {
         check(altered==0,"All variants preserve armor, hitbox, capacities, mining/building, movement class, engines, abilities and weapon damage/reloads");
         check(Vars.content.block("dp-colouring-station") instanceof mindustry.world.blocks.payloads.PayloadConveyor
             && Vars.content.block("dp-colouring-station-2").size==5,"T1 conveyor and 5x5 T2 reconstructor are generated");
+        for(String stationName:new String[]{"colouring-station","colouring-station-2"}){
+            Fi imageDir=workConfig.child("assets/sprites/colouring-generated");
+            check(imageDir.child(stationName+".png").exists()&&imageDir.child(stationName+"-top.png").exists()
+                &&imageDir.child(stationName+"-full.png").exists()&&imageDir.child(stationName+"-ui.png").exists(),
+                "Explicit vanilla-based placeholder layers and icons exist for "+stationName);
+        }
+        var tree=new coolplugin.techtree.TechTreeService(workConfig.child("tree-migration-test"));
+        tree.reloadTree();
+        var copper=tree.findNode("dp-copper-container");
+        check(copper!=null&&"conveyor".equals(copper.parent.id),"Default Copper Container follows Conveyor directly");
+        copper.parent.children.remove(copper,true);
+        var router=tree.findNode("router");router.children.add(copper);copper.parent=router;
+        copper.displayName="Migration sentinel";
+        coolplugin.techtree.TechTreeConfigIO.save(workConfig.child("tree-migration-test/techtree.hjson"),tree.getRoot(),new Seq<>());
+        tree.reloadTree();copper=tree.findNode("dp-copper-container");
+        check("conveyor".equals(copper.parent.id)&&"Migration sentinel".equals(copper.displayName),
+            "Saved router-child Copper Container is moved without replacing its configured node");
+        tree.reloadTree();
+        check("conveyor".equals(tree.findNode("dp-copper-container").parent.id),"Copper Container migration persists and is idempotent");
         var plugin=new CoolPlugin();
         var db=plugin.getPlayerDatabase();db.init();
         Player p=Player.create();p.name="Painter";p.con=new CapturingCon("painter");p.team(Team.sharded);p.add();
@@ -241,6 +260,49 @@ public class VerifyColouringGeneration {
         Tile smallTile=Vars.world.tile(30,20);smallTile.setNet(Vars.content.block("dp-colouring-station"),Team.sharded,0);
         large.set(smallTile.build.x,smallTile.build.y);
         check(!smallTile.build.canControlSelect(large),"T1 conveyor rejects units above its payload size limit");
+        // Model native handleUnitPayload: clear control, remove, grab, then assign a new ID
+        // on the next app frame. The old suite bypassed this deferred ID transition.
+        var unitSystemInstance=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("instance");unitSystemInstance.setAccessible(true);
+        unitSystemInstance.set(null,plugin.getPlayerUnitSystem()); // normally set by PlayerUnitSystem.start()
+        var ownerField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("owned");ownerField.setAccessible(true);
+        @SuppressWarnings("unchecked") var owned=(arc.struct.ObjectMap<String,Unit>)ownerField.get(plugin.getPlayerUnitSystem());
+        Unit oct=UnitTypes.oct.create(Team.sharded);oct.set(station.x,station.y);oct.add();p.unit(oct);
+        owned.put(p.uuid(),oct);
+        var recon=(mindustry.world.blocks.units.Reconstructor.ReconstructorBuild)station;
+        recon.handleUnitPayload(oct, pay->recon.payload=(mindustry.world.blocks.payloads.UnitPayload)pay);
+        system.update();
+        oct.id=mindustry.entities.EntityGroup.nextId();
+        for(int frame=0;frame<10;frame++){recon.updateTile();system.update();}
+        check(recon.payload!=null&&recon.payload.unit==oct&&!oct.isAdded()&&!recon.enabled,
+            "Oct stays locked across native deferred payload ID reassignment and subsequent updates");
+        system.open(p,recon,oct);
+        check(recon.payload!=null&&recon.payload.unit==oct&&!recon.enabled,
+            "Opening the same station session twice is idempotent, not an eject");
+        system.release(p);
+        check(oct.isAdded()&&oct.within(recon,0.1f),"Flying Oct exits on top of the station, not forced to its side");
+        check(!recon.block.solid&&!recon.tile.solid(),"T2 footprint is walkable by grounded mech units");
+        Unit mech=UnitTypes.mace.create(Team.sharded);mech.set(recon.x,recon.y);mech.add();p.unit(mech);owned.put(p.uuid(),mech);
+        check(recon.canControlSelect(mech),"Grounded mech can enter T2 from on top of its walkable footprint");
+        recon.handleUnitPayload(mech,pay->recon.payload=(mindustry.world.blocks.payloads.UnitPayload)pay);
+        system.update();mech.id=mindustry.entities.EntityGroup.nextId();
+        for(int frame=0;frame<10;frame++){recon.updateTile();system.update();}
+        check(recon.payload!=null&&recon.payload.unit==mech&&!recon.enabled,"Mech stays held across payload entry ID change");
+        system.release(p);
+        check(mech.isAdded()&&mech.within(recon,0.1f),"Grounded mech can exit on the walkable T2 footprint");
+        var conveyor=(mindustry.world.blocks.payloads.PayloadConveyor.PayloadConveyorBuild)smallTile.build;
+        Unit small=UnitTypes.dagger.create(Team.sharded);small.set(conveyor.x,conveyor.y);small.add();p.unit(small);owned.put(p.uuid(),small);
+        conveyor.handleUnitPayload(small,pay->conveyor.item=pay);
+        system.update();small.id=mindustry.entities.EntityGroup.nextId();
+        for(int frame=0;frame<10;frame++)system.update();
+        check(conveyor.item instanceof mindustry.world.blocks.payloads.UnitPayload up&&up.unit==small&&!conveyor.enabled,
+            "T1 remains locked after deferred unit ID change without null-payload crash");
+        system.open(p,conveyor,small);
+        check(conveyor.item!=null&&!conveyor.enabled,"Repeated T1 open does not release payload before lock");
+        system.release(p);
+        var lockMethod=coolplugin.gameplay.ColouringSystem.class.getDeclaredMethod("lock",Building.class,boolean.class);
+        lockMethod.setAccessible(true);lockMethod.invoke(null,conveyor,true);lockMethod.invoke(null,conveyor,false);
+        check(conveyor.item==null&&conveyor.enabled,"Empty T1 lock is null-safe after payload removal");
+        owned.remove(p.uuid());
         new coolplugin.gameplay.UnitPatchManager(workConfig).reloadGeneratedAssets();
         Seq<mindustry.mod.data.DataAsset> streamed=new Seq<>();
         arc.Events.fire(new mindustry.game.EventType.DataPatchLoadEvent(streamed));

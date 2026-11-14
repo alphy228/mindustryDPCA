@@ -130,6 +130,7 @@ public final class ColouringAssets {
                 if (name.startsWith("multiplicative-reconstructor")) destination = "colouring-station-2" + name.substring("multiplicative-reconstructor".length());
                 if (destination != null) ImageIO.write(sprites.get(name), "png", target.child(destination + ".png").file());
             }
+            writeStationPlaceholders(target);
             Fi previews=data.child("colouring-cache/staging/previews");
             previews.deleteDirectory();previews.mkdirs();
             int limit = Integer.getInteger("coolplugin.colouring.testPaletteLimit", Integer.MAX_VALUE);
@@ -466,6 +467,26 @@ public final class ColouringAssets {
         data.child("colouring-cache/staging/upgrades.hjson").writeString(patch.toString(Jval.Jformat.formatted));
     }
 
+    /** Explicit vanilla-based placeholder layers and icons; generated outside the plugin JAR. */
+    private void writeStationPlaceholders(Fi target) throws java.io.IOException {
+        for(int tier=1;tier<=2;tier++){
+            String source=tier==1?"payload-conveyor":"multiplicative-reconstructor";
+            String name=tier==1?"colouring-station":"colouring-station-2";
+            BufferedImage base=sprites.get(source);
+            if(base==null)throw new java.io.IOException("Missing station placeholder source: "+source);
+            BufferedImage full=new BufferedImage(base.getWidth(),base.getHeight(),BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g=full.createGraphics();g.drawImage(base,0,0,null);
+            BufferedImage top=sprites.get(source+"-top");
+            if(top!=null)g.drawImage(top,(base.getWidth()-top.getWidth())/2,(base.getHeight()-top.getHeight())/2,null);
+            g.dispose();
+            for(String suffix:new String[]{"-full","-ui","-icon"})ImageIO.write(full,"png",target.child(name+suffix+".png").file());
+            if(tier==2)for(String suffix:new String[]{"-in","-out"}){
+                BufferedImage layer=sprites.get("factory"+suffix+"-5");
+                if(layer!=null)ImageIO.write(layer,"png",target.child(name+suffix+".png").file());
+            }
+        }
+    }
+
     private void writeStations(Seq<UnitType> units) {
         Fi dir=data.child("colouring-cache/staging/blocks");dir.mkdirs();
         dir.child("colouring-station.hjson").writeString("{\"type\":\"PayloadConveyor\",\"name\":\"Colouring Station\",\"size\":3,\"health\":650,\"payloadLimit\":3,\"moveTime\":60,\"category\":\"units\",\"buildVisibility\":\"shown\",\"requirements\":[\"copper/200\",\"lead/150\",\"silicon/100\"]}");
@@ -473,6 +494,7 @@ public final class ColouringAssets {
         for(UnitType u:units){Jval pair=Jval.newArray();pair.add(Jval.valueOf(u.name));pair.add(Jval.valueOf(u.name));pairs.add(pair);}
         for(var entry:originals){Jval pair=Jval.newArray();pair.add(Jval.valueOf(entry.key));pair.add(Jval.valueOf(entry.key));pairs.add(pair);}
         Jval j=Jval.newObject();j.add("type",Jval.valueOf("Reconstructor"));j.add("name",Jval.valueOf("Colouring Station II"));j.add("size",Jval.valueOf(5));
+        j.add("solid",Jval.valueOf(false)); // T2 is a walkable paint bay, including for grounded mechs.
         j.add("health",Jval.valueOf(1800));j.add("constructTime",Jval.valueOf(1e30));j.add("upgrades",pairs);j.add("category",Jval.valueOf("units"));j.add("buildVisibility",Jval.valueOf("shown"));
         Jval req=Jval.newArray();for(String v:new String[]{"copper/600","lead/500","silicon/400","titanium/250"})req.add(Jval.valueOf(v));j.add("requirements",req);
         dir.child("colouring-station-2.hjson").writeString(j.toString());

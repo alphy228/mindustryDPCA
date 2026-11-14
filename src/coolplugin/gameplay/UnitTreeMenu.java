@@ -42,13 +42,13 @@ public final class UnitTreeMenu {
             var col=buttonTable().style("emptyi").margin(0f).width(FactionJoinMenu.COL_WIDTH).height(FactionJoinMenu.COL_HEIGHT).padRight(FactionJoinMenu.COL_GAP);
             if(enabled)col.clicked(tree.savedId());else col.disabled(true);
             var layers=stack().width(FactionJoinMenu.COL_WIDTH).height(FactionJoinMenu.COL_HEIGHT);
-            String frame="unit-branch-frame-"+tree.id();
+            String frame=enabled?"unit-branch-frame-"+tree.id():FactionDef.MALIS.colBgRegion;
             layers.add(image(UiSpriteSync.resolveMenuDrawable(frame)).placeholder("button").scaling(Scaling.stretch));
             var contents=table().margin(0f).align("top");
-            contents.add(label((enabled?"[accent]":"[gray]")+tree.title+"[]").labelAlign("center").padTop(36f).padBottom(12f)).row();
-            contents.add(image("whiteui").color(enabled?faction.borderHex+"88":"525260cc").width(200f).height(2f)).row();
-            var art=image(UiSpriteSync.resolveMenuDrawable(tree.art())).placeholder("unit-"+tree.units[0]+"-ui").scaling(Scaling.fit).width(212f).height(244f);
-            if(!enabled)art.color("777785cc");
+            contents.add(label((enabled?"[#"+tree.accentHex()+"]":"[#9696a4]")+tree.title+"[]").labelAlign("center").padTop(36f).padBottom(12f)).row();
+            contents.add(image("whiteui").color(enabled?tree.accentHex()+"88":"525260cc").width(200f).height(2f)).row();
+            var art=image(UiSpriteSync.resolveMenuDrawable(enabled?tree.art():tree.art()+"-disabled")).placeholder("unit-"+tree.units[0]+"-ui").scaling(Scaling.fit).width(212f).height(244f);
+            if(!enabled)art.color("b4b4c0e8");
             contents.add(art).row();
             contents.add(label(tree.available?(enabled?"[lightgray]Select branch[]":"[gray]Research to unlock[]"):"[gray]Unavailable[]").labelAlign("center").padTop(14f)).row();
             layers.add(contents);col.add(layers);columns.add(col);

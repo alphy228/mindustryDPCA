@@ -21,6 +21,18 @@ public enum UnitTree {
     public final boolean available;
     public final String[] units;
     UnitTree(String title,boolean available,String... units){this.title=title;this.available=available;this.units=units;}
+    /** Native weapon/ability accent hues, made bright/saturated without changing hue. */
+    public String accentHex(){
+        String source=switch(this){
+            case SUPPORT_MECH, SUPPORT_AIR, SUPPORT_NAVALS -> "98ffa9"; // Pal.heal
+            case LEGGED, FLYERS -> "bf92f9"; // Pal.sapBullet, Erekir purple hover/air line
+            case INSECTOID -> "8ca9e8"; // Pal.techBlue, Merui/Cleroi/Anthicus projectiles
+            case CHEMICAL -> "e4ffd6"; // shipped corrosive liquid
+            default -> "f68021"; // Pal.lightOrange, orange attack lines
+        };
+        float[] hsv=arc.graphics.Color.valueOf(source).toHsv(new float[3]);
+        return new arc.graphics.Color().fromHsv(hsv[0],Math.max(hsv[1],0.7f),1f).toString().substring(0,6);
+    }
     public String id(){return name().toLowerCase(java.util.Locale.ROOT);}
     public String savedId(){return "tree:"+id();}
     public String art(){return "unit-tree-"+id();}

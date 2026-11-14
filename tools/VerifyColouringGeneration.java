@@ -1020,7 +1020,10 @@ public class VerifyColouringGeneration {
     @SuppressWarnings("unchecked")
     private static void verifyMapProtection(){
         var floor=Vars.content.block("dp-sharded-spawnpoint");
-        if(floor==null)floor=new mindustry.world.blocks.environment.Floor("dp-sharded-spawnpoint");
+        check(floor instanceof mindustry.world.blocks.environment.Floor,"Sharded spawnpoint is loaded from shipped content, not a synthetic test fixture");
+        var cruxFloor=Vars.content.block("dp-crux-spawnpoint");
+        check(cruxFloor instanceof mindustry.world.blocks.environment.Floor,"Crux spawnpoint is loaded from shipped content");
+        if(floor==null||cruxFloor==null)return;
         Vars.state.gameOver=false;
         Vars.world.loadGenerator(32,32,tiles->{for(int y=0;y<32;y++)for(int x=0;x<32;x++)tiles.set(x,y,new Tile(x,y,Blocks.stone,Blocks.air,Blocks.air));});
         Vars.state.set(GameState.State.playing);
@@ -1073,6 +1076,8 @@ public class VerifyColouringGeneration {
         Vars.world.tile(24,24).setFloor(floor.asFloor());
         check(units.findFactionSpawnTile(coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger)==Vars.world.tile(24,24),"Later respawn lookups follow the map's current floor location");
         delayed.unit().remove();delayed.remove();
+        Vars.world.tile(8,8).setFloor(cruxFloor.asFloor());
+        check(units.findFactionSpawnTile(coolplugin.gameplay.FactionDef.CRUX,UnitTypes.dagger)==Vars.world.tile(8,8),"Crux players resolve their own shipped faction floor");
     }
 
     private static void verifyTreeLoadouts(CoolPlugin plugin,Player player,Fi config)throws Exception{
@@ -1103,6 +1108,11 @@ public class VerifyColouringGeneration {
             "Erekir, legged and naval tree cards are disabled");
         String ui=new String(serializeUi(system.getTreeMenu().build(player,coolplugin.gameplay.FactionDef.SHARDED)),StandardCharsets.ISO_8859_1);
         check(ui.contains("Choose your unit branch")&&ui.contains("Support mech")&&ui.contains("Insectoid")&&ui.contains("Chemical"),"Branch picker serializes all horizontal faction-style columns");
+        check(ui.contains("unit-tree-flyers-disabled")&&ui.contains("unit-tree-insectoid-disabled")&&!ui.contains("unit-branch-frame-flyers"),
+            "Unavailable branch cards use grayscale artwork and disabled faction frames, not coloured frames");
+        var purple=arc.graphics.Color.valueOf(coolplugin.gameplay.UnitTree.FLYERS.accentHex());
+        var blue=arc.graphics.Color.valueOf(coolplugin.gameplay.UnitTree.INSECTOID.accentHex());
+        check(purple.b>purple.r&&purple.r>purple.g&&blue.b>blue.r,"Erekir flyer accent stays purple and insectoid accent stays native tech blue");
         system.start();
         var factionField=klass.getDeclaredField("chosenFactions");factionField.setAccessible(true);
         ((arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)factionField.get(system)).put(player.uuid(),coolplugin.gameplay.FactionDef.SHARDED);

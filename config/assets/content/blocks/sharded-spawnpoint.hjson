@@ -1,0 +1,9 @@
+type: Floor
+localizedName: "Sharded spawnpoint"
+description: "Dynamic faction deployment marker. Buildings placed over this floor are removed."
+variants: 0
+speedMultiplier: 1
+isLiquid: false
+solid: false
+placeableOn: true
+playerUnmineable: true

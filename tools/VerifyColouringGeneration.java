@@ -1044,6 +1044,8 @@ public class VerifyColouringGeneration {
         if(floor!=null){
             Vars.world.tile(17,17).setFloor(floor.asFloor());
             check(coolplugin.gameplay.MapProtection.overlapsSpawn(barrier),"Spawn overlap includes the off-centre corner of multiblock buildings");
+            guard.clearSpawnBuildings();
+            check(tile.block()==Blocks.air,"Protection discovers faction floors painted after its initial load scan");
             var protection=new coolplugin.gameplay.MapProtection();protection.start();protection.clearSpawnBuildings();
             check(tile.block()==Blocks.air,"Even an invulnerable large barrier is removed from a faction spawnpoint");
             Vars.world.tile(17,17).setBlock(Blocks.copperWall,Team.sharded,0);
@@ -1052,6 +1054,25 @@ public class VerifyColouringGeneration {
         }
         Vars.world.tile(5,5).setBlock(Blocks.copperWall,Team.sharded,0);
         check(!coolplugin.gameplay.MapProtection.overlapsSpawn(Vars.world.tile(5,5).build),"Buildings outside faction spawnpoints remain allowed");
+        Vars.world.tile(17,17).setFloor(Blocks.stone.asFloor());
+        Vars.world.tile(5,5).setFloor(floor.asFloor());
+        guard.clearSpawnBuildings();
+        check(Vars.world.tile(5,5).block()==Blocks.air,"Moving a spawn floor during the match protects its new location");
+        Vars.world.tile(5,5).setFloor(Blocks.stone.asFloor());
+        Vars.world.tile(5,5).setBlock(Blocks.copperWall,Team.sharded,0);
+        guard.clearSpawnBuildings();
+        check(Vars.world.tile(5,5).block()==Blocks.copperWall,"Former spawn locations stop being protected after the floor moves");
+        var units=new coolplugin.gameplay.PlayerUnitSystem(new coolplugin.gameplay.BuildSystem(null),null);
+        Player delayed=Player.create();delayed.name="Delayed floor";delayed.con=new CapturingCon("delayed-floor-player");delayed.add();
+        units.spawnFor(delayed,coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger);
+        check(delayed.unit()==null||!delayed.unit().isAdded(),"Initial deployment waits instead of using fallback before delayed floors appear");
+        Vars.world.tile(20,20).setFloor(floor.asFloor());
+        units.spawnFor(delayed,coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger);
+        check(delayed.unit()!=null&&delayed.unit().within(Vars.world.tile(20,20),4f),"Pending player deployment uses the newly painted faction floor");
+        Vars.world.tile(20,20).setFloor(Blocks.stone.asFloor());
+        Vars.world.tile(24,24).setFloor(floor.asFloor());
+        check(units.findFactionSpawnTile(coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger)==Vars.world.tile(24,24),"Later respawn lookups follow the map's current floor location");
+        delayed.unit().remove();delayed.remove();
     }
 
     private static void verifyTreeLoadouts(CoolPlugin plugin,Player player,Fi config)throws Exception{

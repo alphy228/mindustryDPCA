@@ -581,6 +581,14 @@ public class PlayerUnitSystem {
 
         trackedPlayers.put(uuid,player);
         Tile spawnTile = findFactionSpawnTile(faction, type);
+        if (spawnTile == null && gameTicks < 10f * 60f) {
+            // Map logic may paint its faction floors shortly after world load.
+            // Keep the choice, and retry instead of permanently deploying elsewhere.
+            boolean waiting=respawnAt.containsKey(uuid);
+            respawnAt.put(uuid,(long)gameTicks+30L);
+            if(!waiting)player.sendMessage("[lightgray]Waiting for the map's faction spawnpoint...[]");
+            return;
+        }
         if (spawnTile == null) {
             logMapperPoem(faction);
             spawnTile = buildSystem.pickFallbackCoreTile(faction.team());
@@ -1196,13 +1204,10 @@ public class PlayerUnitSystem {
             Long at = respawnAt.get(uuid);
             if (at == null || gameTicks < at || !needsUnit(player)) continue;
 
-            long now = Time.millis();
-            if (!lastRespawnOffer.containsKey(uuid)||now - lastRespawnOffer.get(uuid, 0L) >= (long) (respawnOfferSeconds * 1000f)) {
-                lastRespawnOffer.put(uuid, now);
-                // A partial party death automatically redeploys the selected tier one.
-                // The survival director ends a total wipe before this cooldown expires.
-                spawnFor(player,chosenFactions.get(uuid),resolveStarterUnit(player,chosenFactions.get(uuid)));
-            }
+            // This is automatic deployment, not a chat reminder. Retry on the
+            // simulation scan cadence; a wall-clock message throttle delays maps
+            // whose spawn floors are painted after load.
+            spawnFor(player,chosenFactions.get(uuid),resolveStarterUnit(player,chosenFactions.get(uuid)));
         }
     }
 

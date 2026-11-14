@@ -2,7 +2,7 @@ package coolplugin.gameplay;
 
 import arc.Core;
 import arc.Events;
-import arc.struct.Seq;
+import arc.struct.ObjectSet;
 import mindustry.Vars;
 import mindustry.content.Blocks;
 import mindustry.game.EventType.*;
@@ -17,7 +17,7 @@ import mindustry.world.consumers.ConsumePower;
 
 /** Authoritative spawn-floor clearance and indestructible map barriers. */
 public final class MapProtection {
-    private final Seq<Tile> spawnTiles = new Seq<>();
+    private final ObjectSet<Tile> spawnTiles = new ObjectSet<>();
     private boolean started;
 
     public void start(){
@@ -32,6 +32,8 @@ public final class MapProtection {
                 Core.app.post(()->clearAt(tile));
             }
         });
+        Events.on(TileFloorChangeEvent.class,e->refreshSpawn(e.tile));
+        Events.on(TileOverlayChangeEvent.class,e->refreshSpawn(e.tile));
         Events.on(BlockBuildBeginEvent.class,e->{
             if(e.breaking&&e.tile.build instanceof ConstructBuild build&&build.previous==Blocks.largeShieldProjector){
                 var team=build.team;int rotation=build.rotation;Tile tile=e.tile;
@@ -77,6 +79,12 @@ public final class MapProtection {
     private static boolean isSpawn(Tile tile){
         for(FactionDef faction:FactionDef.values())if(faction.matchesSpawnTile(tile))return true;
         return false;
+    }
+    private void refreshSpawn(Tile tile){
+        if(tile==null)return;
+        if(isSpawn(tile))spawnTiles.add(tile);else spawnTiles.remove(tile);
+        // Floor/overlay event objects are reused; retain only the actual tile.
+        if(isSpawn(tile)&&tile.build!=null)Core.app.post(()->clearAt(tile));
     }
     private void cacheSpawns(){
         spawnTiles.clear();

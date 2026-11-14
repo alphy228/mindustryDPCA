@@ -640,12 +640,26 @@ public final class WorldItemLogicManager {
         }
     }
 
+    /** Client-local velocity impulse, using existing processors and once-per-tick unit state. */
+    public void pushTerrain(Unit unit,float x,float y){
+        for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
+            LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
+            String[] names={"terrainPushX","terrainPushY","terrainPushUntil","terrainLastTick"};
+            double[] values={x*60d/tilesize,y*60d/tilesize,state.tick+8d,state.tick};
+            for(int i=0;i<names.length;i++){
+                var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
+                variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);
+            }
+            break; // Only one slot applies the impulse, not one per equipment processor.
+        }
+    }
+
     /** Shares the owner's existing processor budget; never allocates extra processors. */
     public void correctTerrain(Unit unit,float x,float y){
         for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
             LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
             String[] names={"terrainX","terrainY","terrainUntil"};
-            double[] values={x/tilesize,y/tilesize,state.tick+15d};
+            double[] values={x/tilesize,y/tilesize,state.tick+1d};
             for(int i=0;i<names.length;i++){
                 var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
                 variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);

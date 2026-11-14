@@ -1184,8 +1184,43 @@ public class VerifyColouringGeneration {
         obstacle.setFloor(Blocks.empty.asFloor());
         flyer.set(obstacle.worldx(),obstacle.worldy());
         boolean forbidden=coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y);
+        check(!forbidden&&!terrain.correct(picker),"Solid/leg-blocking floors alone do not impede flying units");
+        obstacle.setBlock(Blocks.stoneWall);obstacle.data=4;
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        flyer.vel.set(1,0);float beforeX=flyer.x,beforeY=flyer.y;
         boolean corrected=terrain.correct(picker);
-        check(forbidden&&corrected&&flyer.within(160,160,1),"Server rolls flying players back from terrain that native legs cannot step on");
+        check(coolplugin.gameplay.FlyingTerrainGuard.forbidden(beforeX,beforeY)&&corrected&&flyer.within(beforeX,beforeY,4f)&&flyer.vel.len2()>0,
+            "Fully black terrain applies a smooth velocity impulse without rollback or stopping");
+        obstacle.data=3;coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        check(!coolplugin.gameplay.FlyingTerrainGuard.forbidden(beforeX,beforeY),"Partially darkened blocks remain freely flyable");
+        obstacle.data=4;coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        Unit aiFlyer=UnitTypes.flare.spawn(Team.crux,beforeX,beforeY);aiFlyer.vel.set(1,0);
+        check(terrain.correct(aiFlyer)&&aiFlyer.vel.len2()>0,"Non-player flyers receive the same darkness pushback");aiFlyer.remove();
+        float slow=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,16),fast=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5,16);
+        check(Math.abs(fast/slow-5)<.001f&&coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,32)>slow,
+            "Pushback scales linearly with effective speed and strengthens smoothly with penetration");
+        // A tall dark barrier requires an actual detour rather than head-on steering.
+        for(int yy=12;yy<=28;yy++){Tile t=Vars.world.tile(24,yy);t.setBlock(Blocks.stoneWall);t.data=4;}
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();flyer.set(160,160);
+        var waypoint=coolplugin.gameplay.FlyingTerrainGuard.waypoint(flyer,224,160);
+        check(waypoint!=null&&!coolplugin.gameplay.FlyingTerrainGuard.forbidden(waypoint.x,waypoint.y),
+            "Flying pathfinding finds a non-black waypoint around dark terrain");
+        for(int yy=12;yy<=28;yy++)Vars.world.tile(24,yy).setBlock(Blocks.air);
+        obstacle.setBlock(Blocks.air);coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        var oldBlocks=new arc.struct.Seq<Block>();var oldData=new arc.struct.Seq<Byte>();
+        for(int yy=26;yy<=42;yy++)for(int xx=26;xx<=42;xx++){
+            Tile cell=Vars.world.tile(xx,yy);oldBlocks.add(cell.block());oldData.add(cell.data);cell.setBlock(Blocks.stoneWall);cell.data=4;
+        }
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        flyer.set(34*8f,34*8f);flyer.vel.set(2,1);terrain.correct(flyer);
+        check(!flyer.within(34*8f,34*8f,8)&&flyer.vel.len2()>0,
+            "Six-tile emergency backstop ejects an externally embedded flyer without zeroing momentum");
+        float boundaryX=flyer.x,boundaryY=flyer.y;terrain.correct(flyer);
+        check(flyer.within(boundaryX,boundaryY,8),"Emergency correction places the unit inside the six-tile safety limit rather than repeatedly snapping");
+        int oldIndex=0;for(int yy=26;yy<=42;yy++)for(int xx=26;xx<=42;xx++){
+            Tile cell=Vars.world.tile(xx,yy);cell.setBlock(oldBlocks.get(oldIndex));cell.data=oldData.get(oldIndex++);
+        }
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();flyer.set(160,160);
         var logic=plugin.getPlayerItemSystem().getWorldLogicManager();
         logic.syncRig("terrain-probe",picker.name,flyer,new Seq<>(),plugin.getPlayerItemSystem().getCatalog());
         var processors=logic.getProcessorsForOwner("terrain-probe");
@@ -1194,8 +1229,17 @@ public class VerifyColouringGeneration {
         logic.correctTerrain(flyer,160,160);
         check(!processors.isEmpty()&&processors.first().executor.optionalVar("terrainUntil").num()>0,"Server binds correction coordinates/deadline into client world logic");
         flyer.set(176,160);Vars.logicVars.update();
+        Vars.logicVars.get("@client",true).numval=1;
+        Vars.logicVars.get("@clientUnit",true).setconst(flyer);
         for(int i=0;i<120;i++)processors.first().executor.runOnce();
-        check(flyer.within(160,160,1),"Compiled world logic executes the coordinate rollback, not merely a marker animation");
+        check(flyer.within(160,160,1),"Compiled world logic retains the emergency six-tile safety correction");
+        flyer.vel.setZero();Vars.state.tick+=1;
+        logic.pushTerrain(flyer,.3f,.1f);Vars.state.tick+=1;Vars.logicVars.update();
+        Vars.logicVars.get("@client",true).numval=1;
+        Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+        for(int i=0;i<160;i++)processors.first().executor.runOnce();
+        check(flyer.vel.len2()>0,"Client world logic applies a velocity push rather than pinning coordinates during normal pushback");
+        Vars.logicVars.get("@client",true).numval=0;
         logic.clearRig("terrain-probe");flyer.remove();picker.remove();
 
         var lifecycle=plugin.getPlayerUnitSystem();

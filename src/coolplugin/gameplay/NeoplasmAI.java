@@ -37,6 +37,8 @@ public final class NeoplasmAI extends AIController {
         if(chase==null)chase=target;
         if(chase==null)return;
         if(unit.isFlying()){
+            Vec2 detour=FlyingTerrainGuard.waypoint(unit,chase.x(),chase.y());
+            if(detour!=null){moveTo(detour,0f,8f);unit.lookAt(chase);return;}
             if(unit.type.circleTarget){
                 Teamc saved=target;target=chase;circleAttack(unit.type.circleTargetRadius);target=saved;
             }else{

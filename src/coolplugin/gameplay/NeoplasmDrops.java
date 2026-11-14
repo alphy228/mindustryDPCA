@@ -49,7 +49,7 @@ public final class NeoplasmDrops {
         GroundDrop drop=new GroundDrop(nextId,x,y,item,amount);nextId+=2;drops.add(drop);
         TextureMarker icon=new TextureMarker("item-"+item.name,x,y,6f,6f);icon.control(LMarkerControl.drawLayer,mindustry.graphics.Layer.flyingUnit+1f,Double.NaN,Double.NaN);
         Call.createMarker(drop.id,icon);
-        Call.createMarker(drop.id+1,new TextMarker(Integer.toString(amount),x,y-7f,.55f,WorldLabel.flagOutline));
+        Call.createMarker(drop.id+1,new TextMarker(Integer.toString(amount),x,y-3.5f,.55f,WorldLabel.flagOutline));
         return drop;
     }
     public void updatePickups(){

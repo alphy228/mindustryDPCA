@@ -149,12 +149,12 @@ public class TechTreeService {
     }
 
     private synchronized void rebindDataPatchContentIfNeeded() {
-        // Buildings are universally available; no building research migration.
-
+        if(root==null)return;
+        migrateCopperContainer();migrateColouringStations();
         migrateShopItemResearch();
-        if (TechTreeConfigIO.rebindContentRecursive(root)) {
-            rebuildIndexes();
-        }
+        boolean changed=TechTreeConfigIO.rebindContentRecursive(root);
+        changed|=MixedTechTree.expand(root,coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson")));
+        if(changed){rebuildIndexes();TechTreeConfigIO.save(treeFile,root,whitelistOrder);}
     }
 
     /** Reparent the existing node, retaining costs, children and saved research IDs. */
@@ -204,16 +204,27 @@ public class TechTreeService {
     /** Shop item nodes use type: shop-item and content: <catalog item id>; they are not virtual. */
     private void migrateShopItemResearch(){
         if(root==null)return;
-        var catalog=coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson"));
-        TechNodeDef bazaar=root;boolean changed=false;int i=0;
-        for(String unit:coolplugin.gameplay.ShopConfigIO.TEST_WEAPON_UNITS){
-            String itemId="bz-test-"+unit,id="shop-"+itemId;
-            if(bazaar!=null&&findNode(id)==null){
+        syncCatalogResearch(coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson")));
+    }
+    public synchronized void syncCatalogResearch(coolplugin.gameplay.ShopConfigIO.Catalog catalog){
+        if(root==null)return;
+        boolean changed=false;
+        for(var item:catalog.items){
+            String itemId=item.id,id="shop-"+itemId;
+            boolean exists=false;for(var node:nodesById.values())if("shop-item".equals(node.contentType)&&itemId.equals(node.contentName)){exists=true;break;}
+            String parent=item.tier.blockName;
+            if(itemId.startsWith("paint-")){
+                var palette=coolplugin.gameplay.ColouringAssets.palettes.find(p->p.canId().equals(itemId));
+                parent=palette!=null&&palette.tier()==2?"dp-colouring-station-2":"dp-colouring-station";
+            }
+            TechNodeDef bazaar=findNode(parent);if(bazaar==null)bazaar=root;
+            if(!exists){
                 TechNodeDef node=new TechNodeDef();node.id=id;node.contentType="shop-item";node.contentName=itemId;
-                node.direction=i%2==0?TechNodeDef.DIR_RIGHT:TechNodeDef.DIR_LEFT;node.parent=bazaar;
-                node.costs=ItemStack.with(mindustry.content.Items.copper,150+i*50,mindustry.content.Items.silicon,50+i*25);
+                node.direction=TechNodeDef.DIR_UP;node.parent=bazaar;
+                Seq<ItemStack> price=new Seq<>();for(var cost:item.resourceCosts){var resource=cost.resolveItem();if(resource!=null&&cost.amount()>0)price.add(new ItemStack(resource,cost.amount()));}
+                node.costs=price.isEmpty()?ItemStack.with(mindustry.content.Items.copper,150,mindustry.content.Items.silicon,50):price.toArray(ItemStack.class);
                 bazaar.children.add(node);changed=true;
-            }i++;
+            }
         }
         if(changed)rebuildIndexes();
         for(TechNodeDef node:nodesById.values())if("shop-item".equals(node.contentType)){
@@ -315,7 +326,8 @@ public class TechTreeService {
 
     public synchronized void reloadTree() {
         TechTreeConfigIO.LoadedConfig cfg = TechTreeConfigIO.loadConfigOrCreate(treeFile, conditionRegistry);
-        this.root = cfg.root;
+        this.root = cfg.mixedVersion>=1?cfg.root:MixedTechTree.remake(cfg.root,
+            coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson")));
         setWhitelistInternal(cfg.whitelist);
         rebuildIndexes();
         migrateShopItemResearch();
@@ -325,7 +337,8 @@ public class TechTreeService {
     }
 
     public synchronized void regenerateDefaultTree(boolean resetPlayerProgress) {
-        this.root = DefaultSerpuloPreThoriumTree.createDefaultRoot();
+        this.root = MixedTechTree.remake(DefaultSerpuloPreThoriumTree.createDefaultRoot(),
+            coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson")));
         rebuildIndexes();
         migrateShopItemResearch();
         TechTreeConfigIO.save(treeFile, root, whitelistOrder);
@@ -376,31 +389,7 @@ public class TechTreeService {
         return true;
     }
 
-    /** Promote retained children past removed building and upgrade nodes. */
-    private void projectUnitItemTree(TechNodeDef parent){
-        var children=parent.children.copy();parent.children.clear();
-        for(TechNodeDef child:children){
-            projectUnitItemTree(child);
-            boolean keep="item".equals(child.contentType)||"shop-item".equals(child.contentType);
-            if(child.content instanceof UnitType unit){
-                var tree=coolplugin.gameplay.UnitTree.forUnit(unit.name);
-                keep=tree==null||tree.units[0].equals(unit.name);
-            }
-            if(keep){child.parent=parent;parent.children.add(child);}
-            else for(TechNodeDef grandchild:child.children){grandchild.parent=parent;parent.children.add(grandchild);}
-        }
-    }
-    private void ensureTreeRoots(){
-        for(var tree:coolplugin.gameplay.UnitTree.values()){
-            UnitType starter=tree.starter();if(starter==null||containsUnitNode(root,starter))continue;
-            TechNodeDef node=new TechNodeDef();node.id=starter.name;node.contentType="unit";node.contentName=starter.name;node.content=starter;
-            node.parent=root;node.costs=ItemStack.with(mindustry.content.Items.copper,200,mindustry.content.Items.lead,150);root.children.add(node);
-        }
-    }
-    private boolean containsUnitNode(TechNodeDef node,UnitType unit){if(node.content==unit)return true;for(var child:node.children)if(containsUnitNode(child,unit))return true;return false;}
-
     private void rebuildIndexes() {
-        projectUnitItemTree(root);ensureTreeRoots();
         nodesById.clear();
         nodesByContent.clear();
         allNodesByDatabaseEntry.clear();
@@ -470,6 +459,9 @@ public class TechTreeService {
             menu.refreshOpenSession(onlinePlayer);
         }
     }
+
+    /** Stable snapshot for coverage checks and administrative tooling. */
+    public Seq<TechNodeDef> getAllNodes(){return nodesById.values().toSeq();}
 
     public TechNodeDef getRoot() {
         return root;
@@ -681,7 +673,7 @@ public class TechTreeService {
         if(unitTree!=null&&unitTree.starter()!=null)unit=unitTree.starter();
         TechNodeDef node = findNodeByContent(unit);
         if (node != null) {
-            return isUnlockedByUuid(uuid, node) && areAncestorsUnlockedByUuid(uuid, node);
+            return isUnlockedByUuid(uuid, node); // Saved research remains usable after reparenting.
         }
         return unit.alwaysUnlocked || unit.name.startsWith("dp-") || (unit.minfo != null && unit.minfo.mod != null);
     }
@@ -695,7 +687,7 @@ public class TechTreeService {
         }
         TechNodeDef node = findNodeByContent(content);
         if (node == null) return true;
-        return isUnlocked(player, node) && areAncestorsUnlocked(player, node);
+        return isUnlocked(player, node);
     }
 
     /** True if {@code block} is a player-buildable building subject to whitelist/tech-tree gating. */
@@ -710,7 +702,9 @@ public class TechTreeService {
     public boolean isBlockAllowedForPlayer(@Nullable Player player, @Nullable Block block) {
         if (!isLockableBuilding(block)) return true;
         if (mapBannedBlocks.contains(block)) return false;
-        return true; // Only map bans restrict buildings; research never does.
+        if(isWhitelisted(block))return true;
+        TechNodeDef node=findNodeByContent(block);
+        return node!=null&&isUnlocked(player,node);
     }
 
     /** Fills {@code out} with every building banned for {@code player} (map bans + unresearched non-whitelisted buildings). */
@@ -730,7 +724,7 @@ public class TechTreeService {
         base.researched.clear();
         for(TechNodeDef node:nodesById.values())if(node.content!=null&&isUnlocked(player,node))base.researched.add(node.content);
         if(Vars.content!=null){
-            for(Block block:Vars.content.blocks())if(!mapBannedBlocks.contains(block))base.researched.add(block);
+            for(Block block:Vars.content.blocks())if(isBlockAllowedForPlayer(player,block))base.researched.add(block);
             for(UnitType unit:Vars.content.units())if(!unit.hidden&&isUnitUnlockedForPlayer(player,unit))base.researched.add(unit);
         }
         base.hideBannedBlocks = true;
@@ -801,13 +795,16 @@ public class TechTreeService {
     }
 
     /**
-     * Matches vanilla {@code ResearchDialog}: a node is visible on the tree canvas iff it is the root
-     * or all of its ancestor nodes have been unlocked by this player.
+     * Show normal prerequisite progression and paths to grandfathered saved unlocks.
      */
     public boolean isVisible(Player player, TechNodeDef node) {
         if (node == null) return false;
         if (node.parent == null || node.parent.virtual) return true;
-        return areAncestorsUnlocked(player, node);
+        return isUnlocked(player,node)||areAncestorsUnlocked(player,node)||hasUnlockedDescendant(player,node);
+    }
+    private boolean hasUnlockedDescendant(Player player,TechNodeDef node){
+        for(var child:node.children)if(isUnlocked(player,child)||hasUnlockedDescendant(player,child))return true;
+        return false;
     }
 
     public boolean areConditionsMet(Player player, TechNodeDef node) {

@@ -640,12 +640,12 @@ public final class WorldItemLogicManager {
         }
     }
 
-    /** Client-local velocity impulse, using existing processors and once-per-tick unit state. */
+    /** Bounded client-local outward speed target, never an accumulating impulse. */
     public void pushTerrain(Unit unit,float x,float y){
         for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
             LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
             String[] names={"terrainPushX","terrainPushY","terrainPushUntil","terrainLastTick"};
-            double[] values={x*60d/tilesize,y*60d/tilesize,state.tick+8d,state.tick};
+            double[] values={x*60d/tilesize,y*60d/tilesize,state.tick+4d,state.tick};
             for(int i=0;i<names.length;i++){
                 var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
                 variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);

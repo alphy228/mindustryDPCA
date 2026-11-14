@@ -198,6 +198,7 @@ public class PlayerItemSystem {
             catalog.items.add(can);
         }
         catalog.rebuildIndexes();
+        if(buildSystem.getTechTree()!=null)buildSystem.getTechTree().syncCatalogResearch(catalog);
     }
 
     public Catalog getCatalog() {

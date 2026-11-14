@@ -30,6 +30,7 @@ public final class TechTreeConfigIO {
     public static final class LoadedConfig {
         public final TechNodeDef root;
         public final Seq<String> whitelist;
+        public int mixedVersion;
 
         public LoadedConfig(TechNodeDef root, Seq<String> whitelist) {
             this.root = root;
@@ -41,11 +42,12 @@ public final class TechTreeConfigIO {
 
     public static LoadedConfig loadConfigOrCreate(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
         if (!file.exists()) {
-            TechNodeDef def = DefaultSerpuloPreThoriumTree.createDefaultRoot();
+            TechNodeDef def = MixedTechTree.remake(DefaultSerpuloPreThoriumTree.createDefaultRoot(),
+                coolplugin.gameplay.ShopConfigIO.loadOrCreate(file.parent().child("shop.hjson")));
             Seq<String> whitelist = new Seq<>();
             save(file, def, whitelist);
-            Log.info("[CoolPlugin] Created default pre-Thorium/Plastanium tech tree at @", file.path());
-            return new LoadedConfig(def, whitelist);
+            Log.info("[CoolPlugin] Created mixed building/item/T1 tech tree at @", file.path());
+            LoadedConfig created=new LoadedConfig(def,whitelist);created.mixedVersion=1;return created;
         }
         return loadConfig(file, conditionRegistry);
     }
@@ -76,7 +78,7 @@ public final class TechTreeConfigIO {
         JsonValue treeVal = rootVal.has("root") ? rootVal.get("root") : rootVal;
         TechNodeDef root = parseNode(treeVal, conditionRegistry, TechNodeDef.DIR_DOWN);
         DefaultSerpuloPreThoriumTree.assignParents(root, null);
-        return new LoadedConfig(root, whitelist);
+        LoadedConfig loaded=new LoadedConfig(root,whitelist);loaded.mixedVersion=rootVal.getInt("mixedVersion",0);return loaded;
     }
 
     public static TechNodeDef load(Fi file, UnlockCondition.ConditionRegistry conditionRegistry) {
@@ -226,8 +228,9 @@ public final class TechTreeConfigIO {
         sb.append("# Server Tech Tree (config/alphystuff/techtree.hjson)\n");
         sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n");
         sb.append("# Custom plugin-unlocked database nodes: { id: \"titanium\", type: \"item\", content: \"titanium\", pluginUnlocked: true }\n");
-        sb.append("# Buildings are available without research; map bans still apply.\n\n");
+        sb.append("# Mixed buildings/items/T1 branches. Buildings require research; map bans still apply.\n\n");
 
+        sb.append("mixedVersion: 1\n\n");
         sb.append("whitelist: [");
         if (whitelist != null && !whitelist.isEmpty()) {
             for (int i = 0; i < whitelist.size; i++) {

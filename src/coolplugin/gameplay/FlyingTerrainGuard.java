@@ -69,10 +69,14 @@ public final class FlyingTerrainGuard {
         int tx=Mathf.clamp(Math.round(x/Vars.tilesize),0,width-1),ty=Mathf.clamp(Math.round(y/Vars.tilesize),0,height-1);
         int p=nearest[tx+ty*width];return p<0?null:new Vec2((p%width)*Vars.tilesize,(p/width)*Vars.tilesize);
     }
-    /** Smooth acceleration scales with current effective unit speed, including status/equipment modifiers. */
+    /** Gentle outward speed target scales with effective unit speed, not an accumulating impulse. */
     public static float pushStrength(float speed,float depth){
         float t=Mathf.clamp(depth/(4f*Vars.tilesize));
-        return Math.max(.1f,speed)*(.12f+1.8f*t*t*(3f-2f*t));
+        return Math.max(.1f,speed)*(.08f+.52f*t*t*(3f-2f*t));
+    }
+    /** Bounded relaxation toward a small outward speed: repeated frames cannot accumulate a launch. */
+    public static float pushDelta(float outwardSpeed,float target,float delta){
+        return Math.max(0f,(target-outwardSpeed)*(1f-(float)Math.exp(-.16f*Math.min(delta,3f))));
     }
     public boolean correct(Player player){return player!=null&&correct(player.unit());}
     public boolean correct(Unit unit){
@@ -83,9 +87,10 @@ public final class FlyingTerrainGuard {
         // Measure from the near edge of the non-black tile, not its centre.
         float depth=Math.max(0f,toward.len()-Vars.tilesize/2f);
         float strength=pushStrength(unit.speed(),depth);
-        Vec2 force=toward.cpy().setLength(strength);
-        unit.velAddNet(force.x*Math.min(Time.delta,3f),force.y*Math.min(Time.delta,3f));
-        if(visuals!=null&&unit.isPlayer())visuals.pushTerrain(unit,force.x,force.y);
+        Vec2 normal=toward.cpy().nor();
+        float change=pushDelta(unit.vel.dot(normal),strength,Time.delta);
+        unit.velAddNet(normal.x*change,normal.y*change);
+        if(visuals!=null&&unit.isPlayer())visuals.pushTerrain(unit,normal.x*strength,normal.y*strength);
         // Emergency only: normal acceleration already overpowers inward thrust well before this.
         // Preserve velocity; never stop the unit or roll it back to a previous frame.
         if(depth>=hardDepth){
@@ -144,8 +149,21 @@ op max terrainDt terrainDt 0
 set terrainLastTick @tick
 sensor terrainVx u @velocityX
 sensor terrainVy u @velocityY
-op mul terrainDx terrainPushX terrainDt
-op mul terrainDy terrainPushY terrainDt
+op len terrainTarget terrainPushX terrainPushY
+jump terrainDone lessThanEq terrainTarget 0
+op div terrainNx terrainPushX terrainTarget
+op div terrainNy terrainPushY terrainTarget
+op mul terrainDotX terrainVx terrainNx
+op mul terrainDotY terrainVy terrainNy
+op add terrainOutward terrainDotX terrainDotY
+op sub terrainChange terrainTarget terrainOutward
+op max terrainChange terrainChange 0
+op mul terrainBlend terrainDt -0.16
+op pow terrainBlend 2.718281828 terrainBlend
+op sub terrainBlend 1 terrainBlend
+op mul terrainChange terrainChange terrainBlend
+op mul terrainDx terrainNx terrainChange
+op mul terrainDy terrainNy terrainChange
 op add terrainVx terrainVx terrainDx
 op add terrainVy terrainVy terrainDy
 setprop @velocityX u terrainVx

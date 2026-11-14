@@ -246,10 +246,10 @@ public class VerifyColouringGeneration {
         }
         var tree=new coolplugin.techtree.TechTreeService(workConfig.child("tree-migration-test"));
         tree.reloadTree();
-        check(tree.findNode("dp-copper-container")==null&&tree.findNode("conveyor")==null,"Building nodes are removed from the research tree");
+        check(tree.findNode("dp-copper-container")!=null&&tree.findNode("conveyor")!=null,"Mixed research retains logistics and custom building nodes");
         check(tree.findNode("mace")==null&&tree.findNode("dagger")!=null,"Only tier-one unit research nodes remain");
         tree.reloadTree();
-        check(tree.findNode("dp-copper-container")==null,"Unit/item projection remains idempotent on reload");
+        check(tree.findNode("dp-copper-container")!=null,"Mixed research remains idempotent on reload");
         var plugin=new CoolPlugin();
         var db=plugin.getPlayerDatabase();db.init();
         Player p=Player.create();p.name="Painter";p.con=new CapturingCon("painter");p.team(Team.sharded);p.add();
@@ -780,8 +780,8 @@ public class VerifyColouringGeneration {
             &&progress.hasFlag(p.uuid(),"faction-flag-probe"),"Switching back restores only Sharded's research progress");
         Vars.state.rules.researched.add(mindustry.content.Blocks.graphitePress);
         p.team(Team.crux);
-        check(tech.buildPlayerRules(p).researched.contains(mindustry.content.Blocks.graphitePress),
-            "Buildings are available without research in every faction");
+        check(!tech.buildPlayerRules(p).researched.contains(mindustry.content.Blocks.graphitePress),
+            "Global researched flags do not leak unresearched buildings into another faction's client rules");
         boolean otherFactionsIsolated=true;
         for(var faction:new coolplugin.gameplay.FactionDef[]{coolplugin.gameplay.FactionDef.MALIS,coolplugin.gameplay.FactionDef.NEOPLASM}){
             p.team(faction.team());otherFactionsIsolated&=!progress.isUnlocked(p.uuid(),researchNode)
@@ -811,8 +811,8 @@ public class VerifyColouringGeneration {
             "Build fallback curve exactly matches Nova, Mega/2, Quad/3 and Oct/3 anchors");
         check(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.arkyid.health)>.2f,
             "Arkyid health-based build fallback is no longer the stale 20 percent override");
-        check(tech.findNode("dp-colouring-station")==null&&tech.findNode("landing-pad")==null,
-            "Colouring stations and landing pads no longer require building research");
+        check(tech.findNode("dp-colouring-station")!=null&&tech.findNode("landing-pad")!=null,
+            "Colouring stations and landing pads have building research nodes");
         var demoCatalog=coolplugin.gameplay.ShopConfigIO.loadOrCreate(workConfig.child("alphystuff/shop.hjson"));
         var reignTest=demoCatalog.findItem("bz-test-reign");var preceptTest=demoCatalog.findItem("bz-test-precept");
         check(UnitTypes.reign.weapons.first().name.equals(coolplugin.gameplay.ColouringAssets.mountSources.get(reignTest.id)),
@@ -911,7 +911,8 @@ public class VerifyColouringGeneration {
         verifyTreeLoadouts(plugin,p,workConfig);
         verifyNeoplasmSurvival(plugin,workConfig);
         verifyMapProtection();
-        verifyEscalation(plugin,workConfig);
+        verifyEscalation(plugin,workConfig,new Fi(repoPath));
+        verifyMixedResearch(plugin,workConfig);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -1082,7 +1083,7 @@ public class VerifyColouringGeneration {
     }
 
     @SuppressWarnings("unchecked")
-    private static void verifyEscalation(CoolPlugin plugin,Fi config)throws Exception{
+    private static void verifyEscalation(CoolPlugin plugin,Fi config,Fi repo)throws Exception{
         Vars.state.gameOver=false;
         Vars.world.loadGenerator(80,80,tiles->{for(int y=0;y<80;y++)for(int x=0;x<80;x++)tiles.set(x,y,new Tile(x,y,Blocks.stone,Blocks.air,Blocks.air));});
         Vars.state.set(GameState.State.playing);Vars.state.rules.unitCap=99999;
@@ -1199,6 +1200,13 @@ public class VerifyColouringGeneration {
         float slow=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,16),fast=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5,16);
         check(Math.abs(fast/slow-5)<.001f&&coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,32)>slow,
             "Pushback scales linearly with effective speed and strengthens smoothly with penetration");
+        float repeatedOut=0f;
+        float targetOut=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5f,32f);
+        for(int frame=0;frame<600;frame++)repeatedOut+=coolplugin.gameplay.FlyingTerrainGuard.pushDelta(repeatedOut,targetOut,1f);
+        check(repeatedOut<=targetOut+.001f&&targetOut<=5f*.61f,
+            "Repeated pushback converges to a gentle bounded speed instead of accumulating a wall-launch impulse");
+        check(coolplugin.gameplay.FlyingTerrainGuard.pushDelta(10f,targetOut,1f)==0f,
+            "Already-outward movement is not accelerated further by the wall");
         // A tall dark barrier requires an actual detour rather than head-on steering.
         for(int yy=12;yy<=28;yy++){Tile t=Vars.world.tile(24,yy);t.setBlock(Blocks.stoneWall);t.data=4;}
         coolplugin.gameplay.FlyingTerrainGuard.invalidate();flyer.set(160,160);
@@ -1240,6 +1248,24 @@ public class VerifyColouringGeneration {
         for(int i=0;i<160;i++)processors.first().executor.runOnce();
         check(flyer.vel.len2()>0,"Client world logic applies a velocity push rather than pinning coordinates during normal pushback");
         Vars.logicVars.get("@client",true).numval=0;
+        var context=rhino.Context.enter();
+        try{
+            var scope=context.initStandardObjects();
+            var executor=processors.first().executor;
+            var originalCode=executor.instructions.clone();
+            int originalSetprop=0;for(var instruction:originalCode)if(instruction instanceof mindustry.logic.LExecutor.SetPropI)originalSetprop++;
+            context.evaluateString(scope,repo.child("tools/disable-setprop.js").readString(),"disable-setprop.js",1);
+            boolean stripped=true;for(var instruction:executor.instructions)stripped&=!(instruction instanceof mindustry.logic.LExecutor.SetPropI);
+            check(originalSetprop>0&&stripped,"Diagnostic JS disables compiled setprop instructions without removing instruction slots");
+            context.evaluateString(scope,"setpropTest.enable()","restore",1);
+            boolean restored=java.util.Arrays.equals(originalCode,executor.instructions);
+            check(restored,"Diagnostic JS restores the original instructions exactly");
+            executor.instructions=originalCode.clone();
+            context.evaluateString(scope,"setpropTest.disable()","disable-again",1);
+            stripped=true;for(var instruction:executor.instructions)stripped&=!(instruction instanceof mindustry.logic.LExecutor.SetPropI);
+            check(stripped,"Diagnostic JS also handles replacement/recompiled instruction arrays");
+            context.evaluateString(scope,"setpropTest.enable()","restore-again",1);
+        }finally{rhino.Context.exit();}
         logic.clearRig("terrain-probe");flyer.remove();picker.remove();
 
         var lifecycle=plugin.getPlayerUnitSystem();
@@ -1250,6 +1276,65 @@ public class VerifyColouringGeneration {
         deployed.add(dead.uuid());lifecycle.spawnFor(dead,coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger);
         check(lifecycle.eliminated(dead.uuid())&&!owned.containsKey(dead.uuid()),"Previously deployed dead players cannot respawn after fifty minutes");
         dead.remove();ticks.setFloat(lifecycle,0);
+    }
+
+    private static void verifyMixedResearch(CoolPlugin plugin,Fi config)throws Exception{
+        var tech=plugin.getTechTree();var catalog=plugin.getPlayerItemSystem().getCatalog();
+        int blocks=0,missingBlocks=0;
+        for(Block b:Vars.content.blocks())if(coolplugin.techtree.MixedTechTree.usable(b)){blocks++;if(tech.findNodeByContent(b)==null)missingBlocks++;}
+        check(blocks>100&&missingBlocks==0,"Every usable player building has a research node, including advanced industry");
+        boolean itemCoverage=true;for(var item:catalog.items){
+            boolean found=false;for(var node:tech.getAllNodes())if("shop-item".equals(node.contentType)&&item.id.equals(node.contentName)){found=true;break;}
+            if(!found)System.out.println("MISSING MIXED ITEM: "+item.id);itemCoverage&=found;
+        }
+        check(itemCoverage,"Every catalogue item participates in the mixed research progression");
+        boolean t1Only=true;int units=0;
+        for(var node:tech.getAllNodes())if(node.content instanceof UnitType unit){
+            units++;var branch=coolplugin.gameplay.UnitTree.forUnit(unit.name);
+            t1Only&=branch!=null&&branch.available&&branch.units[0].equals(unit.name);
+        }
+        check(units==5&&t1Only,"Only the five currently available branch T1s appear; unavailable branches and T2-T5 nodes are absent");
+        check(tech.findNode("flare").parent.content instanceof Block&&tech.findNode("shop-wb-01").parent.content instanceof Block,
+            "Unit and equipment unlocks are interleaved with building prerequisites");
+        check(tech.findNode("flare").totalCostAmount(Items.silicon)==7&&tech.findNode("nova").totalCostAmount(Items.silicon)==1500&&
+            tech.findNode("shop-bz-test-reign").totalCostAmount(Items.copper)==150,
+            "Existing T1 and equipment research prices are preserved exactly");
+        check(tech.findNode("advanced-launch-pad")==null&&tech.findNode("large-shield-projector")==null&&tech.findNode("core-shard")==null,
+            "Editor barriers, cores and the disabled advanced launchpad are excluded from usable research");
+        var ids=new arc.struct.ObjectSet<String>();boolean acyclic=true;
+        for(var node:tech.getAllNodes()){
+            acyclic&=ids.add(node.id);var seen=new arc.struct.ObjectSet<coolplugin.techtree.TechNodeDef>();
+            for(var p=node;p!=null;p=p.parent)if(!seen.add(p)){acyclic=false;break;}
+        }
+        check(acyclic,"Mixed research IDs are unique and all prerequisite chains are acyclic");
+        Player player=Player.create();player.name="Mixed research";player.con=new CapturingCon("mixed-research");player.team(Team.sharded);player.add();
+        check(!tech.isBlockAllowedForPlayer(player,Blocks.foreshadow)&&!tech.isShopItemResearched(player,"wb-01"),
+            "New players must research both buildings and equipment");
+        tech.unlockNode(player,"foreshadow");
+        check(tech.isBlockAllowedForPlayer(player,Blocks.foreshadow)&&tech.buildPlayerRules(player).researched.contains(Blocks.foreshadow),
+            "A saved/researched building remains usable even if new prerequisites have not been researched");
+        var bansField=coolplugin.techtree.TechTreeService.class.getDeclaredField("mapBannedBlocks");bansField.setAccessible(true);
+        var bans=(arc.struct.ObjectSet<Block>)bansField.get(tech);bans.add(Blocks.foreshadow);
+        check(!tech.isBlockAllowedForPlayer(player,Blocks.foreshadow),"Explicit map bans still override researched buildings");bans.remove(Blocks.foreshadow);
+        int total=tech.getAllNodes().size;
+        for(var node:tech.getAllNodes())tech.getProgressStore().unlockSingle(player.uuid(),player.name,node,tech.getRoot());
+        int packet=tech.getMenu().measureFullDialogBytes(player,"dp-workbench");
+        check(packet>0&&packet<4*1024*1024,"The fully expanded mixed tree fits inside a bounded menu packet ("+packet+" bytes)");
+        tech.reloadTree();check(tech.getAllNodes().size==total&&tech.isBlockAllowedForPlayer(player,Blocks.foreshadow),
+            "Reload is idempotent and keeps researched content");
+        Fi dir=config.child("legacy-mixed-migration");dir.mkdirs();
+        config.child("alphystuff/shop.hjson").copyTo(dir.child("shop.hjson"));
+        dir.child("techtree.hjson").writeString("{whitelist:[],root:{id:dagger,type:unit,alwaysUnlocked:true,children:[{id:flare,type:unit,costs:{silicon:42}}]}}");
+        var legacy=new coolplugin.techtree.TechTreeService(dir);legacy.reloadTree();
+        check(legacy.findNode("flare").totalCostAmount(Items.silicon)==42,"Legacy migration retains operator-edited costs rather than replacing them with defaults");
+        legacy.getProgressStore().unlockSingle(player.uuid(),player.name,legacy.findNode("flare"),legacy.getRoot());
+        legacy.getProgressStore().addPaidAmount(player.uuid(),player.name,"nova","silicon",37,legacy.getRoot());
+        legacy.reloadTree();
+        check(legacy.isUnitUnlockedForPlayer(player,UnitTypes.eclipse)&&legacy.getProgressStore().getPaidAmount(player.uuid(),"nova","silicon")==37,
+            "T1 branch unlocks and partial research contributions survive migration/reload without resets");
+        check(legacy.isVisible(player,legacy.findNode("air-factory")),"New parent paths remain visible for grandfathered researched branches");
+        player.remove();
+        System.out.println("MIXED TREE: "+total+" nodes, "+blocks+" buildings, "+catalog.items.size+" equipment items, "+units+" T1 units; "+packet+" bytes expanded.");
     }
 
     private static void verifyTreeLoadouts(CoolPlugin plugin,Player player,Fi config)throws Exception{
@@ -1334,10 +1419,10 @@ public class VerifyColouringGeneration {
         arc.util.Time.delta=180f;for(int i=0;i<3;i++)arc.util.Time.update();
         check(con.sentPackets.count(packet->packet instanceof mindustry.gen.ResearchedCallPacket)==5,"All five unit tiers receive separate spaced content unlock notifications");
         arc.util.Time.delta=delta;arc.util.Time.clear();player.remove();
-        check(tech.isBlockAllowedForPlayer(null,Blocks.graphitePress),"Buildings require no research even for an uninitialized player");
+        check(!tech.isBlockAllowedForPlayer(null,Blocks.graphitePress),"Uninitialized players do not bypass building research");
         var field=coolplugin.techtree.TechTreeService.class.getDeclaredField("mapBannedBlocks");field.setAccessible(true);
         @SuppressWarnings("unchecked") var bans=(arc.struct.ObjectSet<Block>)field.get(tech);bans.add(Blocks.graphitePress);
-        check(!tech.isBlockAllowedForPlayer(null,Blocks.graphitePress),"Unlocking all buildings does not override explicit map bans");bans.remove(Blocks.graphitePress);
+        check(!tech.isBlockAllowedForPlayer(null,Blocks.graphitePress),"Research does not override explicit map bans");bans.remove(Blocks.graphitePress);
     }
 
     private static void verifyUnitSaveMigration(Fi config)throws Exception{

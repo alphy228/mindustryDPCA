@@ -90,12 +90,15 @@ public final class UnitPatchManager {
             // loaded map patches must not overwrite the generated health fallback.
             Fi legacy=patchesDir.child("bSpeedAndICap.hjson");
             if(legacy.exists()){
-                Jval json=Jval.read(legacy.readString());boolean changed=false;
-                for(String name:nativeNonBuilders){
-                    String key="unit."+name+".buildSpeed";Jval value=json.get(key);
-                    if(value!=null&&Math.abs(value.asDouble()-.2d)<.00001d){json.asObject().remove(key);changed=true;}
+                Jval json=Jval.read(legacy.readString()),filtered=Jval.newObject();boolean changed=false;
+                for(var entry:json.asObject()){
+                    String key=entry.key;Jval value=entry.value;
+                    boolean retired=false;
+                    for(String name:nativeNonBuilders)if(key.equals("unit."+name+".buildSpeed")
+                        &&Math.abs(value.asDouble()-.2d)<.00001d){retired=true;break;}
+                    if(retired)changed=true;else filtered.add(key,value);
                 }
-                if(changed)legacy.writeString(json.toString(Jval.Jformat.formatted));
+                if(changed)legacy.writeString(filtered.toString(Jval.Jformat.formatted));
             }
 
             // Pass 2: apply all patches except zz-autogen-buildspeed.hjson (including bSpeedAndICap.hjson)

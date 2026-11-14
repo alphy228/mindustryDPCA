@@ -28,3 +28,5 @@ block.dp-cursed-altar: {
 
 block.launch-pad.localizedName: "Launch pad"
 block.launch-pad.description: "Launches items into orbital storage to use in research, trading or with Landing pads"
+
+block.landing-pad.description: "Accepts item shippings from orbit"

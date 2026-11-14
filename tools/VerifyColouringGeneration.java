@@ -799,6 +799,20 @@ public class VerifyColouringGeneration {
             "Insufficient orbital stock waits for a full batch without consuming anything");
         db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",batch*2);landing.items.add(Items.lead,1);
         check(!landingSystem.requestLanding(landing),"Landing pad waits for conveyor output to empty before another delivery");
+        check(Blocks.landingPad.description.equals("Accepts item shippings from orbit"),"Landing pad description matches the requested wording");
+        var badge=coolplugin.gameplay.LandingPadSystem.ownerDecoration(0f,0f,"[red]Painter[]","ffd37f");
+        check(badge.size==5&&((ShapeMarker)badge.get(0)).sides==4&&((ShapeMarker)badge.get(2)).sides==3
+            &&((ShapeMarker)badge.get(3)).rotation==180f,"Landing badge has a square receiver plate and opposing inward triangles, unlike Launch pad's octagon");
+        var badgeField=coolplugin.gameplay.LandingPadSystem.class.getDeclaredField("decorations");badgeField.setAccessible(true);
+        var badgeMap=(arc.struct.IntMap<arc.struct.IntSeq>)badgeField.get(landingSystem);
+        var badgeIds=new arc.struct.IntSeq();badgeIds.addAll(badgeMap.get(landing.pos()));
+        boolean badgeVisible=badgeIds.size==5;
+        for(int i=0;i<badgeIds.size;i++)badgeVisible&=Vars.state.markers.has(badgeIds.get(i));
+        check(badgeVisible,"Owned Landing pad creates five persistent native world markers");
+        arc.Events.fire(new mindustry.game.EventType.BlockDestroyEvent(landing.tile));
+        boolean badgeRemoved=true;for(int i=0;i<badgeIds.size;i++)badgeRemoved&=!Vars.state.markers.has(badgeIds.get(i));
+        check(badgeRemoved&&badgeMap.isEmpty(),"Destroying a Landing pad removes its entire owner decoration");
+
 
         check(otherFactionsIsolated,"Malis and Neoplasm also retain their own independent research profiles");
         p.team(Team.sharded);Vars.state.rules.researched.remove(mindustry.content.Blocks.graphitePress);

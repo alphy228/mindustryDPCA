@@ -61,7 +61,7 @@ public final class WorldItemLogicManager {
 
     public static final int MARKER_BASE_ID = 10_000;
     public static final int MARKERS_PER_SLOT = 128;
-    public static final int MAX_PROCESSOR_SLOTS = 64;
+    public static final int MAX_PROCESSOR_SLOTS = 64 * 5;
     /** Dedicated non-derelict system team so WorldProcessors have enabled=true & efficiency=1.0 on clients. */
     public static final Team PROCESSOR_TEAM = Team.get(254);
 
@@ -96,6 +96,7 @@ public final class WorldItemLogicManager {
         int syncTickCounter = 0;
         int initialSyncBurstsRemaining = 0;
         final Seq<CompiledVisualEntry> entries = new Seq<>();
+        final Seq<ProcessorSlot> children = new Seq<>();
         String lastMlogCode = "";
 
         ProcessorSlot(int slotIndex) {
@@ -157,7 +158,7 @@ public final class WorldItemLogicManager {
             slot.boundUnitId = -1;
             slot.syncTickCounter = 0;
             slot.initialSyncBurstsRemaining = 0;
-            slot.entries.clear();
+            slot.entries.clear();slot.children.clear();
             slot.lastMlogCode = "";
         }
         if (state != null && state.rules != null) {
@@ -197,24 +198,55 @@ public final class WorldItemLogicManager {
 
         LogicBuild procBuild = ensureProcessorPlaced(slot);
         if (procBuild == null) return;
-
         String signature = buildRigSignature(unit, ownerPlayerName, equippedIds);
         boolean codeChanged = !signature.equals(slot.compiledSignature)
-            || procBuild.code == null
-            || procBuild.code.isEmpty();
-
+            || procBuild.code == null || procBuild.code.isEmpty();
+        for(ProcessorSlot child:slot.children)if(getExistingProcessor(child)==null)codeChanged=true;
         if (codeChanged) {
-            slot.entries.clear();
-            String mlog = compileRigMlog(slot.baseMarkerId, ownerPlayerName, unit, equippedIds, catalog, slot.entries);
-            slot.compiledSignature = signature;
-            slot.lastMlogCode = mlog;
-            slot.boundUnitId = unit.id;
-            slot.syncTickCounter = 0;
-            slot.initialSyncBurstsRemaining = 4;
-            pushCodeAndUnit(procBuild, mlog, unit);
+            Seq<CompiledVisualEntry> probe=new Seq<>();
+            String whole=compileRigShard(slot.baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,probe,-1);
+            Seq<Integer> groups=new Seq<>();
+            if(whole.lines().count()<900)groups.add(-1);
+            else {
+                // Keep ALL followers together: their shared spring/collision state must not split.
+                for(int group=0;group<5;group++){
+                    final int g=group;
+                    if(probe.contains(e->g==4?e.kind==RenderedKind.TAIL_FOLLOW:e.kind!=RenderedKind.TAIL_FOLLOW&&e.inventorySlot==g))groups.add(group);
+                }
+            }
+            int required=Math.max(1,groups.size);
+            while(slot.children.size<required-1){
+                ProcessorSlot free=null;
+                for(ProcessorSlot candidate:allSlots)if(candidate.ownerKey==null){free=candidate;break;}
+                if(free==null){Log.warn("[CoolPlugin] Not enough WorldProcessors for item rig @",ownerKey);return;}
+                free.ownerKey=ownerKey;slot.children.add(free);
+            }
+            Seq<ProcessorSlot> parts=new Seq<>();parts.add(slot);parts.addAll(slot.children);
+            // Allocate/compile before replacing any live code. Never publish a truncated program.
+            Seq<String> programs=new Seq<>();Seq<Seq<CompiledVisualEntry>> entries=new Seq<>();
+            for(int i=0;i<required;i++){
+                ProcessorSlot part=parts.get(i);if(ensureProcessorPlaced(part)==null)return;
+                Seq<CompiledVisualEntry> partEntries=new Seq<>();
+                String code=compileRigShard(part.baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,partEntries,groups.isEmpty()?-1:groups.get(i));
+                if(code.lines().count()>=1000){Log.err("[CoolPlugin] Item rig shard exceeds parser budget: @",code.lines().count());return;}
+                programs.add(code);entries.add(partEntries);
+            }
+            while(slot.children.size>required-1)clearSlot(slot.children.pop());
+            for(int i=0;i<required;i++){
+                ProcessorSlot part=parts.get(i);part.entries.clear();part.entries.addAll(entries.get(i));
+                part.lastMlogCode=programs.get(i);part.boundUnitId=unit.id;
+                part.syncTickCounter=0;part.initialSyncBurstsRemaining=4;
+                pushCodeAndUnit(getExistingProcessor(part),part.lastMlogCode,unit);
+            }
+            slot.compiledSignature=signature;
             return;
         }
+        syncBinding(slot,unit);
+        for(ProcessorSlot child:slot.children)syncBinding(child,unit);
+    }
 
+    private void syncBinding(ProcessorSlot slot,Unit unit){
+        LogicBuild procBuild=getExistingProcessor(slot);if(procBuild==null)return;
         bindHostUnitOnServer(procBuild, unit);
         if (slot.boundUnitId != unit.id) {
             slot.boundUnitId = unit.id;
@@ -242,6 +274,12 @@ public final class WorldItemLogicManager {
         ProcessorSlot slot = slotsByOwner.remove(ownerKey);
         if (slot == null) return;
 
+        for(ProcessorSlot child:slot.children)clearSlot(child);
+        slot.children.clear();
+        clearSlot(slot);
+    }
+
+    private void clearSlot(ProcessorSlot slot){
         LogicBuild procBuild = getExistingProcessor(slot);
         String clearMlog = compileClearMlog(slot.baseMarkerId);
         slot.ownerKey = null;
@@ -276,6 +314,7 @@ public final class WorldItemLogicManager {
         ProcessorSlot slot = slotsByOwner.get(ownerKey);
         if (slot != null) {
             copy.addAll(slot.entries);
+            for(ProcessorSlot child:slot.children)copy.addAll(child.entries);
         }
         return copy;
     }
@@ -283,6 +322,10 @@ public final class WorldItemLogicManager {
     /** Native logic-variable sync drives recoil from real server shots, including auto-fire. */
     public void kickSubweapon(String ownerKey,ShopItemDef def,float forward,float side){
         ProcessorSlot slot=slotsByOwner.get(ownerKey);if(slot==null)return;
+        kickSlot(slot,def,forward,side);
+        for(ProcessorSlot child:slot.children)kickSlot(child,def,forward,side);
+    }
+    private void kickSlot(ProcessorSlot slot,ShopItemDef def,float forward,float side){
         LogicBuild processor=getExistingProcessor(slot);if(processor==null||processor.executor==null)return;
         for(CompiledVisualEntry entry:slot.entries){
             if(entry.kind!=RenderedKind.SUBWEAPON||entry.def!=def||Math.abs(entry.localForwardWorld-forward)>0.01f||Math.abs(entry.localSideWorld-side)>0.01f)continue;
@@ -299,6 +342,13 @@ public final class WorldItemLogicManager {
     public @Nullable LogicBuild getProcessorForOwner(String ownerKey) {
         ProcessorSlot slot = slotsByOwner.get(ownerKey);
         return slot == null ? null : getExistingProcessor(slot);
+    }
+
+    public Seq<LogicBuild> getProcessorsForOwner(String ownerKey){
+        Seq<LogicBuild> result=new Seq<>();ProcessorSlot slot=slotsByOwner.get(ownerKey);if(slot==null)return result;
+        LogicBuild root=getExistingProcessor(slot);if(root!=null)result.add(root);
+        for(ProcessorSlot child:slot.children){LogicBuild build=getExistingProcessor(child);if(build!=null)result.add(build);}
+        return result;
     }
 
     public @Nullable String getLastMlogForOwner(String ownerKey) {
@@ -547,6 +597,27 @@ public final class WorldItemLogicManager {
         Catalog catalog,
         Seq<CompiledVisualEntry> outEntries
     ) {
+        String code=compileRigShard(baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,outEntries,-1);
+        if(code.lines().count()>=1000)throw new IllegalStateException("Rig needs multiple processors; use syncRig/compileRigPrograms");
+        return code;
+    }
+
+    /** Inspect all native-sized programs without placing blocks (also used by validation tools). */
+    public static Seq<String> compileRigPrograms(int baseMarkerId,String ownerName,Unit unit,Seq<String> ids,Catalog catalog){
+        Seq<CompiledVisualEntry> entries=new Seq<>();
+        String full=compileRigShard(baseMarkerId,ownerName,unit,ids,catalog,entries,-1);
+        Seq<String> result=new Seq<>();
+        if(full.lines().count()<900){result.add(full);return result;}
+        for(int group=0;group<5;group++){
+            Seq<CompiledVisualEntry> part=new Seq<>();
+            String code=compileRigShard(baseMarkerId+group*MARKERS_PER_SLOT,ownerName,unit,ids,catalog,part,group);
+            if(!part.isEmpty())result.add(code);
+        }
+        return result;
+    }
+
+    private static String compileRigShard(int baseMarkerId,String ownerPlayerName,Unit unit,Seq<String> equippedIds,
+        Catalog catalog,Seq<CompiledVisualEntry> outEntries,int group){
         outEntries.clear();
         int n = Math.min(PlayerItemSystem.MAX_EQUIPPED_SLOTS, equippedIds.size);
         float hullRadius = Math.max(4f, unit.hitSize * 0.5f);
@@ -632,6 +703,15 @@ public final class WorldItemLogicManager {
             }
         }
 
+        if(group>=0){
+            for(int i=outEntries.size-1;i>=0;i--){
+                CompiledVisualEntry e=outEntries.get(i);
+                if(group==4?e.kind!=RenderedKind.TAIL_FOLLOW:e.kind==RenderedKind.TAIL_FOLLOW||e.inventorySlot!=group)outEntries.remove(i);
+            }
+            tailEntryIndices.clear();
+            for(int i=0;i<outEntries.size;i++)if(outEntries.get(i).kind==RenderedKind.TAIL_FOLLOW)tailEntryIndices.add(i);
+            if(group!=4){tailTotal=0;tailRopeLengthsTiles.clear();}
+        }
         if (outEntries.isEmpty()) {
             return compileClearMlog(baseMarkerId);
         }
@@ -1102,6 +1182,7 @@ public final class WorldItemLogicManager {
         code=shareBlocks(code,"(?m)^subBegin\\d+:\n[\\s\\S]*?^subEnd\\d+:\n","subweapon");
         code=shareBlocks(code,"(?m)^op sub rx anchorX tx\\d+\n[\\s\\S]*?^tForceDone\\d+:\n","towForce");
         code=shareBlocks(code,"(?m)^op mul vx\\d+ vx\\d+ drag\n[\\s\\S]*?^setmarker drawLayer \\d+ baseLayer 0 0\n","towStep");
+        code=compactPairs(code);
         code=shareBlocks(code,"(?m)^op sub pdx tx\\d+ tx\\d+\n[\\s\\S]*?^pSkip_\\d+_\\d+:\n","towPair");
         code=code.replaceAll("(?m)^(?:subBegin\\d+|subEnd\\d+|subweaponsubBegin|subweaponsubEnd):\n", "");
         var visibility=java.util.regex.Pattern.compile("(?m)(?:^setmarker world [0-9]+ [01] 0 0\\n){5,}").matcher(code);
@@ -1114,10 +1195,40 @@ public final class WorldItemLogicManager {
             visibility.appendReplacement(compact,java.util.regex.Matcher.quoteReplacement("set visibilityId "+lo+"\n"+label+":\nsetmarker world visibilityId "+flag+" 0 0\nop add visibilityId visibilityId 1\njump "+label+" lessThanEq visibilityId "+hi+"\n"));
         }
         visibility.appendTail(compact);code=compact.toString();
-        long lines=code.lines().count();
-        if(lines>=1000){ throw new IllegalStateException("Item rig exceeds native parser limit: "+lines); }
         return code;
     }
+    /** Shared collision impulse calculation, with positions/velocities kept in the caller. */
+    private static String compactPairs(String code){
+        var pattern=java.util.regex.Pattern.compile("(?m)^op sub pdx tx(\\d+) tx(\\d+)\n[\\s\\S]*?^pSkip_\\d+_\\d+:\n");
+        var matcher=pattern.matcher(code);StringBuffer result=new StringBuffer();String separation=null;
+        while(matcher.find()){
+            String a=matcher.group(1),b=matcher.group(2);
+            var sep=java.util.regex.Pattern.compile("greaterThanEq adx ([0-9.]+)").matcher(matcher.group());
+            if(!sep.find())return code;separation=sep.group(1);
+            StringBuilder call=new StringBuilder();
+            call.append("op sub pdx tx").append(a).append(" tx").append(b).append("\n");
+            call.append("op sub pdy ty").append(a).append(" ty").append(b).append("\n");
+            call.append("op add pairReturn @counter 1\njump pairImpulse always 0 0\n");
+            for(String axis:new String[]{"x","y"}){
+                call.append("op add v").append(axis).append(a).append(" v").append(axis).append(a).append(" pv").append(axis).append("\n");
+                call.append("op sub v").append(axis).append(b).append(" v").append(axis).append(b).append(" pv").append(axis).append("\n");
+                call.append("op add t").append(axis).append(a).append(" t").append(axis).append(a).append(" ps").append(axis).append("\n");
+                call.append("op sub t").append(axis).append(b).append(" t").append(axis).append(b).append(" ps").append(axis).append("\n");
+            }
+            matcher.appendReplacement(result,java.util.regex.Matcher.quoteReplacement(call.toString()));
+        }
+        if(separation==null)return code;
+        matcher.appendTail(result);
+        result.append("pairImpulse:\nset pvx 0\nset pvy 0\nset psx 0\nset psy 0\nop len pd pdx pdy\n")
+            .append("jump pairDone greaterThanEq pd ").append(separation).append("\n")
+            .append("jump pairNudge lessThan pd 0.02\nop sub pov ").append(separation).append(" pd\n")
+            .append("op div pinv pov pd\nop mul pimp pinv 0.065\nop mul pimp pimp dt\n")
+            .append("op mul pvx pdx pimp\nop mul pvy pdy pimp\nop mul psep pinv 0.16\n")
+            .append("op mul psx pdx psep\nop mul psy pdy psep\njump pairDone always 0 0\n")
+            .append("pairNudge:\nset pvx 0.02\npairDone:\nset @counter pairReturn\n");
+        return result.toString();
+    }
+
     private static String shareBlocks(String code,String pattern,String routine){
         var matcher=java.util.regex.Pattern.compile(pattern).matcher(code);
         java.util.List<String> originals=new java.util.ArrayList<>();

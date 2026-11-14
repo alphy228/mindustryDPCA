@@ -634,6 +634,45 @@ public class VerifyColouringGeneration {
         }
         check(correctMountLayers,"Ground, low and high altitude mounts are ordered below native bullets while preserving mount depth");
         check(gunCodeLines<1000,"Four dual-shooting mounts plus all six carry items fit the native parser including local muzzle flashes");
+        boolean multiBudget=true;int maxShardLines=0,maxPrograms=0;
+        Seq<String> allFollowers=new Seq<>();for(int i=0;i<10;i++)allFollowers.add(cannon.id);
+        var followItem=catalog.items.find(item->item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.FOLLOW);
+        if(followItem!=null)for(int i=0;i<4;i++)allFollowers.set(i,followItem.id);
+        for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
+            for(var loadout:Seq.with(allGuns,allFollowers)){
+                var programs=coolplugin.gameplay.WorldItemLogicManager.compileRigPrograms(300000,null,type.create(Team.sharded),loadout,catalog);
+                maxPrograms=Math.max(maxPrograms,programs.size);
+                for(String code:programs){int lines=(int)code.lines().count();maxShardLines=Math.max(maxShardLines,lines);multiBudget&=lines<1000;}
+            }
+        }
+        check(multiBudget&&maxPrograms>1,"Automatic multi-processor plans stay below parser limit across every playable unit with guns or full followers");
+        System.out.println("MULTI PROCESSORS maxParts="+maxPrograms+" maxLines="+maxShardLines);
+        var manager=itemSystem.getWorldLogicManager();
+        manager.syncRig("multi-check",wearer,allGuns,catalog);
+        var parts=manager.getProcessorsForOwner("multi-check");
+        var multiEntries=manager.getCompiledEntries("multi-check");
+        boolean distinctMarkers=true,allBound=true;var markerIds=new arc.struct.IntSet();
+        for(var part:parts){
+            allBound&=part.executor.optionalVar("hostUnit").obj()==wearer;
+            for(int step=0;step<4000;step++)part.executor.runOnce();
+        }
+        for(var entry:multiEntries){distinctMarkers&=markerIds.add(entry.primaryMarkerId());if(entry.connectionLineMarkerId()>=0)distinctMarkers&=markerIds.add(entry.connectionLineMarkerId());}
+        check(parts.size>1&&distinctMarkers&&allBound,"Live rig allocates distinct processors and marker IDs, all bound to same host");
+        boolean childShots=true;
+        for(var entry:multiEntries)if(entry.kind()==coolplugin.gameplay.WorldItemLogicManager.RenderedKind.SUBWEAPON){
+            manager.kickSubweapon("multi-check",entry.def(),entry.localForwardWorld(),entry.localSideWorld());
+            boolean foundShot=false;
+            for(var part:parts){var shot=part.executor.optionalVar("shot"+entry.primaryMarkerId());if(shot!=null)foundShot|=shot.num()>0;}
+            childShots&=foundShot;
+        }
+        check(childShots,"Authoritative shoot tokens route to the owning processor including child processors");
+        boolean allVisible=true;for(var entry:multiEntries)allVisible&=Vars.state.markers.get(entry.primaryMarkerId())!=null;
+        check(allVisible,"Native executors create every visual across all processor shards");
+        manager.syncRig("multi-check",wearer,Seq.with(cannon.id),catalog);
+        check(manager.getProcessorsForOwner("multi-check").size==1,"Shrinking equipment frees surplus child processors");
+        manager.clearRig("multi-check");boolean cleaned=true;
+        for(var entry:multiEntries){cleaned&=Vars.state.markers.get(entry.primaryMarkerId())==null;if(entry.connectionLineMarkerId()>=0)cleaned&=Vars.state.markers.get(entry.connectionLineMarkerId())==null;}
+        check(cleaned&&manager.getProcessorsForOwner("multi-check").isEmpty(),"Clearing a rig removes every shard and all old markers");
         var octScheme=coolplugin.gameplay.ColouringAssets.palette("unit-oct");
         var octDagger=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant("dagger",octScheme));
         check(octDagger!=null&&octDagger.weapons.size==UnitTypes.dagger.weapons.size

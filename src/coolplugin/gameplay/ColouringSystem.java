@@ -224,7 +224,7 @@ public final class ColouringSystem {
         var eq=items.getEquipment(p);
         if(items.countOwnedTotal(eq,palette.canId())<1)return false;
         int slot=eq.equipped.indexOf(palette.canId());if(slot<0)return false;
-        eq.equipped.remove(slot);items.saveEquipment(p,eq);
+        eq.equipped.set(slot,"");items.saveEquipment(p,eq);
         var oldMounts=unit.mounts();
         float health=unit.health,shield=unit.shield;
         unit.setType(type);unit.setupWeapons(type);

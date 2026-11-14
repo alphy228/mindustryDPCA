@@ -33,7 +33,6 @@ import coolplugin.gameplay.ShopItemDef.StationTier;
 public final class ShopConfigIO {
 
     public static final class Catalog {
-        public float weightScale=1f, minimumWeightSpeedFactor=0.20f;
         public final Seq<ShopItemDef> items = new Seq<>();
         public final ObjectMap<String, ShopItemDef> itemsById = new ObjectMap<>();
         public final Seq<OrbitalTradeDef> trades = new Seq<>();
@@ -67,6 +66,16 @@ public final class ShopConfigIO {
         }
     }
 
+    public static int defaultSize(String id){
+        return switch(id){
+            case "wb-01","wb-02","wb-03","wb-05","wb-07","wb-11","wb-14","wb-15","temp-ember-vfx","temp-overclock"->1;
+            case "wb-04","wb-06","wb-08","wb-09","wb-10","wb-13","bz-02","bz-03","bz-06","bz-11","bz-12","bz-15"->2;
+            case "wb-12","bz-01","bz-04","bz-05","bz-07","bz-09","bz-13","bz-14","ca-03","ca-07","ca-09","ca-12","ca-14","bz-test-spiroct","bz-test-quasar","bz-test-locus"->3;
+            case "bz-08","bz-10","ca-01","ca-02","ca-04","ca-06","ca-11","ca-13","ca-15","bz-test-precept","bz-test-anthicus"->4;
+            case "ca-05","ca-08","ca-10","bz-test-reign","bz-test-scepter","bz-test-vanquish"->6;
+            default->1;
+        };
+    }
     private ShopConfigIO() {}
 
     public static Catalog loadOrCreate(Fi file) {
@@ -80,6 +89,7 @@ public final class ShopConfigIO {
         try {
             Catalog catalog=load(file);
             boolean changed=addWeaponTests(catalog);
+            if(Jval.read(file.readString()).getInt("inventorySizeVersion",0)<1)changed=true;
             if(arc.util.serialization.Jval.read(file.readString()).getInt("weaponVisualVersion",0)<1){
                 for(var item:catalog.items)if(item.attachMode==AttachMode.SUBWEAPON&&item.subweaponRecoilTime==12f)item.subweaponRecoilTime=Math.max(1f,item.subweaponReload*.65f);
                 changed=true;
@@ -98,8 +108,6 @@ public final class ShopConfigIO {
         JsonValue root = new JsonReader().parse(jsonText);
 
         Catalog cat = new Catalog();
-        cat.weightScale=Math.max(0f,root.getFloat("weightScale",1f));
-        cat.minimumWeightSpeedFactor=Math.max(0.01f,Math.min(1f,root.getFloat("minimumWeightSpeedFactor",0.20f)));
         JsonValue itemsArr = root.get("items");
         if (itemsArr != null) {
             for (JsonValue v = itemsArr.child; v != null; v = v.next) {
@@ -113,7 +121,7 @@ public final class ShopConfigIO {
                 item.category = ShopCategory.parse(v.getString("category", inferCategory(item).id));
                 item.sprite = v.getString("sprite", "shop-" + item.id);
                 item.iconSprite=v.getString("iconSprite","");item.worldSprite=v.getString("worldSprite","");
-                item.weight=Math.max(0f,v.getFloat("weight",item.tier==StationTier.CURSED_ALTAR?50f:item.tier==StationTier.BAZAAR?25f:10f));
+                item.size=Math.max(1,v.getInt("size",defaultSize(item.id)));
                 item.iconItem = v.getString("iconItem", "copper");
                 item.colorHex = v.getString("colorHex", item.tier.accentHex);
                 item.attachMode = AttachMode.parse(v.getString("attachMode", "FOLLOW"));
@@ -226,8 +234,7 @@ public final class ShopConfigIO {
         sb.append("# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.\n\n");
 
         sb.append("weaponVisualVersion: 1\n");
-        sb.append("weightScale: ").append(fmt(cat.weightScale)).append("\n");
-        sb.append("minimumWeightSpeedFactor: ").append(fmt(cat.minimumWeightSpeedFactor)).append("\n\n");
+        sb.append("inventorySizeVersion: 1\n\n");
         sb.append("items: [\n");
         for (ShopItemDef it : cat.items) {
             sb.append("  {\n");
@@ -239,7 +246,7 @@ public final class ShopConfigIO {
             sb.append("    sprite: ").append(quote(it.effectiveSprite())).append("\n");
             sb.append("    iconSprite: ").append(quote(it.iconSprite)).append("\n");
             sb.append("    worldSprite: ").append(quote(it.worldSprite)).append("\n");
-            sb.append("    weight: ").append(fmt(it.weight)).append("\n");
+            sb.append("    size: ").append(it.size).append("\n");
             sb.append("    iconItem: ").append(it.iconItem).append("\n");
             sb.append("    colorHex: ").append(quote(it.colorHex)).append("\n");
             sb.append("    attachMode: ").append(it.attachMode.name()).append("\n");
@@ -606,7 +613,7 @@ public final class ShopConfigIO {
             ShopItemDef d=new ShopItemDef();
             d.id=new String[]{"temp-ember-vfx","temp-overclock","temp-mending-vfx"}[i];
             d.name=new String[]{"Ember Projector","Overclock Injector","Mending Spark"}[i];
-            d.description=new String[]{"Temporary cosmetic burning particles; does not burn the wearer.","Temporary overclock status while equipped in active slots 1-4.","Temporary cosmetic healing particles; does not heal the wearer."}[i];
+            d.description=new String[]{"Temporary cosmetic burning particles; does not burn the wearer.","Temporary overclock status while equipped.","Temporary cosmetic healing particles; does not heal the wearer."}[i];
             d.attachMode=AttachMode.VFX;d.iconItem=new String[]{"pyratite","silicon","phase-fabric"}[i];
             d.vfxStatus=i==0?"burning":i==1?"overclock":"none";
             d.haloEffect=i==2?"heal":"none";d.haloInterval=18f;d.haloRadius=0f;
@@ -641,7 +648,7 @@ public final class ShopConfigIO {
                 continue;
             }
             ShopItemDef d=subweapon(item(id,"Test: "+(unit.equals("reign")?"Dual Reign":TechNames(unit))+" weapon",
-                "Researchable test mount using the native "+unit+" weapon. Sizes stay native; weight follows sprite area.",
+                "Researchable test mount using the native "+unit+" weapon. Native-sized weapon with an explicit inventory size.",
                 StationTier.BAZAAR,ShopCategory.ATTACK,"silicon","ffd37f",AttachMode.SUBWEAPON,true,true,
                 0f,0f,0f,0f,0f,0f,0f,res("copper",25,"silicon",10),items()),
                 unit.equals("reign")?MountSubtype.SIDE_POD:MountSubtype.DORSAL_TURRET,
@@ -711,7 +718,7 @@ public final class ShopConfigIO {
         d.name = name;
         d.description = desc;
         d.tier = tier;
-        d.weight=tier==StationTier.CURSED_ALTAR?50f:tier==StationTier.BAZAAR?25f:10f;
+        d.size=defaultSize(id);
         d.category = category;
         d.sprite = "shop-" + id;
         d.iconItem = iconItem;

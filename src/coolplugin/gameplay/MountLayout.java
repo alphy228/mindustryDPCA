@@ -13,7 +13,7 @@ public final class MountLayout {
         // Centres stay on the hull. On very small units, several full-size weapons
         // physically cannot be disjoint; minimize overlap instead of moving them off-body.
         float extent=Math.max(1.5f,radius*.70f);
-        for(int i=0;i<Math.min(4,ids.size);i++){
+        for(int i=0;i<Math.min(PlayerItemSystem.ACTIVE_PASSIVE_SLOTS,ids.size);i++){
             ShopItemDef item=catalog.findItem(ids.get(i));
             if(item==null||(item.attachMode!=ShopItemDef.AttachMode.MOUNT&&item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON))continue;
             var size=ColouringAssets.mountSizes.get(item.id);

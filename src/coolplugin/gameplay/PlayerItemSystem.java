@@ -51,14 +51,14 @@ import java.util.Locale;
 import static mindustry.Vars.*;
 
 /**
- * Manages player equipable items (up to 10 inventory slots), crafting, decrafting,
- * Bazaar orbital ship trades, passive stat bonuses (positions 1–4), overburden speed penalty
- * ({@code -10%} movement speed per item after the 4th, with no passive buffs), and hybrid
+ * Manages player equipable items (unit-dependent equip/carry size budgets), crafting, decrafting,
+ * Bazaar orbital ship trades, equipped-only passive bonuses, linear carry-fullness slowdown
+ * (up to 75%, independent of equipped gear), and hybrid
  * WorldProcessor + server plugin item mechanics:
  * <ul>
  *   <li>Items are never spawned as {@link Unit} entities (not hoverable, zero Top-button duplication).</li>
  *   <li>Client-local 60-FPS visuals ({@code MOUNT}, {@code HALO}, {@code SUBWEAPON}, {@code FOLLOW},
- *       plus forced tail-following + {@code LineMarker} connection lines for all items outside the first four)
+ *       plus forced tail-following + {@code LineMarker} connection lines for up to six carried items)
  *       are driven by server-placed {@link Blocks#worldProcessor} blocks via {@link WorldItemLogicManager}.</li>
  *   <li>Authoritative unit stat multipliers ({@link StatusEffects#dynamic}) and active {@code SUBWEAPON}
  *       projectile firing ({@link Call#createBullet}) run on the server plugin.</li>
@@ -66,14 +66,14 @@ import static mindustry.Vars.*;
  */
 public class PlayerItemSystem {
 
-    public static final int MAX_EQUIPPED_SLOTS = 10;
-    public static final int ACTIVE_PASSIVE_SLOTS = 4;
-    public static final float OVERLOAD_SPEED_PENALTY_PER_ITEM = 0.10f;
+    public static final int MAX_EQUIPPED_SLOTS = InventoryRules.TOTAL_END;
+    public static final int ACTIVE_PASSIVE_SLOTS = InventoryRules.EQUIP_END;
 
     public record ActionOutcome(boolean success, String message) {}
 
     public static final class ComputedStats {
-        public float totalWeight=0f, weightSpeedFactor=1f, weightReferenceHealth=0f;
+        public int equipUsed,carryUsed,equipCapacity,carryCapacity;
+        public float carrySpeedFactor=1f;
         public int totalEquipped;
         public int activeSlotsUsed;
         public int overloadCount;
@@ -98,7 +98,7 @@ public class PlayerItemSystem {
         }
     }
 
-    /** Server-side firing state for one active SUBWEAPON barrel (only for slots 0..3). */
+    /** Server-side firing state for one active SUBWEAPON barrel (equipped items only). */
     private static final class ServerSubweaponBarrel {
         final ShopItemDef def;
         final float localForward;
@@ -221,6 +221,7 @@ public class PlayerItemSystem {
                 if(scheme!=null&&!id.equals("paint-"+scheme)){data.equipped.set(i,"paint-"+scheme);dirty=true;}
             }
         }
+        configureInventory(data,player);
         dirty |= normalizeEquipment(data);
         if(!data.stash.isEmpty())for(String id:data.stash.keys().toSeq()){
             int count=data.stash.get(id,0);ShopItemDef item=getCatalog().findItem(id);
@@ -246,7 +247,7 @@ public class PlayerItemSystem {
     public void saveEquipment(Player player, EquipmentData data) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
-        normalizeEquipment(data);
+        configureInventory(data,player);normalizeEquipment(data);
         database.saveEquipmentData(acc.id, factionId, data);
     }
 
@@ -273,16 +274,18 @@ public class PlayerItemSystem {
     /** Base type health only: injuries and temporary HP bonuses never alter carrying capacity. */
     public ComputedStats computeStats(Seq<String> equippedIds,@Nullable Unit unit) {
         ComputedStats st = new ComputedStats();
+        var capacity=InventoryRules.capacity(unit==null?null:unit.type);
+        st.equipCapacity=capacity.equip();st.carryCapacity=capacity.carry();
         if (equippedIds == null || equippedIds.isEmpty()) return st;
-
         Catalog cat = getCatalog();
-        int n = Math.min(MAX_EQUIPPED_SLOTS, equippedIds.size);
-        for(int i=0;i<n;i++)if(cat.findItem(equippedIds.get(i))!=null){
-            st.totalEquipped++;if(i<ACTIVE_PASSIVE_SLOTS)st.activeSlotsUsed++;else st.overloadCount++;
+        int n=Math.min(MAX_EQUIPPED_SLOTS,equippedIds.size);
+        for(int i=0;i<n;i++){
+            var def=cat.findItem(equippedIds.get(i));if(def==null)continue;
+            st.totalEquipped++;
+            if(i<ACTIVE_PASSIVE_SLOTS){st.activeSlotsUsed++;st.equipUsed+=Math.max(capacity.minimumEquipSize(),def.size);}
+            else {st.overloadCount++;st.carryUsed+=def.size;}
         }
-
-        for(int i=0;i<n;i++){ShopItemDef def=cat.findItem(equippedIds.get(i));if(def!=null)st.totalWeight+=def.carryingWeight();}
-        if(unit!=null&&unit.type!=null){st.weightReferenceHealth=Math.max(1f,unit.type.health);st.weightSpeedFactor=weightFactor(st.totalWeight,st.weightReferenceHealth);}
+        st.carrySpeedFactor=1f-.75f*Math.min(1f,st.carryUsed/(float)Math.max(1,st.carryCapacity));
         float hpBonus = 0f;
         float dmgBonus = 0f;
         float spdBonus = 0f;
@@ -301,19 +304,14 @@ public class PlayerItemSystem {
             st.regenPerSec += def.regenPerSec;
         }
 
-        float overloadSpeedFactor = Math.max(0.10f, 1f - OVERLOAD_SPEED_PENALTY_PER_ITEM * st.overloadCount);
+
 
         st.healthMult = Math.max(0.25f, 1f + hpBonus);
         st.damageMult = Math.max(0.10f, 1f + dmgBonus);
-        st.speedMult = Math.max(0.10f, (1f + spdBonus) * overloadSpeedFactor * st.weightSpeedFactor);
+        st.speedMult = Math.max(0.10f, (1f + spdBonus) * st.carrySpeedFactor);
         st.reloadMult = Math.max(0.10f, 1f + rldBonus);
         st.buildSpeedMult = Math.max(0.10f, 1f + bldBonus);
         return st;
-    }
-
-    public float weightFactor(float weight,float baseHealth){
-        Catalog cat=getCatalog();
-        return Math.max(cat.minimumWeightSpeedFactor,1f/(1f+cat.weightScale*Math.max(0f,weight)/Math.max(1f,baseHealth)));
     }
 
     public ActionOutcome promoteSlotToActive(Player player, int slotIndex) {
@@ -323,16 +321,17 @@ public class PlayerItemSystem {
         }
         String requested=data.equipped.get(slotIndex);
         if(requested.isBlank())return new ActionOutcome(false,"[scarlet]Empty inventory slot.[]");
-        if(slotIndex>=ACTIVE_PASSIVE_SLOTS)for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++)
-            if(requested.equals(data.equipped.get(i)))return new ActionOutcome(true,"[stat]One copy is already active; this copy stays in carry.[]");
-        if (slotIndex == 0) {
-            return new ActionOutcome(true, "");
+        if(slotIndex<ACTIVE_PASSIVE_SLOTS){
+            if(usedCapacity(data,false)+itemSize(data,requested)>data.carryCapacity)return new ActionOutcome(false,"[scarlet]Not enough carry capacity.[]");
+            data.equipped.set(slotIndex,"");putInRange(data,requested,ACTIVE_PASSIVE_SLOTS,MAX_EQUIPPED_SLOTS);
+            saveEquipment(player,data);return new ActionOutcome(true,"");
         }
-        String moved = data.equipped.remove(slotIndex);
-        data.equipped.insert(0, moved);
-        saveEquipment(player, data);
-        ShopItemDef def = getCatalog().findItem(moved);
-        return new ActionOutcome(true, "[stat]Moved " + (def != null ? def.name : moved) + " to top of inventory.[]");
+        for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++)if(requested.equals(data.equipped.get(i)))
+            return new ActionOutcome(false,"[stat]One copy is already equipped.[]");
+        int cost=Math.max(data.minimumEquipSize,itemSize(data,requested));
+        if(usedCapacity(data,true)+cost>data.equipCapacity)return new ActionOutcome(false,"[scarlet]Not enough equip capacity.[]");
+        data.equipped.set(slotIndex,"");putInRange(data,requested,0,ACTIVE_PASSIVE_SLOTS);
+        saveEquipment(player,data);return new ActionOutcome(true,"");
     }
 
     public ActionOutcome discardAtSlot(Player player, int slotIndex) {
@@ -340,7 +339,7 @@ public class PlayerItemSystem {
         if (slotIndex < 0 || slotIndex >= data.equipped.size) {
             return new ActionOutcome(false, "[scarlet]Empty inventory slot.[]");
         }
-        String removed = data.equipped.remove(slotIndex);
+        String removed = data.equipped.get(slotIndex);data.equipped.set(slotIndex,"");
         saveEquipment(player, data);
         ShopItemDef def = getCatalog().findItem(removed);
         return new ActionOutcome(true, "[lightgray]Discarded " + (def != null ? def.name : removed) + ".[]");
@@ -374,7 +373,7 @@ public class PlayerItemSystem {
                 return false;
             }
         }
-        EquipmentData trial=new EquipmentData();trial.equipped.addAll(data.equipped);
+        EquipmentData trial=copyInventory(data);
         for(ItemIngredient ingredient:item.itemCosts)consumeOwnedItem(trial,ingredient.shopItemId(),ingredient.amount());
         normalizeEquipment(trial);return grantCraftedOrTradedItem(trial,item);
     }
@@ -395,7 +394,7 @@ public class PlayerItemSystem {
             return new ActionOutcome(false, "[scarlet]Missing resources/ingredients, or no free inventory/carry slot.[]");
         }
 
-        EquipmentData trial=new EquipmentData();trial.equipped.addAll(data.equipped);
+        EquipmentData trial=copyInventory(data);
         for(ItemIngredient ingredient:item.itemCosts)consumeOwnedItem(trial,ingredient.shopItemId(),ingredient.amount());
         normalizeEquipment(trial);
         if(!grantCraftedOrTradedItem(trial,item))return new ActionOutcome(false,"[scarlet]No free carry/inventory slot. No resources consumed.[]");
@@ -415,7 +414,8 @@ public class PlayerItemSystem {
         boolean stored = grantCraftedOrTradedItem(data, item);
         saveEquipment(player, data);
         if (!stored) {
-            return new ActionOutcome(true, "[scarlet]Inventory full (10/10) - crafted " + item.name + " vanished![]");
+            data.stash.increment(item.id,0,1);saveEquipment(player,data);
+            return new ActionOutcome(true, "[scarlet]Inventory changed; crafted " + item.name + " preserved in overflow.[]");
         }
         return new ActionOutcome(true, "[stat]Crafted [white]" + item.name + "[stat].[]");
     }
@@ -435,7 +435,7 @@ public class PlayerItemSystem {
             return new ActionOutcome(false, "[scarlet]" + item.name + " cannot be decrafted.[]");
         }
 
-        data.equipped.remove(slotIndex);
+        data.equipped.set(slotIndex,"");
         return finishDecraft(player, data, item);
     }
 
@@ -505,7 +505,7 @@ public class PlayerItemSystem {
 
         if(trade.rewardShopItemId!=null){
             var reward=getCatalog().findItem(trade.rewardShopItemId);
-            EquipmentData trial=new EquipmentData();trial.equipped.addAll(getEquipment(player).equipped);
+            EquipmentData trial=copyInventory(getEquipment(player));
             if(reward!=null&&!grantCraftedOrTradedItem(trial,reward))return new ActionOutcome(false,"[scarlet]No free carry/inventory slot. No resources consumed.[]");
         }
         AccountRecord acc = sessionManager.getOrInitSession(player);
@@ -524,7 +524,8 @@ public class PlayerItemSystem {
                 if (stored) {
                     outcomeMsg.append("received [white]").append(rewardItem.name).append("[]");
                 } else {
-                    outcomeMsg.append("[scarlet]inventory full - ").append(rewardItem.name).append(" vanished![]");
+                    data.stash.increment(rewardItem.id,0,1);saveEquipment(player,data);
+                    outcomeMsg.append("[stat]").append(rewardItem.name).append(" preserved in overflow.[]");
                 }
             }
         }
@@ -547,40 +548,67 @@ public class PlayerItemSystem {
         return new ActionOutcome(true, outcomeMsg.toString());
     }
 
-    public static boolean grantCraftedOrTradedItem(EquipmentData data, ShopItemDef item) {
-        boolean active=false;
-        for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++)if(item.id.equals(data.equipped.get(i)))active=true;
-        int start=active?ACTIVE_PASSIVE_SLOTS:0;
-        for(int i=start;i<MAX_EQUIPPED_SLOTS;i++)if(i>=data.equipped.size||data.equipped.get(i).isBlank()){
-            while(data.equipped.size<=i)data.equipped.add("");
-            data.equipped.set(i,item.id);return true;
-        }
-        return false;
+    public void configureInventory(EquipmentData data,Player player){
+        Unit unit=PlayerUnitSystem.ownedUnit(player);if(unit==null)unit=player.unit();
+        var cap=InventoryRules.capacity(unit==null?null:unit.type);
+        data.equipCapacity=cap.equip();data.carryCapacity=cap.carry();data.minimumEquipSize=cap.minimumEquipSize();
+        data.sizes.clear();for(var item:getCatalog().items)data.sizes.put(item.id,Math.max(1,item.size));
     }
-    /** Keep slot holes explicit: a second copy must never slide into an active slot. */
+    public static EquipmentData copyInventory(EquipmentData data){
+        var result=new EquipmentData();result.equipped.addAll(data.equipped);
+        result.layoutVersion=data.layoutVersion;result.equipCapacity=data.equipCapacity;result.carryCapacity=data.carryCapacity;
+        result.minimumEquipSize=data.minimumEquipSize;result.sizes.putAll(data.sizes);result.stash.putAll(data.stash);return result;
+    }
+    public static int itemSize(EquipmentData data,String id){return Math.max(1,data.sizes.get(id,1));}
+    public static int usedCapacity(EquipmentData data,boolean equipped){
+        int total=0,lo=equipped?0:ACTIVE_PASSIVE_SLOTS,hi=Math.min(equipped?ACTIVE_PASSIVE_SLOTS:MAX_EQUIPPED_SLOTS,data.equipped.size);
+        for(int i=lo;i<hi;i++)if(!data.equipped.get(i).isBlank())total+=equipped?Math.max(data.minimumEquipSize,itemSize(data,data.equipped.get(i))):itemSize(data,data.equipped.get(i));
+        return total;
+    }
+    private static boolean putInRange(EquipmentData data,String id,int lo,int hi){
+        for(int i=lo;i<hi;i++)if(i>=data.equipped.size||data.equipped.get(i).isBlank()){
+            while(data.equipped.size<=i)data.equipped.add("");data.equipped.set(i,id);return true;
+        }return false;
+    }
+    public static boolean grantCraftedOrTradedItem(EquipmentData data,ShopItemDef item){
+        data.sizes.put(item.id,Math.max(1,item.size));
+        boolean duplicate=false;for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++)if(item.id.equals(data.equipped.get(i)))duplicate=true;
+        if(!duplicate&&usedCapacity(data,true)+Math.max(data.minimumEquipSize,item.size)<=data.equipCapacity
+            &&putInRange(data,item.id,0,ACTIVE_PASSIVE_SLOTS))return true;
+        return usedCapacity(data,false)+item.size<=data.carryCapacity&&putInRange(data,item.id,ACTIVE_PASSIVE_SLOTS,MAX_EQUIPPED_SLOTS);
+    }
+    /** Migration and downsizing never destroy an owned item; excess waits in legacy overflow. */
     public static boolean normalizeEquipment(EquipmentData data){
-        boolean changed=false;var seen=new arc.struct.ObjectSet<String>();
-        Seq<String> duplicates=new Seq<>();
-        for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++){
-            String id=data.equipped.get(i);if(id==null){data.equipped.set(i,"");changed=true;continue;}
-            if(id.isBlank())continue;
-            if(!seen.add(id)){data.equipped.set(i,"");duplicates.add(id);changed=true;}
+        String before=data.equipped.toString();int oldVersion=data.layoutVersion;int oldStash=data.stash.hashCode();
+        if(data.layoutVersion<2){
+            var old=data.equipped.copy();data.equipped.clear();
+            for(int i=0;i<old.size;i++){
+                String id=old.get(i);if(id==null||id.isBlank())continue;
+                int target=i<4?i:i+ACTIVE_PASSIVE_SLOTS-4;
+                if(target>=MAX_EQUIPPED_SLOTS){data.stash.increment(id,0,1);continue;}
+                while(data.equipped.size<=target)data.equipped.add("");data.equipped.set(target,id);
+            }
+            data.layoutVersion=2;
         }
-        while(data.equipped.size>MAX_EQUIPPED_SLOTS){String id=data.equipped.pop();if(!id.isBlank())data.stash.increment(id,0,1);changed=true;}
-        for(String id:duplicates){
-            int free=-1;for(int i=ACTIVE_PASSIVE_SLOTS;i<MAX_EQUIPPED_SLOTS;i++)if(i>=data.equipped.size||data.equipped.get(i).isBlank()){free=i;break;}
-            if(free<0)data.stash.increment(id,0,1); // preserve legacy overflow, retry when carry frees
-            else {while(data.equipped.size<=free)data.equipped.add("");data.equipped.set(free,id);}
+        var seen=new arc.struct.ObjectSet<String>();var displaced=new Seq<String>();int equip=0,carry=0;
+        for(int i=0;i<data.equipped.size;i++){
+            String id=data.equipped.get(i);if(id==null||id.isBlank()){data.equipped.set(i,"");continue;}
+            if(i>=MAX_EQUIPPED_SLOTS){data.stash.increment(id,0,1);data.equipped.set(i,"");continue;}
+            int cost=i<ACTIVE_PASSIVE_SLOTS?Math.max(data.minimumEquipSize,itemSize(data,id)):itemSize(data,id);
+            if(i<ACTIVE_PASSIVE_SLOTS){
+                if(!seen.add(id)||equip+cost>data.equipCapacity){data.equipped.set(i,"");displaced.add(id);}else equip+=cost;
+            }else if(carry+cost>data.carryCapacity){data.equipped.set(i,"");data.stash.increment(id,0,1);}else carry+=cost;
         }
-        while(!data.equipped.isEmpty()&&data.equipped.peek().isBlank()){data.equipped.pop();changed=true;}
-        return changed;
+        for(String id:displaced){int cost=itemSize(data,id);if(carry+cost<=data.carryCapacity&&putInRange(data,id,ACTIVE_PASSIVE_SLOTS,MAX_EQUIPPED_SLOTS))carry+=cost;else data.stash.increment(id,0,1);}
+        while(!data.equipped.isEmpty()&&data.equipped.peek().isBlank())data.equipped.pop();
+        return oldVersion!=data.layoutVersion||oldStash!=data.stash.hashCode()||!before.equals(data.equipped.toString());
     }
 
     private static void consumeOwnedItem(EquipmentData data, String itemId, int amount) {
         int remaining = amount;
         for (int i = data.equipped.size - 1; i >= 0 && remaining > 0; i--) {
             if (itemId.equals(data.equipped.get(i))) {
-                data.equipped.remove(i);
+                data.equipped.set(i,"");
                 remaining--;
             }
         }
@@ -622,7 +650,7 @@ public class PlayerItemSystem {
 
         StatusEntry dyn = unit.applyDynamicStatus();
         dyn.time = Float.POSITIVE_INFINITY;
-        dyn.speedMultiplier = Math.max(0.1f,stats.speedMult*(stats.weightReferenceHealth>0f?1f:weightFactor(stats.totalWeight,unit.type.health)));
+        dyn.speedMultiplier = Math.max(0.1f,stats.speedMult);
         dyn.damageMultiplier = stats.damageMult;
         dyn.healthMultiplier = stats.healthMult;
         dyn.reloadMultiplier = stats.reloadMult;
@@ -655,7 +683,7 @@ public class PlayerItemSystem {
         // 1. Synchronise client-local 60-FPS WorldProcessor markers (zero Unit entities spawned!)
         worldLogicManager.syncRig(rigKey, ownerPlayerName, unit, equippedIds, getCatalog());
 
-        // 2. Maintain authoritative server gameplay state (active SUBWEAPON barrels in slots 0..3 + optional custom HALO Fx)
+        // 2. Maintain authoritative server gameplay state (equipped SUBWEAPON barrels + optional custom HALO Fx)
         String sig = buildSignature(unit, equippedIds);
         ActiveServerRig rig = serverRigs.get(rigKey);
         if (rig == null || rig.unitId != unit.id || rig.teamId != unit.team.id || !sig.equals(rig.signature)) {
@@ -681,8 +709,7 @@ public class PlayerItemSystem {
         float hullRadius = Math.max(4f, unit.hitSize * 0.5f);
         ObjectIntMap<MountSubtype> subtypeCounts = new ObjectIntMap<>();
 
-        // ONLY items in active slots 0..3 execute active SUBWEAPON or HALO gameplay;
-        // items in slots 4..9 ("outside the four") are strictly towed behind the tail!
+        // Only the equip section executes gameplay; carried items never grant passives or fire.
         for (int i = 0; i < activeCount; i++) {
             ShopItemDef def = cat.findItem(equippedIds.get(i));
             if (def == null) continue;

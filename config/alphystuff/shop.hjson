@@ -1,3 +1,4 @@
+inventorySizeVersion: 1
 # Item Shop Catalog (48 Placeholder Items + Bazaar Orbital Ship Trades)
 # Categories: resource | attack | defense | utility
 # attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON | VFX (ORBIT removed)
@@ -5,13 +6,13 @@
 # haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)
 # Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.
 
-weightScale: 1
-minimumWeightSpeedFactor: 0.20
+
 
 items: [
   {
     id: "wb-01"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-01"
     worldSprite: ""
     name: "Copper Chunk"
@@ -29,7 +30,8 @@ items: [
   }
   {
     id: "wb-02"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-02"
     worldSprite: ""
     name: "Lead Bundle"
@@ -47,7 +49,8 @@ items: [
   }
   {
     id: "wb-03"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-03"
     worldSprite: ""
     name: "Graphite Brick"
@@ -65,7 +68,8 @@ items: [
   }
   {
     id: "wb-04"
-    weight: 10
+    size: 2
+
     iconSprite: "shop-wb-04"
     worldSprite: "dp-item-mount-wb-04"
     name: "Scrap Relic Core"
@@ -84,7 +88,8 @@ items: [
   }
   {
     id: "wb-05"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-05"
     worldSprite: "dp-item-mount-wb-05"
     name: "Copper Fang"
@@ -103,7 +108,8 @@ items: [
   }
   {
     id: "wb-06"
-    weight: 10
+    size: 2
+
     iconSprite: "shop-wb-06"
     worldSprite: "dp-item-mount-wb-06"
     name: "Graphite Striker"
@@ -133,7 +139,8 @@ items: [
   }
   {
     id: "wb-07"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-07"
     worldSprite: "dp-item-mount-wb-07"
     name: "Silicon Sight"
@@ -153,7 +160,8 @@ items: [
   }
   {
     id: "wb-08"
-    weight: 10
+    size: 2
+
     iconSprite: "shop-wb-08"
     worldSprite: "dp-item-mount-wb-08"
     name: "Twin Fang Array"
@@ -174,7 +182,8 @@ items: [
   }
   {
     id: "wb-09"
-    weight: 10
+    size: 2
+
     iconSprite: "shop-wb-09"
     worldSprite: "dp-item-mount-wb-09"
     name: "Lead Buckler"
@@ -194,7 +203,8 @@ items: [
   }
   {
     id: "wb-10"
-    weight: 10
+    size: 2
+
     iconSprite: "shop-wb-10"
     worldSprite: "dp-item-mount-wb-10"
     name: "Ceramic Plate"
@@ -214,7 +224,8 @@ items: [
   }
   {
     id: "wb-11"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-11"
     worldSprite: ""
     name: "Mending Vial"
@@ -238,7 +249,8 @@ items: [
   }
   {
     id: "wb-12"
-    weight: 10
+    size: 3
+
     iconSprite: "shop-wb-12"
     worldSprite: "dp-item-mount-wb-12"
     name: "Bastion Carapace"
@@ -259,7 +271,8 @@ items: [
   }
   {
     id: "wb-13"
-    weight: 10
+    size: 2
+
     iconSprite: "shop-wb-13"
     worldSprite: "dp-item-mount-wb-13"
     name: "Glass Thruster"
@@ -278,7 +291,8 @@ items: [
   }
   {
     id: "wb-14"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-14"
     worldSprite: "dp-item-mount-wb-14"
     name: "Builder's Servo"
@@ -297,7 +311,8 @@ items: [
   }
   {
     id: "wb-15"
-    weight: 10
+    size: 1
+
     iconSprite: "shop-wb-15"
     worldSprite: ""
     name: "Scout Gyro"
@@ -317,7 +332,8 @@ items: [
   }
   {
     id: "bz-01"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-01"
     worldSprite: ""
     name: "Titanium Crate"
@@ -335,7 +351,8 @@ items: [
   }
   {
     id: "bz-02"
-    weight: 25
+    size: 2
+
     iconSprite: "shop-bz-02"
     worldSprite: ""
     name: "Silicon Wafer Pack"
@@ -353,7 +370,8 @@ items: [
   }
   {
     id: "bz-03"
-    weight: 25
+    size: 2
+
     iconSprite: "shop-bz-03"
     worldSprite: ""
     name: "Thorium Cell"
@@ -371,7 +389,8 @@ items: [
   }
   {
     id: "bz-04"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-04"
     worldSprite: "dp-item-mount-bz-04"
     name: "Orbital Blackbox"
@@ -391,7 +410,8 @@ items: [
   }
   {
     id: "bz-05"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-05"
     worldSprite: "dp-item-mount-bz-05"
     name: "Plastanium Repeater"
@@ -422,7 +442,8 @@ items: [
   }
   {
     id: "bz-06"
-    weight: 25
+    size: 2
+
     iconSprite: "shop-bz-06"
     worldSprite: "dp-item-mount-bz-06"
     name: "Surge Sabre"
@@ -443,7 +464,8 @@ items: [
   }
   {
     id: "bz-07"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-07"
     worldSprite: "dp-item-mount-bz-07"
     name: "Blast Cannon Pod"
@@ -474,7 +496,8 @@ items: [
   }
   {
     id: "bz-08"
-    weight: 25
+    size: 4
+
     iconSprite: "shop-bz-08"
     worldSprite: "dp-item-mount-bz-08"
     name: "Phase Lance"
@@ -505,7 +528,8 @@ items: [
   }
   {
     id: "bz-09"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-09"
     worldSprite: "dp-item-mount-bz-09"
     name: "Titanium Aegis"
@@ -526,7 +550,8 @@ items: [
   }
   {
     id: "bz-10"
-    weight: 25
+    size: 4
+
     iconSprite: "shop-bz-10"
     worldSprite: ""
     name: "Thorium Reactor Core"
@@ -551,7 +576,8 @@ items: [
   }
   {
     id: "bz-11"
-    weight: 25
+    size: 2
+
     iconSprite: "shop-bz-11"
     worldSprite: "dp-item-mount-bz-11"
     name: "Plastanium Mesh"
@@ -571,7 +597,8 @@ items: [
   }
   {
     id: "bz-12"
-    weight: 25
+    size: 2
+
     iconSprite: "shop-bz-12"
     worldSprite: ""
     name: "Regen Halo"
@@ -595,7 +622,8 @@ items: [
   }
   {
     id: "bz-13"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-13"
     worldSprite: "dp-item-mount-bz-13"
     name: "Phase Blink Drive"
@@ -615,7 +643,8 @@ items: [
   }
   {
     id: "bz-14"
-    weight: 25
+    size: 3
+
     iconSprite: "shop-bz-14"
     worldSprite: ""
     name: "Nano Fabricator"
@@ -639,7 +668,8 @@ items: [
   }
   {
     id: "bz-15"
-    weight: 25
+    size: 2
+
     iconSprite: "shop-bz-15"
     worldSprite: ""
     name: "Astral Compass"
@@ -663,7 +693,8 @@ items: [
   }
   {
     id: "ca-01"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-01"
     worldSprite: ""
     name: "Philosopher's Husk"
@@ -687,7 +718,8 @@ items: [
   }
   {
     id: "ca-02"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-02"
     worldSprite: ""
     name: "Void Reliquary"
@@ -708,7 +740,8 @@ items: [
   }
   {
     id: "ca-03"
-    weight: 50
+    size: 3
+
     iconSprite: "shop-ca-03"
     worldSprite: ""
     name: "Blood Ingot"
@@ -728,7 +761,8 @@ items: [
   }
   {
     id: "ca-04"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-04"
     worldSprite: "dp-item-mount-ca-04"
     name: "Bloodthirst Scythe"
@@ -749,7 +783,8 @@ items: [
   }
   {
     id: "ca-05"
-    weight: 50
+    size: 6
+
     iconSprite: "shop-ca-05"
     worldSprite: "dp-item-mount-ca-05"
     name: "Abyssal Gatling"
@@ -781,7 +816,8 @@ items: [
   }
   {
     id: "ca-06"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-06"
     worldSprite: "dp-item-mount-ca-06"
     name: "Ruinblade"
@@ -803,7 +839,8 @@ items: [
   }
   {
     id: "ca-07"
-    weight: 50
+    size: 3
+
     iconSprite: "shop-ca-07"
     worldSprite: ""
     name: "Eye of Malice"
@@ -828,7 +865,8 @@ items: [
   }
   {
     id: "ca-08"
-    weight: 50
+    size: 6
+
     iconSprite: "shop-ca-08"
     worldSprite: "dp-item-mount-ca-08"
     name: "Leviathan Husk"
@@ -849,7 +887,8 @@ items: [
   }
   {
     id: "ca-09"
-    weight: 50
+    size: 3
+
     iconSprite: "shop-ca-09"
     worldSprite: ""
     name: "Undying Heart"
@@ -874,7 +913,8 @@ items: [
   }
   {
     id: "ca-10"
-    weight: 50
+    size: 6
+
     iconSprite: "shop-ca-10"
     worldSprite: "dp-item-mount-ca-10"
     name: "Dread Bulwark"
@@ -896,7 +936,8 @@ items: [
   }
   {
     id: "ca-11"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-11"
     worldSprite: ""
     name: "Martyr's Crown"
@@ -921,7 +962,8 @@ items: [
   }
   {
     id: "ca-12"
-    weight: 50
+    size: 3
+
     iconSprite: "shop-ca-12"
     worldSprite: "dp-item-mount-ca-12"
     name: "Wraith Stride"
@@ -942,7 +984,8 @@ items: [
   }
   {
     id: "ca-13"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-13"
     worldSprite: "dp-item-mount-ca-13"
     name: "Architect's Curse"
@@ -962,7 +1005,8 @@ items: [
   }
   {
     id: "ca-14"
-    weight: 50
+    size: 3
+
     iconSprite: "shop-ca-14"
     worldSprite: ""
     name: "Chrono Hourglass"
@@ -983,7 +1027,8 @@ items: [
   }
   {
     id: "ca-15"
-    weight: 50
+    size: 4
+
     iconSprite: "shop-ca-15"
     worldSprite: ""
     name: "Apotheosis Halo"
@@ -1013,7 +1058,8 @@ items: [
   }
   {
     id: "temp-ember-vfx"
-    weight: 10
+    size: 1
+
     iconSprite: ""
     worldSprite: ""
     name: "Ember Projector"
@@ -1033,11 +1079,12 @@ items: [
 
   {
     id: "temp-overclock"
-    weight: 10
+    size: 1
+
     iconSprite: ""
     worldSprite: ""
     name: "Overclock Injector"
-    description: "Temporary overclock status while equipped in active slots 1-4."
+    description: "Temporary overclock status while equipped."
     tier: workbench
     category: utility
     iconItem: "silicon"
@@ -1054,7 +1101,8 @@ items: [
 
   {
     id: "temp-mending-vfx"
-    weight: 10
+    size: 1
+
     iconSprite: ""
     worldSprite: ""
     name: "Mending Spark"
@@ -1077,6 +1125,7 @@ items: [
 orbitalTrades: [
   {
     id: "ship-01"
+    size: 1
     shipName: "ISV Heliotrope"
     title: "Scrap Relic Salvage Drop"
     description: "Exchange launched orbital copper & lead for a Scrap Relic Core."
@@ -1085,6 +1134,7 @@ orbitalTrades: [
   }
   {
     id: "ship-02"
+    size: 1
     shipName: "ISV Meridian"
     title: "Orbital Blackbox Recovery"
     description: "Trade launched silicon & titanium for an Orbital Blackbox."
@@ -1093,6 +1143,7 @@ orbitalTrades: [
   }
   {
     id: "ship-03"
+    size: 1
     shipName: "CSV Starfarer"
     title: "Silicon Drop-Pod"
     description: "Ship 600 orbital copper & 400 coal; drops 300 silicon into map storage."
@@ -1101,6 +1152,7 @@ orbitalTrades: [
   }
   {
     id: "ship-04"
+    size: 1
     shipName: "CSV Ironclad"
     title: "Titanium Cargo Pod"
     description: "Exchange 800 orbital lead & 400 graphite for 350 titanium in map storage."
@@ -1109,6 +1161,7 @@ orbitalTrades: [
   }
   {
     id: "ship-05"
+    size: 1
     shipName: "ISV Halcyon"
     title: "Thorium Isotope Cask"
     description: "Exchange 500 orbital titanium & 400 silicon for 260 thorium in map storage."
@@ -1117,6 +1170,7 @@ orbitalTrades: [
   }
   {
     id: "ship-06"
+    size: 1
     shipName: "MSV Vespera"
     title: "Plastanium Polymer Crate"
     description: "Trade 600 orbital titanium & 300 spore-pod for 220 plastanium in map storage."
@@ -1125,6 +1179,7 @@ orbitalTrades: [
   }
   {
     id: "ship-07"
+    size: 1
     shipName: "MSV Auric"
     title: "Surge Smelter Shipment"
     description: "Trade 700 orbital copper, 700 lead & 500 silicon for 140 surge-alloy."
@@ -1133,6 +1188,7 @@ orbitalTrades: [
   }
   {
     id: "ship-08"
+    size: 1
     shipName: "ISV Loomweaver"
     title: "Phase Weave Bundle"
     description: "Trade 500 orbital thorium & 600 sand for 150 phase-fabric."
@@ -1141,6 +1197,7 @@ orbitalTrades: [
   }
   {
     id: "ship-09"
+    size: 1
     shipName: "CSV Vanguard"
     title: "Chartered Surge Sabre"
     description: "Commission an orbital armorer to deliver a Surge Sabre directly to your inventory."
@@ -1149,6 +1206,7 @@ orbitalTrades: [
   }
   {
     id: "ship-10"
+    size: 1
     shipName: "ISV Celestia"
     title: "Chartered Astral Compass"
     description: "Acquire an Astral Compass from the deep-space guild fleet."

@@ -635,7 +635,7 @@ public class ItemShopMenu {
                 .labelAlign("left")
                 .width(LEFT_TOTAL_W - 266f)
         ).row();
-        textCol.add(label("[gray]Weight: "+String.format(java.util.Locale.ROOT,"%.1f",item.carryingWeight())+"[]")).row();
+        textCol.add(label("[gray]Size: "+item.size+"[]")).row();
         if(!itemSystem.isItemResearched(player,item))textCol.add(label("[scarlet]Requires item research[]")).row();
         if (item.description != null && !item.description.isEmpty()) {
             textCol.add(

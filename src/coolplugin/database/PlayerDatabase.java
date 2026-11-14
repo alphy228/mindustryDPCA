@@ -70,7 +70,9 @@ public class PlayerDatabase implements AutoCloseable {
     }
 
     public static final class EquipmentData {
-        /** Ordered list of equipped item IDs (max 10; indices 0..3 grant passive bonuses, 4..9 apply -10% speed each). */
+        /** Stable indices: 0..29 equipped, 30..89 carried; holes must survive saving. */
+        public int layoutVersion=2, equipCapacity=4, carryCapacity=6, minimumEquipSize=1;
+        public final arc.struct.ObjectIntMap<String> sizes=new arc.struct.ObjectIntMap<>();
         public final Seq<String> equipped = new Seq<>();
         /** Unequipped owned item counts per item ID. */
         public final ObjectIntMap<String> stash = new ObjectIntMap<>();
@@ -856,7 +858,10 @@ public class PlayerDatabase implements AutoCloseable {
             ps.setString(2, normalizedFaction);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    parseStringSeqJson(rs.getString("equipped_json"), out.equipped);
+                    String raw=rs.getString("equipped_json");
+                    JsonValue layout=new JsonReader().parse(raw);
+                    out.layoutVersion=layout.isObject()?layout.getInt("version",2):1;
+                    parseStringSeqJson(layout.isObject()?layout.get("items").toJson(arc.util.serialization.JsonWriter.OutputType.json):raw, out.equipped);
                     parseIntMapJson(rs.getString("stash_json"), out.stash);
                 }
             }
@@ -871,7 +876,7 @@ public class PlayerDatabase implements AutoCloseable {
         if (data == null) return;
         String normalizedFaction = normalizeFaction(factionId);
         long now = System.currentTimeMillis();
-        String eqJson = toStringSeqJson(data.equipped);
+        String eqJson = "{\"version\":"+data.layoutVersion+",\"items\":"+toStringSeqJson(data.equipped)+"}";
         String stashJson = toIntMapJson(data.stash);
 
         try (PreparedStatement ps = connection.prepareStatement("""
@@ -914,7 +919,7 @@ public class PlayerDatabase implements AutoCloseable {
             if (arr == null) return;
             for (JsonValue v = arr.child; v != null; v = v.next) {
                 String s = v.asString();
-                if (s != null && !s.isEmpty()) target.add(s);
+                target.add(s==null?"":s);
             }
         } catch (Exception ignored) {
         }
@@ -927,7 +932,7 @@ public class PlayerDatabase implements AutoCloseable {
             if (arr == null) return;
             for (JsonValue v = arr.child; v != null; v = v.next) {
                 String s = v.asString();
-                if (s != null && !s.isEmpty()) target.add(s);
+                target.add(s==null?"":s);
             }
         } catch (Exception ignored) {
         }
@@ -955,7 +960,7 @@ public class PlayerDatabase implements AutoCloseable {
         boolean first = true;
         for (int i = 0; i < list.size; i++) {
             String s = list.get(i);
-            if (s == null || s.isEmpty()) continue;
+            if(s==null)s="";
             if (!first) sb.append(',');
             first = false;
             sb.append('"').append(escapeJson(s)).append('"');

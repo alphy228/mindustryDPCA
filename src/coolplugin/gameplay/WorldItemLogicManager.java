@@ -220,13 +220,7 @@ public final class WorldItemLogicManager {
             || procBuild.code == null || procBuild.code.isEmpty();
         for(ProcessorSlot child:slot.children)if(getExistingProcessor(child)==null)codeChanged=true;
         if (codeChanged) {
-            Seq<CompiledVisualEntry> probe=new Seq<>();
-            String whole=compileRigShard(slot.baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,probe,-1);
-            Seq<Integer> groups=new Seq<>();
-            if(instructionCount(whole)<=MAX_PROGRAM_INSTRUCTIONS)groups.add(-1);
-            else for(int group=0;group<PlayerItemSystem.MAX_EQUIPPED_SLOTS;group++){
-                final int g=group;if(probe.contains(e->e.inventorySlot==g))groups.add(group);
-            }
+            Seq<Integer> groups=planGroups(slot.baseMarkerId,ownerPlayerName,unit,equippedIds,catalog);
             int required=Math.max(1,groups.size);
             if(required>MAX_PROCESSORS_PER_PLAYER){rejectRig(ownerKey,"Item visuals need more than 10 processors. Reduce equipped visual items.");return;}
             int freeCount=0;for(ProcessorSlot candidate:allSlots)if(candidate.ownerKey==null)freeCount++;
@@ -244,15 +238,21 @@ public final class WorldItemLogicManager {
                 if(instructionCount(code)>MAX_PROGRAM_INSTRUCTIONS){rejectRig(ownerKey,"An equipped visual item exceeds the 500-instruction processor limit. Please change your equipment.");return;}
                 programs.add(code);entries.add(partEntries);
             }
+            boolean pairedFollowers=entries.contains(list->list.count(e->e.kind==RenderedKind.TAIL_FOLLOW)>1);
             for(int i=0;i<required;i++)if(entries.get(i).contains(e->e.kind==RenderedKind.TAIL_FOLLOW)&&groups.get(i)>=0){
                 var peers=new java.util.ArrayList<int[]>();int tailIndex=0,myIndex=-1;
                 for(int j=0;j<required;j++)if(entries.get(j).contains(e->e.kind==RenderedKind.TAIL_FOLLOW)){if(j==i)myIndex=tailIndex;tailIndex++;}
                 tailIndex=0;
                 for(int j=0;j<required;j++)if(entries.get(j).contains(e->e.kind==RenderedKind.TAIL_FOLLOW)){
-                    if(j!=i&&Math.abs(tailIndex-myIndex)<=3){var other=getExistingProcessor(parts.get(j));peers.add(new int[]{other.tileX(),other.tileY(),i<j?1:-1});}tailIndex++;
+                    if(j!=i&&Math.abs(tailIndex-myIndex)<=(pairedFollowers?1:3)){
+                        var other=getExistingProcessor(parts.get(j));var peer=new arc.struct.IntSeq();peer.add(other.tileX(),other.tileY(),i<j?1:-1);
+                        for(int k=0;k<entries.get(j).size;k++)if(entries.get(j).get(k).kind==RenderedKind.TAIL_FOLLOW)peer.add(k);
+                        peers.add(peer.toArray());
+                    }tailIndex++;
                 }
                 float sep=Math.max(.88f,Mathf.clamp((5.4f+unit.hitSize*.14f)/tilesize,.72f,1.32f)*1.12f);
-                String code=addFollowerPeers(programs.get(i),peers,sep);
+                var localTails=new arc.struct.IntSeq();for(int k=0;k<entries.get(i).size;k++)if(entries.get(i).get(k).kind==RenderedKind.TAIL_FOLLOW)localTails.add(k);
+                String code=addFollowerPeers(programs.get(i),peers,sep,localTails);
                 if(instructionCount(code)>MAX_PROGRAM_INSTRUCTIONS){rejectRig(ownerKey,"Follower visuals exceed the 500-instruction processor limit.");return;}
                 programs.set(i,code);
             }
@@ -295,18 +295,25 @@ public final class WorldItemLogicManager {
     }
 
     /** Cross-processor collision reads are entirely client-local; the server never transports physics state. */
-    private static String addFollowerPeers(String code,java.util.List<int[]> peers,float separation){
+    private static String addFollowerPeers(String code,java.util.List<int[]> peers,float separation,arc.struct.IntSeq localTails){
         if(peers.isEmpty())return code;
         StringBuilder calls=new StringBuilder();int n=0;
         for(int[] peer:peers){
             String skip="peerSkip"+n++;
             calls.append("getblock building peer ").append(peer[0]).append(" ").append(peer[1]).append("\n")
                 .append("read peerReady peer \"vis\"\njump ").append(skip).append(" notEqual peerReady 1\n")
-                .append("read peerHost peer \"hostUnit\"\njump ").append(skip).append(" notEqual peerHost u\n")
-                .append("read peerX peer \"tx0\"\nread peerY peer \"ty0\"\nop sub pdx tx0 peerX\nop sub pdy ty0 peerY\n")
-                .append("set peerSign ").append(peer[2]).append("\nop add peerReturn @counter 1\njump peerImpulse always 0 0\n")
-                .append("op add vx0 vx0 pvx\nop add vy0 vy0 pvy\nop add tx0 tx0 psx\nop add ty0 ty0 psy\n")
-                .append(skip).append(":\n");
+                .append("read peerHost peer \"hostUnit\"\njump ").append(skip).append(" notEqual peerHost u\n");
+            for(int pi=3;pi<peer.length;pi++){
+                calls.append("read peerX peer \"tx").append(peer[pi]).append("\"\nread peerY peer \"ty").append(peer[pi]).append("\"\n");
+                for(int ti=0;ti<localTails.size;ti++){
+                    int t=localTails.get(ti);
+                    calls.append("op sub pdx tx").append(t).append(" peerX\nop sub pdy ty").append(t).append(" peerY\n")
+                        .append("set peerSign ").append(peer[2]).append("\nop add peerReturn @counter 1\njump peerImpulse always 0 0\n")
+                        .append("op add vx").append(t).append(" vx").append(t).append(" pvx\nop add vy").append(t).append(" vy").append(t).append(" pvy\n")
+                        .append("op add tx").append(t).append(" tx").append(t).append(" psx\nop add ty").append(t).append(" ty").append(t).append(" psy\n");
+                }
+            }
+            calls.append(skip).append(":\n");
         }
         code=code.replace("peerFollowStep:\n",calls.toString());
         return code+"peerImpulse:\nset pvx 0\nset pvy 0\nset psx 0\nset psy 0\nop len pd pdx pdy\n"
@@ -658,16 +665,29 @@ public final class WorldItemLogicManager {
 
     /** Inspect all native-sized programs without placing blocks (also used by validation tools). */
     public static Seq<String> compileRigPrograms(int baseMarkerId,String ownerName,Unit unit,Seq<String> ids,Catalog catalog){
-        Seq<CompiledVisualEntry> entries=new Seq<>();
-        String full=compileRigShard(baseMarkerId,ownerName,unit,ids,catalog,entries,-1);
-        Seq<String> result=new Seq<>();
-        if(instructionCount(full)<=MAX_PROGRAM_INSTRUCTIONS){result.add(full);return result;}
-        for(int group=0;group<PlayerItemSystem.MAX_EQUIPPED_SLOTS;group++){
-            Seq<CompiledVisualEntry> part=new Seq<>();
-            String code=compileRigShard(baseMarkerId+group*MARKERS_PER_SLOT,ownerName,unit,ids,catalog,part,group);
-            if(!part.isEmpty())result.add(code);
+        Seq<String> result=new Seq<>();int index=0;
+        for(int group:planGroups(baseMarkerId,ownerName,unit,ids,catalog)){
+            var entries=new Seq<CompiledVisualEntry>();
+            result.add(compileRigShard(baseMarkerId+index++*MARKERS_PER_SLOT,ownerName,unit,ids,catalog,entries,group));
+        }return result;
+    }
+    private static int rangeGroup(int lo,int hi){return 10000+lo*100+hi;}
+    private static boolean inGroup(int slot,int group){return group<0|| (group<10000?slot==group:slot>=(group-10000)/100&&slot<=(group-10000)%100);}
+    private static Seq<Integer> planGroups(int base,String owner,Unit unit,Seq<String> ids,Catalog catalog){
+        Seq<CompiledVisualEntry> all=new Seq<>();String full=compileRigShard(base,owner,unit,ids,catalog,all,-1);
+        Seq<Integer> result=new Seq<>();if(instructionCount(full)<=500){result.add(-1);return result;}
+        var slots=new arc.struct.IntSeq();for(var e:all)if(!slots.contains(e.inventorySlot))slots.add(e.inventorySlot);slots.sort();
+        int lo=-1,hi=-1;
+        for(int si=0;si<slots.size;si++){
+            int slot=slots.get(si);if(lo<0){lo=hi=slot;continue;}
+            var probe=new Seq<CompiledVisualEntry>();
+            String trial=compileRigShard(base,owner,unit,ids,catalog,probe,rangeGroup(lo,slot));
+            var tails=new arc.struct.IntSet();for(var e:probe)if(e.kind==RenderedKind.TAIL_FOLLOW)tails.add(e.inventorySlot);
+            int budget=tails.isEmpty()?480:340; // Reserve up to six cross-shard neighbour reads/impulses.
+            if(instructionCount(trial)>budget){result.add(rangeGroup(lo,hi));lo=slot;}
+            hi=slot;
         }
-        return result;
+        if(lo>=0)result.add(rangeGroup(lo,hi));if(result.isEmpty())result.add(-1);return result;
     }
 
     private static String compileRigShard(int baseMarkerId,String ownerPlayerName,Unit unit,Seq<String> equippedIds,
@@ -677,11 +697,12 @@ public final class WorldItemLogicManager {
         float hullRadius = Math.max(4f, unit.hitSize * 0.5f);
         float spriteTiles = Mathf.clamp((5.4f + unit.hitSize * 0.14f) / tilesize, 0.72f, 1.32f);
 
-        int tailTotal = 0;
+        int tailTotal = 0,drawnCarry=0;
         for (int i = 0; i < n; i++) {
             ShopItemDef def = catalog.findItem(equippedIds.get(i));
             if (def == null || def.attachMode == AttachMode.VFX) continue;
             boolean overloaded = i >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
+            if(overloaded&&drawnCarry++>=InventoryRules.MAX_DRAWN_CARRY)continue;
             if (overloaded || def.attachMode == AttachMode.FOLLOW) {
                 tailTotal++;
             }
@@ -690,6 +711,7 @@ public final class WorldItemLogicManager {
         int nextMarkerOffset = 0;
         int tailIndex = 0;
         boolean needsAimSensors = false;
+        drawnCarry=0;
         ObjectIntMap<MountSubtype> subtypeCounts = new ObjectIntMap<>();
         IntSeq tailEntryIndices = new IntSeq();
         Seq<Float> tailRopeLengthsTiles = new Seq<>();
@@ -699,7 +721,8 @@ public final class WorldItemLogicManager {
             if (def == null || def.attachMode == AttachMode.VFX) continue;
 
             boolean overloaded = i >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
-            // Items outside the first 4 slots ALWAYS become tail-following with physical spring-tether physics!
+            if(overloaded&&drawnCarry++>=InventoryRules.MAX_DRAWN_CARRY)continue;
+            // Only the first six carried items receive client-local spring-tether visuals.
             if (overloaded || def.attachMode == AttachMode.FOLLOW) {
                 if (nextMarkerOffset + 2 > MARKERS_PER_SLOT) break;
                 int lineId = baseMarkerId + (nextMarkerOffset++);
@@ -761,9 +784,9 @@ public final class WorldItemLogicManager {
             var lengths=new Seq<Float>();
             int cursor=0;
             for(var entry:outEntries)if(entry.kind==RenderedKind.TAIL_FOLLOW){
-                float length=tailRopeLengthsTiles.get(cursor++);if(entry.inventorySlot==group)lengths.add(length);
+                float length=tailRopeLengthsTiles.get(cursor++);if(inGroup(entry.inventorySlot,group))lengths.add(length);
             }
-            for(int i=outEntries.size-1;i>=0;i--)if(outEntries.get(i).inventorySlot!=group)outEntries.remove(i);
+            for(int i=outEntries.size-1;i>=0;i--)if(!inGroup(outEntries.get(i).inventorySlot,group))outEntries.remove(i);
             tailEntryIndices.clear();tailRopeLengthsTiles.clear();tailRopeLengthsTiles.addAll(lengths);
             for(int i=0;i<outEntries.size;i++)if(outEntries.get(i).kind==RenderedKind.TAIL_FOLLOW)tailEntryIndices.add(i);
             tailTotal=tailEntryIndices.size;

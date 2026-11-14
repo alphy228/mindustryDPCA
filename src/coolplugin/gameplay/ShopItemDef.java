@@ -226,7 +226,8 @@ public final class ShopItemDef {
     public ShopCategory category = ShopCategory.UTILITY;
     public String sprite = ""; // legacy shared sprite; retained for old configs
     public String iconSprite = "", worldSprite = "";
-    public float weight = 10f;
+    /** Inventory capacity cost, independent of world sprite scale. */
+    public int size=1;
     public String iconItem = "copper";
     public String mountWeaponSprite = "";
     public String colorHex = "ffd37f";
@@ -242,14 +243,14 @@ public final class ShopItemDef {
     public HaloAnchor haloAnchor = HaloAnchor.CENTER;
     public String haloEffect = "none";
     public String vfxStatus = "none";
-    /** Real statuses, granted only in active inventory slots 1-4. */
+    /** Real statuses, granted only while equipped. */
     public final Seq<String> wearerStatuses = new Seq<>();
     public String haloColorHex = "";
     public float haloRadius = 12f;
     public float haloInterval = 26f;
     public int haloSides = 6;
 
-    // Subweapon server projectile parameters (fired via Call.createBullet when in active slots 1..4)
+    // Subweapon server projectile parameters (fired via Call.createBullet only while equipped)
     public String subweaponPreset = "kinetic";
     public float subweaponRecoil = 2.5f, subweaponRecoilTime = 12f;
     public String subweaponShootEffect = "shootSmall", subweaponSmokeEffect = "shootSmallSmoke";
@@ -373,11 +374,7 @@ public final class ShopItemDef {
         return "item-" + iconItem + "-ui";
     }
 
-    public float carryingWeight(){
-        var size=ColouringAssets.mountSizes.get(id);
-        float spriteMass=size==null?0f:(float)Math.ceil(size.x*size.y/64f)*10f;
-        return Math.max(Math.max(0f,weight),spriteMass);
-    }
+
 
     public String worldTextureName() {
         if(worldSprite!=null&&!worldSprite.isBlank())return worldSprite.trim();

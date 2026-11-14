@@ -15,7 +15,7 @@ import java.util.Locale;
 import static mindustry.ui.builder.UiBuilder.*;
 
 /**
- * Reusable UI component rendering a player's 6-sided hexagonal 10-slot Inventory panel
+ * Reusable UI component rendering a player's 6-sided scrollable size-budget Inventory panel
  * together with the live Stat Multipliers readout directly below it.
  * <p>
  * Designed to be embedded in {@link ItemShopMenu} as well as any other {@code MenuBuilder}
@@ -66,7 +66,7 @@ public class PlayerInventoryDrawer {
     /**
      * Builds the complete right-hand drawer column:
      * <ol>
-     *   <li>Hexagonal 10-slot inventory ({@code x/10} turns red when {@code x > 4}; selected item glows).</li>
+     *   <li>Unit-specific equip/carry capacities; selected items glow.</li>
      *   <li>Live stat multipliers panel directly below the inventory hexagon.</li>
      * </ol>
      */
@@ -110,11 +110,11 @@ public class PlayerInventoryDrawer {
 
         TableBuilder hexInner = table().margin(0f).align("top");
 
-        // Header tucked cleanly inside upper hexagon shoulders; x/10 turns red when > 4!
-        int count = eq.equipped.count(id -> !id.isBlank());
-        String countCol = count > PlayerItemSystem.ACTIVE_PASSIVE_SLOTS ? "[scarlet]" : "[gray]";
+        // Capacity costs, rather than raw number of items.
+        String countCol="[gray]";
+        int equipUsed=PlayerItemSystem.usedCapacity(eq,true),carryUsed=PlayerItemSystem.usedCapacity(eq,false);
         hexInner.add(
-            label("[#" + theme.accentHex + "]Inventory[] " + countCol + count + "/" + PlayerItemSystem.MAX_EQUIPPED_SLOTS + "[]")
+            label("[#" + theme.accentHex + "]Inventory[]\n" + countCol + "E "+equipUsed+"/"+eq.equipCapacity+" · C "+carryUsed+"/"+eq.carryCapacity+"[]")
                 .labelAlign("center")
                 .padTop(34f)
                 .padBottom(4f)
@@ -127,14 +127,22 @@ public class PlayerInventoryDrawer {
                 .padBottom(5f)
         ).row();
 
-        // 5x2 Grid of the 10 inventory positions (0..3 active, 4..9 overburdened)
+        // Scrollable equipped/carry item grid. Empty capacity is summarized, not 90 blank buttons.
         TableBuilder grid = table().align("center");
-        for (int idx = 0; idx < PlayerItemSystem.MAX_EQUIPPED_SLOTS; idx++) {
+        var shown=new arc.struct.IntSeq();
+        for(int i=0;i<Math.min(30,eq.equipped.size);i++)if(!eq.equipped.get(i).isBlank())shown.add(i);
+        if(equipUsed<eq.equipCapacity){for(int i=0;i<30;i++)if(i>=eq.equipped.size||eq.equipped.get(i).isBlank()){shown.add(i);break;}}
+        for(int i=30;i<Math.min(90,eq.equipped.size);i++)if(!eq.equipped.get(i).isBlank())shown.add(i);
+        if(carryUsed<eq.carryCapacity){for(int i=30;i<90;i++)if(i>=eq.equipped.size||eq.equipped.get(i).isBlank()){shown.add(i);break;}}
+        boolean carryHeader=false;int column=0;
+        for (int cell=0;cell<shown.size;cell++) {
+            int idx=shown.get(cell);
             boolean activeTier = idx < PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
             boolean occupied = idx < eq.equipped.size && !eq.equipped.get(idx).isBlank();
             boolean selected = occupied && (selectedSlot == idx);
 
-            if (idx == PlayerItemSystem.ACTIVE_PASSIVE_SLOTS) {
+            if (!activeTier&&!carryHeader) {
+                if(column%2!=0)grid.row();column=0;carryHeader=true;
                 grid.add(
                     image("whiteui")
                         .color("5c343cff")
@@ -166,6 +174,7 @@ public class PlayerInventoryDrawer {
                     icon.color("ff9e9eff");
                 }
                 cellBtn.add(icon);
+                cellBtn.add(label("[gray]"+(def==null?1:(activeTier?Math.max(eq.minimumEquipSize,def.size):def.size))+"[]"));
             } else {
                 cellBtn.disabled(true);
                 cellBtn.add(label(activeTier ? "[#45485a].[]" : "[#3a2830].[]").labelAlign("center"));
@@ -186,11 +195,12 @@ public class PlayerInventoryDrawer {
                 grid.add(table().width(80f).height(42f).align("center").add(cellBtn));
             }
 
-            if (idx % 2 == 1) {
+            if (++column % 2 == 0) {
                 grid.row();
             }
         }
-        hexInner.add(grid).row();
+        hexInner.add(pane().add(grid).height(150f)).row();
+        hexInner.add(label("[gray]Min equip "+eq.minimumEquipSize+"\nCarry slow "+Math.round(75f*Math.min(1f,carryUsed/(float)eq.carryCapacity))+"%[]")).row();
 
         // Selected slot quick-actions tucked cleanly above the lower hexagon peak
         if (selectedSlot >= 0 && selectedSlot < eq.equipped.size) {
@@ -233,13 +243,13 @@ public class PlayerInventoryDrawer {
                 );
             }
 
-            if (selectedSlot >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS) {
+            if (selDef!=null) {
                 actRow.add(
                     buttonTable()
                         .style("defaultt")
                         .margin(3f)
                         .clicked(ACT_PROMOTE_PREFIX + selectedSlot)
-                        .add(label("[stat]Top[]"))
+                        .add(label(selectedSlot>=30?"[stat]Equip[]":"[stat]Carry[]"))
                         .width(56f)
                         .height(24f)
                 );
@@ -279,7 +289,7 @@ public class PlayerInventoryDrawer {
         }
 
         grid.row();
-        grid.add(label("[gray]Weight[] "+String.format(Locale.ROOT,"%.1f",st.totalWeight)+"  [gray]SPD[] ×"+String.format(Locale.ROOT,"%.2f",st.weightSpeedFactor))
+        grid.add(label("[gray]Carry speed[] ×"+String.format(Locale.ROOT,"%.2f",st.carrySpeedFactor))
             .colspan(2).padTop(5f));
         box.add(grid.growX());
         return box;
@@ -326,7 +336,7 @@ public class PlayerInventoryDrawer {
             try {
                 int idx = Integer.parseInt(action.substring(ACT_PROMOTE_PREFIX.length()));
                 ActionOutcome out = itemSystem.promoteSlotToActive(player, idx);
-                return new ActionResult(true, 0, out.message(), true, false);
+                return new ActionResult(true, -1, out.message(), out.success(), false);
             } catch (NumberFormatException ignored) {
             }
             return new ActionResult(true, currentSelectedSlot, "", false, false);

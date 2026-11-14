@@ -426,9 +426,9 @@ public class VerifyColouringGeneration {
         var equipped=arc.struct.Seq.with(injector.id);
         itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));
         check(wearer.hasEffect(mindustry.content.StatusEffects.overclock),"Active wearer item applies real configured status");
-        equipped=arc.struct.Seq.with("wb-01","wb-02","wb-03","wb-04",injector.id);
+        equipped=legacySlots(arc.struct.Seq.with("wb-01","wb-02","wb-03","wb-04",injector.id));
         itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));
-        check(wearer.getDuration(mindustry.content.StatusEffects.overclock)==0f,"Moving status item to slot 5 removes its granted status");
+        check(wearer.getDuration(mindustry.content.StatusEffects.overclock)==0f,"Moving status item into carry removes its granted status");
         wearer.apply(mindustry.content.StatusEffects.overclock,900f);
         equipped=arc.struct.Seq.with(injector.id);itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));
         itemSystem.destroyRig("effect-check");
@@ -470,24 +470,20 @@ public class VerifyColouringGeneration {
         var roundtrip=coolplugin.gameplay.ShopConfigIO.load(saved);
         check(roundtrip.findItem(injector.id).wearerStatuses.contains("overclock")&&"burning".equals(roundtrip.findItem(ember.id).vfxStatus)
             &&"shoot".equals(roundtrip.findItem("wb-06").subweaponShootSound),"Status, cosmetic VFX and sound configuration survive save/load");
-        check(catalog.items.allMatch(item->item.weight>0),"Every shipped/generated item has positive carrying weight");
-        var load=Seq.with("wb-01","wb-02","wb-03","wb-04","wb-05");
+        check(catalog.items.allMatch(item->item.size>=1),"Every shipped/generated item has an explicit positive size");
+        check(catalog.findItem("wb-06").size==2&&catalog.items.contains(item->item.size==1),"Graphite gun is size 2 and real size-1 items exist");
+        var load=legacySlots(Seq.with("wb-01","wb-02","wb-03","wb-04","wb-05"));
         Unit carrier=UnitTypes.oct.create(Team.sharded);
         var lightStats=itemSystem.computeStats(load,wearer);var heavyStats=itemSystem.computeStats(load,carrier);
-        float expectedWeight=0;for(String id:load)expectedWeight+=catalog.findItem(id).carryingWeight();
-        check(lightStats.totalWeight==expectedWeight&&heavyStats.totalWeight==expectedWeight,"Weight sums native-size-adjusted weights across all slots, including slot 5");
-        check(lightStats.weightSpeedFactor<heavyStats.weightSpeedFactor&&lightStats.speedMult<heavyStats.speedMult,
-            "Same item load penalizes low-base-health units more than high-health units");
+        check(lightStats.carryUsed==catalog.findItem("wb-05").size&&heavyStats.carryUsed==lightStats.carryUsed,"Carry fullness sums item sizes, not mass");
+        check(lightStats.carrySpeedFactor<heavyStats.carrySpeedFactor,"Same carry size fills a smaller inventory more");
         wearer.health=1f;
-        check(itemSystem.computeStats(load,wearer).weightSpeedFactor==lightStats.weightSpeedFactor,"Injuries do not change weight carrying capacity");
+        check(itemSystem.computeStats(load,wearer).carrySpeedFactor==lightStats.carrySpeedFactor,"Injuries do not change inventory capacity");
         float savedHealthBonus=catalog.findItem("wb-01").healthMultBonus;
         catalog.findItem("wb-01").healthMultBonus=100f;
-        check(itemSystem.computeStats(load,wearer).weightSpeedFactor==lightStats.weightSpeedFactor,"Item HP buffs cannot inflate weight carrying capacity");
+        check(itemSystem.computeStats(load,wearer).carrySpeedFactor==lightStats.carrySpeedFactor,"Item HP bonuses cannot inflate capacity");
         catalog.findItem("wb-01").healthMultBonus=savedHealthBonus;
-        check(itemSystem.weightFactor(0,150)==1f&&itemSystem.weightFactor(100000,150)==catalog.minimumWeightSpeedFactor,
-            "Zero load has no weight penalty and extreme load respects the configured floor");
-        check(roundtrip.findItem("wb-06").weight==cannon.weight&&"dp-item-mount-wb-06".equals(roundtrip.findItem("wb-06").worldTextureName()),
-            "Weight and repaletted mounted sprite survive configuration roundtrip");
+        check(roundtrip.findItem("wb-06").size==2&&"dp-item-mount-wb-06".equals(roundtrip.findItem("wb-06").worldTextureName()),"Size and native mount sprite survive catalog roundtrip");
         String savedIcon=cannon.iconSprite,savedWorld=cannon.worldSprite;
         cannon.iconSprite="item-copper-ui";cannon.worldSprite="lancer";
         check("item-copper-ui".equals(cannon.uiDrawable())&&"lancer".equals(cannon.worldTextureName()),"Item icon and world sprite are independently selectable");
@@ -510,10 +506,10 @@ public class VerifyColouringGeneration {
             "Rear-mounted item depth is above front-mounted item depth, independent of slot order");
         itemSystem.applyStatsToUnit(wearer,lightStats);
         check(Math.abs(wearer.applyDynamicStatus().speedMultiplier-lightStats.speedMult)<0.0001f,
-            "Runtime applies the health-based weight penalty exactly once");
-        itemSystem.applyStatsToUnit(wearer,itemSystem.computeStats(load));
+            "Runtime applies carry fullness slowdown exactly once");
+        itemSystem.applyStatsToUnit(wearer,itemSystem.computeStats(load,wearer));
         check(Math.abs(wearer.applyDynamicStatus().speedMultiplier-lightStats.speedMult)<0.0001f,
-            "Legacy unbound stats acquire the correct weight penalty when applied to a unit");
+            "Applying stats repeatedly does not compound slowdown");
         var depthIds=Seq.with("wb-07","bz-13");
         itemSystem.updateVisualRigForUnit("depth-check",wearer,depthIds,itemSystem.computeStats(depthIds,wearer));
         var depthProc=itemSystem.getWorldLogicManager().getProcessorForOwner("depth-check");
@@ -631,20 +627,22 @@ public class VerifyColouringGeneration {
         var duplicates=new coolplugin.database.PlayerDatabase.EquipmentData();
         check(coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon)
             &&coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon)
-            &&duplicates.equipped.get(0).equals(cannon.id)&&duplicates.equipped.get(4).equals(cannon.id)
+            &&duplicates.equipped.get(0).equals(cannon.id)&&duplicates.equipped.get(30).equals(cannon.id)
             &&duplicates.equipped.get(1).isBlank(),"Second purchased copy automatically bypasses empty active slots into carry");
         var duplicateStats=itemSystem.computeStats(duplicates.equipped,wearer);
         check(duplicateStats.totalEquipped==2&&duplicateStats.activeSlotsUsed==1&&duplicateStats.overloadCount==1,
-            "Empty active placeholders do not add item count, weight or overload penalties");
+            "Empty active placeholders do not add item count or carry fullness");
         for(int i=0;i<5;i++)coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon);
         String beforeFull=duplicates.equipped.toString();
         check(!coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon)&&beforeFull.equals(duplicates.equipped.toString()),
             "Full carry rejects another duplicate without modifying inventory despite empty active slots");
+        var capacityWearer=UnitTypes.mega.spawn(Team.sharded,180,180);p.unit(capacityWearer);
+        owned.put(p.uuid(),capacityWearer);
         itemSystem.saveEquipment(p,duplicates);
         var restoredDuplicates=itemSystem.getEquipment(p);
         check(restoredDuplicates.equipped.get(0).equals(cannon.id)&&restoredDuplicates.equipped.get(1).isBlank()
-            &&restoredDuplicates.equipped.get(4).equals(cannon.id),"Carry routing and empty active slots persist through database roundtrip");
-        check(itemSystem.promoteSlotToActive(p,4).success()&&itemSystem.getEquipment(p).equipped.get(1).isBlank(),
+            &&restoredDuplicates.equipped.get(30).equals(cannon.id),"Carry routing and empty active slots persist through database roundtrip");
+        check(!itemSystem.promoteSlotToActive(p,30).success()&&itemSystem.getEquipment(p).equipped.get(1).isBlank(),
             "Promoting a duplicate never enables a second active copy");
         for(var cost:cannon.resourceCosts)if(cost.resolveItem()!=null)plugin.getBuildSystem().giveItems(p,cost.resolveItem(),cost.amount()*5);
         int resourcesBefore=plugin.getBuildSystem().getAvailableAmount(p,mindustry.content.Items.graphite);
@@ -663,7 +661,7 @@ public class VerifyColouringGeneration {
         boolean exactRoles=true;for(int i=0;i<10;i++)exactRoles&=(roleOutput.getRGB(i,0)&0xffffff)==targetRoles[i];
         check(exactRoles&&roleOutput.getRGB(10,0)==0xff404049,"Source-aware recolouring replaces each material role exactly and preserves the outline");
         var allGuns=new Seq<String>();for(var item:catalog.items)if(item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.SUBWEAPON&&item.isSymmetricallyDuplicated(4f)&&allGuns.size<4)allGuns.add(item.id);
-        while(allGuns.size<10)allGuns.add(cannon.id);
+        while(allGuns.size<10)allGuns.add(cannon.id);allGuns=legacySlots(allGuns);
         int gunCodeLines=0;
         for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
             String gunCode=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,type.create(Team.sharded),allGuns,catalog,visualEntries);
@@ -679,7 +677,7 @@ public class VerifyColouringGeneration {
         boolean multiBudget=true;int maxShardLines=0,maxPrograms=0;
         Seq<String> allFollowers=new Seq<>();for(int i=0;i<10;i++)allFollowers.add(cannon.id);
         var followItem=catalog.items.find(item->item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.FOLLOW);
-        if(followItem!=null)for(int i=0;i<4;i++)allFollowers.set(i,followItem.id);
+        if(followItem!=null)for(int i=0;i<4;i++)allFollowers.set(i,followItem.id);allFollowers=legacySlots(allFollowers);
         for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
             for(var loadout:Seq.with(allGuns,allFollowers)){
                 var programs=coolplugin.gameplay.WorldItemLogicManager.compileRigPrograms(300000,null,type.create(Team.sharded),loadout,catalog);
@@ -768,11 +766,11 @@ public class VerifyColouringGeneration {
         }
         check(visibleFlashes,"Both dual mounts display real local muzzle flashes above the weapon layer after authoritative shots");
         check(nativeScale,"Mount markers render at 100 percent native sprite dimensions, within the requested 10 percent limit");
-        float originalMass=cannon.weight;
+        int originalSize=cannon.size;
         var originalDimensions=coolplugin.gameplay.ColouringAssets.mountSizes.get(cannon.id).cpy();
         coolplugin.gameplay.ColouringAssets.mountSizes.put(cannon.id,new arc.math.geom.Vec2(40,80));
-        check(cannon.carryingWeight()>=500,"Large native sprites receive a size-based weight floor instead of being shrunk into tiny mounts");
-        coolplugin.gameplay.ColouringAssets.mountSizes.put(cannon.id,originalDimensions);cannon.weight=originalMass;
+        check(cannon.size==originalSize,"Native sprite dimensions no longer silently add weight or inventory size");
+        coolplugin.gameplay.ColouringAssets.mountSizes.put(cannon.id,originalDimensions);
         itemSystem.destroyRig("flash-check");
         var tech=plugin.getTechTree();tech.reloadTree();var progress=tech.getProgressStore();var researchNode=tech.findNode("graphite-press");
         p.team(Team.sharded);progress.unlockSingle(p.uuid(),p.plainName(),researchNode,tech.getRoot());
@@ -907,6 +905,7 @@ public class VerifyColouringGeneration {
         check(((CapturingCon)p.con).kickMessage.contains("250"),"New joiner receives an explicit capacity kick when processor pool is full");
         admission.clearRig("reserved-0");check(allocate.invoke(admission,"replacement")!=null,"A released processor slot can be allocated again");
         admission.clearAllRigs();
+        verifyInventoryBudgets(plugin,p,workConfig);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -926,6 +925,123 @@ public class VerifyColouringGeneration {
             if (containsNodeId(child, id)) return true;
         }
         return false;
+    }
+
+    private static void verifyInventoryBudgets(CoolPlugin plugin,Player p,Fi config)throws Exception{
+        var system=plugin.getPlayerItemSystem();var catalog=system.getCatalog();
+        String[][] tiers={{"dagger","nova","crawler","flare","mono","risso","retusa"},
+            {"mace","pulsar","atrax","horizon","poly","minke","oxynoe","stell","merui","elude"},
+            {"fortress","quasar","spiroct","zenith","mega","bryde","cyerce","locus","cleroi","avert"},
+            {"precept","anthicus","obviate"},{"scepter","vela","arkyid","antumbra","quad","sei","aegires","vanquish","tecta","quell"},
+            {"reign","corvus","toxopid","eclipse","oct","omura","navanax","conquer","collaris","disrupt"}};
+        int[] equips={1,2,4,6,12,30},carries={2,3,6,7,20,60},minimum={1,1,1,1,2,4};
+        boolean vanilla=true;
+        for(int row=0;row<tiers.length;row++)for(String name:tiers[row]){
+            var c=coolplugin.gameplay.InventoryRules.capacity(Vars.content.unit(name));
+            vanilla &=c.equip()==equips[row]&&c.carry()==carries[row]&&c.minimumEquipSize()==minimum[row];
+        }
+        check(vanilla,"Every vanilla ground/air/naval branch receives the exact requested tier capacities");
+        var custom=new UnitType("capacity-custom-probe");custom.health=10000;
+        check(coolplugin.gameplay.InventoryRules.capacity(custom).equip()==12,"Custom units use documented immutable base-health capacity bands");Vars.content.remove(custom);
+        var small=catalog.findItem("wb-01");var gun=catalog.findItem("wb-06");
+        var tiny=new EquipmentData();tiny.equipCapacity=1;tiny.carryCapacity=2;
+        check(coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(tiny,gun)&&tiny.equipped.get(30).equals(gun.id),"Size-2 graphite gun goes into carry when T1 equip budget is only one");
+        check(!coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(tiny,gun),"Full size-budget carry rejects purchases without partial changes");
+        var slow=system.computeStats(tiny.equipped,UnitTypes.dagger.create(Team.sharded));
+        check(Math.abs(slow.carrySpeedFactor-.25f)<.0001f,"Full carry inventory produces exactly 75 percent slowdown");
+        var half=new Seq<String>();while(half.size<30)half.add("");half.add(small.id);
+        check(Math.abs(system.computeStats(half,UnitTypes.dagger.create(Team.sharded)).carrySpeedFactor-.625f)<.0001f,"Half-full carry inventory produces 37.5 percent slowdown");
+        check(system.computeStats(Seq.with(small.id),UnitTypes.dagger.create(Team.sharded)).carrySpeedFactor==1f,"Equipped items alone cause no inventory slowdown");
+        var carriedOnly=new Seq<String>();while(carriedOnly.size<30)carriedOnly.add("");carriedOnly.add(gun.id);carriedOnly.add("temp-overclock");
+        Unit passiveHost=UnitTypes.reign.spawn(Team.sharded,180,180);passiveHost.isShooting=true;
+        var carriedStats=system.computeStats(carriedOnly,passiveHost);int bulletsBefore=Groups.bullet.size();
+        system.updateVisualRigForUnit("carry-gameplay-probe",passiveHost,carriedOnly,carriedStats);
+        check(carriedStats.healthMult==1f&&carriedStats.damageMult==1f&&carriedStats.reloadMult==1f
+            &&!passiveHost.hasEffect(mindustry.content.StatusEffects.overclock)&&Groups.bullet.size()==bulletsBefore,
+            "Carried guns/status items never fire or grant passives, even on large units");
+        system.destroyRig("carry-gameplay-probe");passiveHost.remove();
+        boolean paintCapacity=true;for(var scheme:coolplugin.gameplay.ColouringAssets.palettes){
+            var painted=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant("reign",scheme));
+            paintCapacity &=coolplugin.gameplay.InventoryRules.capacity(painted).equals(coolplugin.gameplay.InventoryRules.capacity(UnitTypes.reign));
+        }
+        check(paintCapacity,"Every painted T5 retains its base unit's equip/carry capacity and minimum equip cost");
+
+        var tierFour=new EquipmentData();tierFour.equipCapacity=12;tierFour.carryCapacity=20;tierFour.minimumEquipSize=2;
+        for(var item:catalog.items)if(item.size==1)coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(tierFour,item);
+        check(coolplugin.gameplay.PlayerItemSystem.usedCapacity(tierFour,true)==12,"T4 charges two equip points for small items without forbidding them");
+        var big=new EquipmentData();big.equipCapacity=30;big.carryCapacity=60;big.minimumEquipSize=4;
+        for(var item:catalog.items)big.sizes.put(item.id,item.size);
+        for(var item:catalog.items)if(item.size==1)coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(big,item);
+        int equippedCount=0;for(int i=0;i<Math.min(30,big.equipped.size);i++)if(!big.equipped.get(i).isBlank())equippedCount++;
+        check(coolplugin.gameplay.PlayerItemSystem.usedCapacity(big,true)==28&&equippedCount==7,
+            "T5 charges a minimum of four equip points even for real size-1 items");
+        var old=new EquipmentData();old.layoutVersion=1;old.equipped.addAll("wb-01","wb-06","wb-01","wb-06","wb-06","wb-01","wb-01","wb-01","wb-01","wb-01");
+        old.equipCapacity=1;old.carryCapacity=2;old.sizes.put(gun.id,2);
+        coolplugin.gameplay.PlayerItemSystem.normalizeEquipment(old);
+        int owned=old.equipped.count(id->!id.isBlank());for(var e:old.stash)owned+=e.value;
+        check(owned==10&&old.layoutVersion==2,"Legacy ten-slot migration preserves all copies through downsizing and duplicate routing");
+        var upgraded=coolplugin.gameplay.PlayerItemSystem.copyInventory(old);upgraded.equipCapacity=30;upgraded.carryCapacity=60;upgraded.minimumEquipSize=4;
+        for(String id:upgraded.stash.keys().toSeq()){
+            int count=upgraded.stash.get(id,0);while(count>0&&coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(upgraded,catalog.findItem(id)))count--;
+            if(count==0)upgraded.stash.remove(id,0);else upgraded.stash.put(id,count);
+        }
+        check(upgraded.stash.isEmpty()&&upgraded.equipped.count(id->!id.isBlank())==10,"Returning to a larger unit can recover preserved overflow without loss");
+        var ownedField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("owned");ownedField.setAccessible(true);
+        @SuppressWarnings("unchecked") var ownerMap=(arc.struct.ObjectMap<String,Unit>)ownedField.get(plugin.getPlayerUnitSystem());
+        var savedOwned=ownerMap.get(p.uuid());var savedPlayerUnit=p.unit();
+        Unit huge=UnitTypes.reign.spawn(Team.sharded,180,180);ownerMap.put(p.uuid(),huge);p.unit(huge);
+        system.saveEquipment(p,upgraded);var largeInventory=system.getEquipment(p);
+        int largeCount=largeInventory.equipped.count(id->!id.isBlank());for(var e:largeInventory.stash)largeCount+=e.value;
+        Unit little=UnitTypes.dagger.spawn(Team.sharded,180,180);ownerMap.put(p.uuid(),little);p.unit(little);
+        var smallInventory=system.getEquipment(p);int smallCount=smallInventory.equipped.count(id->!id.isBlank());for(var e:smallInventory.stash)smallCount+=e.value;
+        check(smallCount==largeCount&&coolplugin.gameplay.PlayerItemSystem.usedCapacity(smallInventory,true)<=1
+            &&coolplugin.gameplay.PlayerItemSystem.usedCapacity(smallInventory,false)<=2,"Real unit downgrade rebalances both size budgets and preserves excess ownership");
+        ownerMap.put(p.uuid(),huge);p.unit(huge);var returnedInventory=system.getEquipment(p);
+        check(returnedInventory.stash.isEmpty()&&returnedInventory.equipped.count(id->!id.isBlank())==largeCount,
+            "Real getEquipment restores preserved overflow after returning to a large unit");
+        ownerMap.put(p.uuid(),savedOwned);p.unit(savedPlayerUnit);huge.remove();little.remove();
+
+        var account=plugin.getSessionManager().getOrInitSession(p);var db=plugin.getPlayerDatabase();
+        db.saveEquipmentData(account.id,"capacity-roundtrip",big);var restored=db.getEquipmentData(account.id,"capacity-roundtrip");
+        check(restored.layoutVersion==2&&restored.equipped.equals(big.equipped),"Versioned SQLite serialization preserves every empty hole and carry boundary");
+        var connectionField=coolplugin.database.PlayerDatabase.class.getDeclaredField("connection");connectionField.setAccessible(true);
+        try(var stmt=((java.sql.Connection)connectionField.get(db)).prepareStatement("UPDATE account_equipped_items SET equipped_json = ? WHERE account_id = ? AND faction_id = ?")){
+            stmt.setString(1,"[\"wb-01\",\"\",\"\",\"wb-06\",\"wb-06\"]");stmt.setLong(2,account.id);stmt.setString(3,"capacity-roundtrip");stmt.executeUpdate();
+        }
+        var legacyRead=db.getEquipmentData(account.id,"capacity-roundtrip");coolplugin.gameplay.PlayerItemSystem.normalizeEquipment(legacyRead);
+        check(legacyRead.layoutVersion==2&&legacyRead.equipped.get(30).equals("wb-06")&&legacyRead.equipped.get(1).isBlank(),
+            "Actual pre-upgrade SQLite arrays migrate without moving carried items into active holes");
+
+        String ui=new String(serializeUi(new coolplugin.gameplay.PlayerInventoryDrawer(system).buildHexInventory(big,30,coolplugin.gameplay.PlayerInventoryDrawer.DrawerTheme.DEFAULT,true)),java.nio.charset.StandardCharsets.ISO_8859_1);
+        check(ui.contains("E ")&&ui.contains("Carry slow")&&!ui.contains("Weight"),"Large inventory UI is scrollable, size-budget aware, and contains no weight readout");
+        var manager=system.getWorldLogicManager();manager.clearAllRigs();
+        Seq<String> stressIds=new Seq<>();int budget=0;
+        for(var item:catalog.items)if(item.size==1&&item.attachMode!=coolplugin.gameplay.ShopItemDef.AttachMode.VFX&&budget+4<=30){stressIds.add(item.id);budget+=4;}
+        while(stressIds.size<30)stressIds.add("");for(int i=0;i<60;i++)stressIds.add("wb-01");
+        var stressSets=new Seq<Seq<String>>();stressSets.add(stressIds);
+        for(var mode:new coolplugin.gameplay.ShopItemDef.AttachMode[]{coolplugin.gameplay.ShopItemDef.AttachMode.FOLLOW,coolplugin.gameplay.ShopItemDef.AttachMode.HALO,coolplugin.gameplay.ShopItemDef.AttachMode.SUBWEAPON}){
+            Seq<String> set=new Seq<>();int used=0;
+            for(var item:catalog.items)if(item.attachMode==mode&&used+Math.max(4,item.size)<=30){set.add(item.id);used+=Math.max(4,item.size);}
+            while(set.size<30)set.add("");for(int i=0;i<60;i++)set.add("wb-01");stressSets.add(set);
+        }
+        boolean programs=true,capped=true,alive=true;int max=0,partsMax=0;
+        for(var stressSet:stressSets)for(var type:Vars.content.units())if(type.playerControllable&&!type.hidden){
+            Unit stress=type.spawn(Team.sharded,180,180);manager.syncRig("capacity-live",stress,stressSet,catalog);
+            var parts=manager.getProcessorsForOwner("capacity-live");partsMax=Math.max(partsMax,parts.size);alive &=!parts.isEmpty();
+            capped &=manager.getCompiledEntries("capacity-live").count(e->e.inventorySlot()>=30)==6;
+            for(var part:parts){max=Math.max(max,coolplugin.gameplay.WorldItemLogicManager.instructionCount(part.code));programs &=coolplugin.gameplay.WorldItemLogicManager.instructionCount(part.code)<=500;part.update();}
+            programs &=parts.size<=10;manager.clearRig("capacity-live");stress.remove();
+        }
+        check(alive&&programs,"Maximum T5 mixed/follower/halo/gun loadouts plus 60 carries fit live 10-processor/500-instruction limits on every playable host");
+        check(capped,"Only six carried items get markers; the other 54 are never drawn");
+        System.out.println("CAPACITY LIVE maxInstructions="+max+" maxProcessors="+partsMax);
+    }
+
+    private static Seq<String> legacySlots(Seq<String> old){
+        Seq<String> result=new Seq<>();
+        for(int i=0;i<Math.min(4,old.size);i++)result.add(old.get(i));
+        if(old.size>4){while(result.size<30)result.add("");for(int i=4;i<old.size;i++)result.add(old.get(i));}
+        return result;
     }
 
     private static void setEquipped(CoolPlugin plugin, Player p, String... ids) {

@@ -230,33 +230,9 @@ public class FactionJoinMenu {
         // Divider right above the lower hexagon shoulder
         inner.add(image("whiteui").color(dividerHex).width(COL_WIDTH - 28f).height(2f).padBottom(5f)).row();
 
-        // 4. Lower Pointed Hexagon Peak:
-        //    - existing faction unit -> "Current:" + [unit uiIcon + unit name]
-        //    - never started available faction -> "New game"
-        //    - unavailable faction -> blank (write nothing)
+        // Every faction starts a new game; never display a saved/current unit here.
         TableBuilder bottomStatus = table().align("center").height(45f);
-        if (currentUnit != null) {
-            String currentLabelMarkup = enabled ? "[lightgray]Current:[]" : "[#828290]Current:[]";
-            bottomStatus.add(label(currentLabelMarkup).labelAlign("center").padBottom(3f)).row();
-
-            TableBuilder unitRow = table().align("center").height(22f);
-            ImageBuilder unitIcon = image(UiSpriteSync.resolveMenuDrawable(unitUiIconRegion(currentUnit)))
-                .placeholder("unit-dagger-ui")
-                .scaling(Scaling.fit)
-                .size(22f)
-                .padRight(6f);
-            if (!enabled) {
-                unitIcon.color("8a8a98d8");
-            }
-            unitRow.add(unitIcon);
-
-            String unitName = formatUnitName(currentUnit);
-            String unitMarkup = enabled ? ("[white]" + unitName + "[]") : ("[#9696a4]" + unitName + "[]");
-            unitRow.add(label(unitMarkup).labelAlign("left"));
-            bottomStatus.add(unitRow);
-        } else if (enabled) {
-            bottomStatus.add(label("[white]New game[]").labelAlign("center"));
-        }
+        bottomStatus.add(label("[white]New game[]").labelAlign("center"));
         inner.add(bottomStatus.padBottom(35f));
 
         colStack.add(inner);

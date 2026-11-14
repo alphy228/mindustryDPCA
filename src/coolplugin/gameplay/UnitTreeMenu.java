@@ -35,14 +35,14 @@ public final class UnitTreeMenu {
     }
     public NodeBuilder<?> build(Player player,FactionDef faction){
         var root=table().margin(6f);
-        root.add(table().background("pane").margin(14f).add(label("[accent]Choose your unit tree[]")).width(FactionJoinMenu.TOTAL_WIDTH)).row();
+        root.add(table().background("pane").margin(14f).add(label("[accent]Choose your unit branch[]")).width(FactionJoinMenu.TOTAL_WIDTH)).row();
         var columns=table();
         for(UnitTree tree:UnitTree.values()){
             boolean enabled=tree.available&&units.canSelectTree(player,faction,tree);
             var col=buttonTable().style("emptyi").margin(0f).width(FactionJoinMenu.COL_WIDTH).height(FactionJoinMenu.COL_HEIGHT).padRight(FactionJoinMenu.COL_GAP);
             if(enabled)col.clicked(tree.savedId());else col.disabled(true);
             var layers=stack().width(FactionJoinMenu.COL_WIDTH).height(FactionJoinMenu.COL_HEIGHT);
-            String frame=enabled?faction.colBgRegion:FactionDef.MALIS.colBgRegion;
+            String frame="unit-branch-frame-"+tree.id();
             layers.add(image(UiSpriteSync.resolveMenuDrawable(frame)).placeholder("button").scaling(Scaling.stretch));
             var contents=table().margin(0f).align("top");
             contents.add(label((enabled?"[accent]":"[gray]")+tree.title+"[]").labelAlign("center").padTop(36f).padBottom(12f)).row();
@@ -50,7 +50,7 @@ public final class UnitTreeMenu {
             var art=image(UiSpriteSync.resolveMenuDrawable(tree.art())).placeholder("unit-"+tree.units[0]+"-ui").scaling(Scaling.fit).width(212f).height(244f);
             if(!enabled)art.color("777785cc");
             contents.add(art).row();
-            contents.add(label(tree.available?(enabled?"[lightgray]Select tree[]":"[gray]Research to unlock[]"):"[gray]Unavailable[]").labelAlign("center").padTop(14f)).row();
+            contents.add(label(tree.available?(enabled?"[lightgray]Select branch[]":"[gray]Research to unlock[]"):"[gray]Unavailable[]").labelAlign("center").padTop(14f)).row();
             layers.add(contents);col.add(layers);columns.add(col);
         }
         root.add(pane().style("defaultPane").add(columns).width(FactionJoinMenu.TOTAL_WIDTH).height(FactionJoinMenu.COL_HEIGHT+24f));

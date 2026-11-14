@@ -388,7 +388,7 @@ public class PlayerUnitSystem {
     public void requestOpenFactionMenu(Player player) {
         if (!valid(player)) return;
         if(!canChangeChoice()&&chosenTrees.containsKey(player.uuid())){
-            player.sendMessage("[scarlet]Faction and tree changes are only allowed during the first 5 minutes of the game.[]");return;
+            player.sendMessage("[scarlet]Faction and branch changes are only allowed during the first 5 minutes of the game.[]");return;
         }
         choiceChangeRequests.add(player.uuid());
         factionMenu.open(player);

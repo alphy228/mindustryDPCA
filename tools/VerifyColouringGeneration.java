@@ -1102,7 +1102,7 @@ public class VerifyColouringGeneration {
         check(!coolplugin.gameplay.UnitTree.TANK.available&&!coolplugin.gameplay.UnitTree.LEGGED.available&&!coolplugin.gameplay.UnitTree.ATTACK_NAVALS.available,
             "Erekir, legged and naval tree cards are disabled");
         String ui=new String(serializeUi(system.getTreeMenu().build(player,coolplugin.gameplay.FactionDef.SHARDED)),StandardCharsets.ISO_8859_1);
-        check(ui.contains("Choose your unit tree")&&ui.contains("Support mech")&&ui.contains("Insectoid")&&ui.contains("Chemical"),"Tree picker serializes all horizontal faction-style columns");
+        check(ui.contains("Choose your unit branch")&&ui.contains("Support mech")&&ui.contains("Insectoid")&&ui.contains("Chemical"),"Branch picker serializes all horizontal faction-style columns");
         system.start();
         var factionField=klass.getDeclaredField("chosenFactions");factionField.setAccessible(true);
         ((arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)factionField.get(system)).put(player.uuid(),coolplugin.gameplay.FactionDef.SHARDED);

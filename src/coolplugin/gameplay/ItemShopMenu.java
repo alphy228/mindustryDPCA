@@ -636,6 +636,10 @@ public class ItemShopMenu {
                 .width(LEFT_TOTAL_W - 266f)
         ).row();
         textCol.add(label("[gray]Size: "+item.size+"[]")).row();
+        var inventory=itemSystem.getEquipment(player);
+        boolean equippedSmall=false;for(int i=0;i<Math.min(30,inventory.equipped.size);i++)
+            if(item.id.equals(inventory.equipped.get(i))&&item.size<inventory.minimumEquipSize)equippedSmall=true;
+        if(equippedSmall)textCol.add(label("[red]Item too small for slot![]")).row();
         if(!itemSystem.isItemResearched(player,item))textCol.add(label("[scarlet]Requires item research[]")).row();
         if (item.description != null && !item.description.isEmpty()) {
             textCol.add(

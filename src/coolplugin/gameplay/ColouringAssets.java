@@ -124,7 +124,7 @@ public final class ColouringAssets {
                     int c=image.getRGB(x,y); hash.update((byte)(c>>>24));hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);
                 }
             }
-            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v14";
+            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v15";
             Fi stamp = data.child("colouring-cache/digest");
             boolean cached = stamp.exists() && stamp.readString().equals(digest);
             if (cached) target=liveImages;
@@ -245,22 +245,42 @@ public final class ColouringAssets {
     public static final ObjectMap<String,String> mountSources=new ObjectMap<>();
     private BufferedImage outlinedWeapon(String name){
         BufferedImage source=sprites.get(name);if(source==null)return null;
-        if(hasOutline(source))return source;
-        BufferedImage outline=sprites.get(name+"-outline");
-        if(outline==null){
-            outline=new BufferedImage(source.getWidth()+2,source.getHeight()+2,BufferedImage.TYPE_INT_ARGB);
-            for(int y=0;y<source.getHeight();y++)for(int x=0;x<source.getWidth();x++)if((source.getRGB(x,y)>>>24)>0)
-                for(int oy=-1;oy<=1;oy++)for(int ox=-1;ox<=1;ox++)outline.setRGB(x+1+ox,y+1+oy,0xff404049);
+        int nativeOutline=0x404049;
+        for(var unit:Vars.content.units())for(var weapon:unit.weapons)if(weapon.name.equals(name))nativeOutline=unit.outlineColor.rgba()>>>8;
+        return stripMountOutline(source,nativeOutline);
+    }
+    /** Remove only old outline ink connected to the transparent exterior, not dark interior detail. */
+    public static BufferedImage stripMountOutline(BufferedImage source,int nativeOutline){
+        int w=source.getWidth(),h=source.getHeight();
+        BufferedImage body=new BufferedImage(w,h,BufferedImage.TYPE_INT_ARGB);
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++)body.setRGB(x,y,source.getRGB(x,y));
+        boolean[] seen=new boolean[w*h];var queue=new java.util.ArrayDeque<Integer>();
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+            int rgb=source.getRGB(x,y)&0xffffff;if(rgb!=nativeOutline&&rgb!=0x404049)continue;
+            boolean edge=x==0||y==0||x==w-1||y==h-1;
+            if(!edge)edge=(source.getRGB(x-1,y)>>>24)==0||(source.getRGB(x+1,y)>>>24)==0||(source.getRGB(x,y-1)>>>24)==0||(source.getRGB(x,y+1)>>>24)==0;
+            if(edge){queue.add(y*w+x);seen[y*w+x]=true;}
         }
-        BufferedImage combined=new BufferedImage(Math.max(source.getWidth(),outline.getWidth()),Math.max(source.getHeight(),outline.getHeight()),BufferedImage.TYPE_INT_ARGB);
-        var graphics=combined.createGraphics();
-        graphics.drawImage(outline,(combined.getWidth()-outline.getWidth())/2,(combined.getHeight()-outline.getHeight())/2,null);
-        graphics.drawImage(source,(combined.getWidth()-source.getWidth())/2,(combined.getHeight()-source.getHeight())/2,null);graphics.dispose();
-        if(hasOutline(combined))return combined;
-        BufferedImage padded=new BufferedImage(combined.getWidth()+2,combined.getHeight()+2,BufferedImage.TYPE_INT_ARGB);
-        for(int y=0;y<combined.getHeight();y++)for(int x=0;x<combined.getWidth();x++)if((combined.getRGB(x,y)>>>24)>0)
-            for(int oy=-1;oy<=1;oy++)for(int ox=-1;ox<=1;ox++)padded.setRGB(x+1+ox,y+1+oy,0xff404049);
-        var pen=padded.createGraphics();pen.drawImage(combined,1,1,null);pen.dispose();return padded;
+        while(!queue.isEmpty()){
+            int pos=queue.removeFirst(),x=pos%w,y=pos/w;
+            body.setRGB(x,y,0);
+            for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
+                int nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h||seen[ny*w+nx])continue;
+                int c=source.getRGB(nx,ny);if((c>>>24)==0)continue;
+                int rgb=c&0xffffff;if(rgb==nativeOutline||rgb==0x404049){seen[ny*w+nx]=true;queue.add(ny*w+nx);}
+            }
+        }
+        return body;
+    }
+    /** One circular native-radius outline, after recolouring. Never stack native + fallback borders. */
+    public static BufferedImage outlineMount(BufferedImage body,int colour,int radius){
+        radius=Math.max(1,radius);int w=body.getWidth(),h=body.getHeight();
+        BufferedImage out=new BufferedImage(w+6,h+6,BufferedImage.TYPE_INT_ARGB);
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++)if((body.getRGB(x,y)>>>24)>0)
+            for(int dy=-radius;dy<=radius;dy++)for(int dx=-radius;dx<=radius;dx++)if(dx*dx+dy*dy<=radius*radius){
+                int nx=x+3+dx,ny=y+3+dy;if(nx>=0&&ny>=0&&nx<out.getWidth()&&ny<out.getHeight())out.setRGB(nx,ny,0xff000000|(colour&0xffffff));
+            }
+        var pen=out.createGraphics();pen.drawImage(body,3,3,null);pen.dispose();return out;
     }
 
     private void generateItemMounts(Seq<UnitType> units) throws Exception {
@@ -299,15 +319,15 @@ public final class ColouringAssets {
             // Prefer a real outlined weapon; small unoutlined barrels are not suitable mounts.
             if(source==null)throw new IllegalStateException("No outlined weapon sprite for "+item.id);
             mountSources.put(item.id,sourceName);
-            mountSizes.put(item.id,new arc.math.geom.Vec2(source.getWidth()*.25f,source.getHeight()*.25f));
+            mountSizes.put(item.id,new arc.math.geom.Vec2((source.getWidth()+6)*.25f,(source.getHeight()+6)*.25f));
             int[] weaponRamp=overrideAccepted?sourceRamps.get(item.mountWeaponSprite,ManualUnitPalettes.source(family)):ManualUnitPalettes.source(family);
-            ImageIO.write(source,"png",target.child("item-mount-"+item.id+".png").file());
+            ImageIO.write(outlineMount(source,0x404049,3),"png",target.child("item-mount-"+item.id+".png").file());
             for(UnitType host:units){
                 int[] nativeRamp=hostRamps.get(host.name);
-                if(nativeRamp!=null)ImageIO.write(recolour(source,nativeRamp,weaponRamp),"png",
+                if(nativeRamp!=null)ImageIO.write(outlineMount(recolour(source,nativeRamp,weaponRamp),host.outlineColor.rgba()>>>8,Math.min(3,Math.max(1,host.outlineRadius))),"png",
                     target.child("item-mount-"+item.id+"-host-"+host.name+".png").file());
             }
-            for(Palette palette:palettes)ImageIO.write(recolour(source,palette.ramp(),weaponRamp),"png",
+            for(Palette palette:palettes)ImageIO.write(outlineMount(recolour(source,palette.ramp(),weaponRamp),palette.ramp()[0],3),"png",
                 target.child("item-mount-"+item.id+"-scheme-"+palette.id()+".png").file());
         }
         Fi effects=data.child("assets/content/statuses/item-mounts");effects.deleteDirectory();effects.mkdirs();

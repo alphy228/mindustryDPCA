@@ -673,7 +673,7 @@ public class VerifyColouringGeneration {
             correctMountLayers&=layerCode.contains("op min mountBase baseLayer 99")&&layerCode.contains("op add mountLayer mountBase ");
         }
         check(correctMountLayers,"Ground, low and high altitude mounts are ordered below native bullets while preserving mount depth");
-        check(gunCodeLines<1000,"Four dual-shooting mounts plus all six carry items fit the native parser including local muzzle flashes");
+        check(gunCodeLines>0,"Full gun diagnostic code is generated before safe 500-instruction sharding");
         boolean multiBudget=true;int maxShardLines=0,maxPrograms=0;
         Seq<String> allFollowers=new Seq<>();for(int i=0;i<10;i++)allFollowers.add(cannon.id);
         var followItem=catalog.items.find(item->item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.FOLLOW);
@@ -906,6 +906,7 @@ public class VerifyColouringGeneration {
         admission.clearRig("reserved-0");check(allocate.invoke(admission,"replacement")!=null,"A released processor slot can be allocated again");
         admission.clearAllRigs();
         verifyInventoryBudgets(plugin,p,workConfig);
+        verifyMountAimAndInventory(plugin,p,workConfig);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -1013,7 +1014,7 @@ public class VerifyColouringGeneration {
             "Actual pre-upgrade SQLite arrays migrate without moving carried items into active holes");
 
         String ui=new String(serializeUi(new coolplugin.gameplay.PlayerInventoryDrawer(system).buildHexInventory(big,30,coolplugin.gameplay.PlayerInventoryDrawer.DrawerTheme.DEFAULT,true)),java.nio.charset.StandardCharsets.ISO_8859_1);
-        check(ui.contains("E ")&&ui.contains("Carry slow")&&!ui.contains("Weight"),"Large inventory UI is scrollable, size-budget aware, and contains no weight readout");
+        check(ui.contains("E ")&&!ui.contains("Carry slow")&&!ui.contains("Min equip")&&!ui.contains("Weight"),"Large inventory UI is scrollable, size-budget aware, and contains no weight readout");
         var manager=system.getWorldLogicManager();manager.clearAllRigs();
         Seq<String> stressIds=new Seq<>();int budget=0;
         for(var item:catalog.items)if(item.size==1&&item.attachMode!=coolplugin.gameplay.ShopItemDef.AttachMode.VFX&&budget+4<=30){stressIds.add(item.id);budget+=4;}
@@ -1035,6 +1036,101 @@ public class VerifyColouringGeneration {
         check(alive&&programs,"Maximum T5 mixed/follower/halo/gun loadouts plus 60 carries fit live 10-processor/500-instruction limits on every playable host");
         check(capped,"Only six carried items get markers; the other 54 are never drawn");
         System.out.println("CAPACITY LIVE maxInstructions="+max+" maxProcessors="+partsMax);
+    }
+
+    private static void verifyMountAimAndInventory(CoolPlugin plugin,Player player,Fi config)throws Exception{
+        var system=plugin.getPlayerItemSystem();var catalog=system.getCatalog();var gun=catalog.findItem("wb-06");
+        check(!gun.subweaponAutoTarget&&catalog.findItem("bz-05").subweaponAutoTarget&&catalog.findItem("ca-05").subweaponAutoTarget
+            &&!catalog.findItem("bz-test-reign").subweaponAutoTarget,"Most mounts aim manually; only the two explicitly selected autonomous guns auto-target by default");
+        var savedFile=config.child("aim-roundtrip.hjson");coolplugin.gameplay.ShopConfigIO.save(savedFile,catalog);
+        check(!coolplugin.gameplay.ShopConfigIO.load(savedFile).findItem("wb-06").subweaponAutoTarget
+            &&coolplugin.gameplay.ShopConfigIO.load(savedFile).findItem("bz-05").subweaponAutoTarget,"Per-item auto-target opt-in survives config serialization");
+        var bullets=new Seq<mindustry.gen.CreateBulletCallPacket>();var originalNet=Vars.net;
+        Vars.net=new Net(null){@Override public boolean server(){return true;}@Override public boolean active(){return true;}
+            @Override public void send(Object object,boolean reliable){if(object instanceof mindustry.gen.CreateBulletCallPacket b)bullets.add(b);}};
+        Unit host=UnitTypes.reign.spawn(Team.sharded,180,180),enemy=UnitTypes.dagger.spawn(Team.crux,180,300);
+        host.aimX=300;host.aimY=180;host.isShooting=false;float oldDelta=Time.delta;Time.delta=12;
+        var load=Seq.with(gun.id);var computed=system.computeStats(load,host);
+        system.updateVisualRigForUnit("aim-probe",host,load,computed);
+        check(bullets.isEmpty(),"Manual-only mount never autonomously fires at a nearby enemy");
+        gun.subweaponAutoTarget=true;
+        system.updateVisualRigForUnit("aim-probe",host,load,computed);
+        var rigsField=system.getClass().getDeclaredField("serverRigs");rigsField.setAccessible(true);
+        var rig=((arc.struct.ObjectMap<String,?>)rigsField.get(system)).get("aim-probe");
+        var barrelsField=rig.getClass().getDeclaredField("subweapons");barrelsField.setAccessible(true);
+        for(Object barrel:(Seq<?>)barrelsField.get(rig)){
+            var target=barrel.getClass().getDeclaredField("cachedTarget");target.setAccessible(true);target.set(barrel,enemy);
+            var scan=barrel.getClass().getDeclaredField("targetScanTimer");scan.setAccessible(true);scan.setFloat(barrel,-1000f);
+        }
+        bullets.clear();system.updateVisualRigForUnit("aim-probe",host,load,computed);
+        var manager=system.getWorldLogicManager();var entries=manager.getCompiledEntries("aim-probe");var parts=manager.getProcessorsForOwner("aim-probe");
+        boolean matched=!bullets.isEmpty();for(var part:parts){part.executor.optionalVar("hostUnit").setobj(host);for(int i=0;i<4000;i++)part.executor.runOnce();}
+        for(var entry:entries)if(entry.kind()==coolplugin.gameplay.WorldItemLogicManager.RenderedKind.SUBWEAPON){
+            float mx=host.x+arc.math.Angles.trnsx(host.rotation,entry.localForwardWorld(),entry.localSideWorld());
+            float my=host.y+arc.math.Angles.trnsy(host.rotation,entry.localForwardWorld(),entry.localSideWorld());
+            float desired=arc.math.Angles.angle(mx,my,enemy.x,enemy.y);
+            var marker=(mindustry.game.MapObjectives.TextureMarker)Vars.state.markers.get(entry.primaryMarkerId());
+            matched &=marker!=null&&arc.math.Angles.angleDist(marker.rotation+90,desired)<.1f;
+            matched &=bullets.contains(b->arc.math.Angles.angleDist(b.angle,desired)<.1f);
+        }
+        check(matched,"Autonomous projectile angles match actual executed turret marker rotation instead of the unrelated player cursor");
+        host.isShooting=true;bullets.clear();system.updateVisualRigForUnit("aim-probe",host,load,computed);
+        boolean manualOverride=!bullets.isEmpty();for(var part:parts)for(var entry:entries){var flag=part.executor.optionalVar("autoAim"+entry.primaryMarkerId());if(flag!=null)manualOverride &=flag.numval==0;}
+        check(manualOverride,"Player shooting immediately overrides autonomous aim and clears the client auto-aim flag");
+        gun.subweaponAutoTarget=false;system.destroyRig("aim-probe");host.remove();enemy.remove();Vars.net=originalNet;Time.delta=oldDelta;
+        var body=new java.awt.image.BufferedImage(7,7,java.awt.image.BufferedImage.TYPE_INT_ARGB);body.setRGB(3,3,0xffddaa66);
+        var old=coolplugin.gameplay.ColouringAssets.outlineMount(body,0x565666,3);
+        var stripped=coolplugin.gameplay.ColouringAssets.stripMountOutline(old,0x565666);
+        var outlined=coolplugin.gameplay.ColouringAssets.outlineMount(stripped,0x123456,3);
+        boolean single=true;int ink=0;
+        for(int y=0;y<outlined.getHeight();y++)for(int x=0;x<outlined.getWidth();x++)if((outlined.getRGB(x,y)>>>24)>0){int rgb=outlined.getRGB(x,y)&0xffffff;if(rgb!=0xddaa66){single &=rgb==0x123456;ink++;}}
+        check(single&&ink==28,"Old outline is removed and replaced by exactly one uniform circular native 3-pixel outline, not two coloured bands");
+        boolean paletteEdges=true;
+        for(var scheme:coolplugin.gameplay.ColouringAssets.palettes){
+            var image=javax.imageio.ImageIO.read(config.child("assets/sprites/item-mounts/item-mount-wb-06-scheme-"+scheme.id()+".png").file());
+            for(int y=1;y<image.getHeight()-1;y++)for(int x=1;x<image.getWidth()-1;x++)if((image.getRGB(x,y)>>>24)>0
+                &&((image.getRGB(x-1,y)>>>24)==0||(image.getRGB(x+1,y)>>>24)==0||(image.getRGB(x,y-1)>>>24)==0||(image.getRGB(x,y+1)>>>24)==0))
+                paletteEdges &=(image.getRGB(x,y)&0xffffff)==scheme.ramp()[0];
+        }
+        check(paletteEdges,"Generated mount outline edges use the exact selected palette outline colour for every scheme");
+        var ownerField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("owned");ownerField.setAccessible(true);
+        @SuppressWarnings("unchecked") var owners=(arc.struct.ObjectMap<String,Unit>)ownerField.get(plugin.getPlayerUnitSystem());
+        var savedOwner=owners.get(player.uuid());var savedUnit=player.unit();Unit invHost=UnitTypes.reign.spawn(Team.sharded,180,180);owners.put(player.uuid(),invHost);player.unit(invHost);
+        var data=new EquipmentData();data.equipped.add("wb-01");system.saveEquipment(player,data);
+        var menu=new coolplugin.gameplay.InventoryMenu(system);
+        String ui=new String(serializeUi(menu.build(player,0,false,"")),java.nio.charset.StandardCharsets.ISO_8859_1);
+        check(ui.contains("Item too small for slot!")&&!ui.contains("Carry slow")&&!ui.contains("Min equip")&&ui.contains("Destroy"),"Standalone inventory has item-size warning and destroy control without removed footer labels");
+        var handler=new CommandHandler("/");menu.registerCommands(handler);
+        check(handler.handleMessage("/i",player).type==CommandHandler.ResponseType.valid&&handler.handleMessage("/inv",player).type==CommandHandler.ResponseType.valid
+            &&handler.handleMessage("/inventory",player).type==CommandHandler.ResponseType.valid,"All three inventory command aliases open the standalone menu");
+        var sessionsField=menu.getClass().getDeclaredField("sessions");sessionsField.setAccessible(true);
+        var session=((arc.struct.ObjectMap<String,?>)sessionsField.get(menu)).get(player.uuid());
+        var tokenField=session.getClass().getDeclaredField("token");tokenField.setAccessible(true);
+        var select=new mindustry.ui.builder.MenuResult("inv:0");select.token=tokenField.getLong(session);menu.handleResult(player,select);
+        var destroy=new mindustry.ui.builder.MenuResult("destroy");destroy.token=tokenField.getLong(session);menu.handleResult(player,destroy);
+        check(system.getEquipment(player).equipped.get(0).equals("wb-01"),"First Destroy click arms confirmation without removing the item");
+        menu.handleResult(player,destroy);check(system.getEquipment(player).equipped.get(0).equals("wb-01"),"Replaying an old Destroy token cannot bypass confirmation");
+        destroy.token=tokenField.getLong(session);menu.handleResult(player,destroy);
+        check(system.getEquipment(player).equipped.isEmpty(),"Second confirmed Destroy click removes exactly the selected item");
+        data=new EquipmentData();data.equipped.add("wb-01");system.saveEquipment(player,data);menu.open(player);
+        session=((arc.struct.ObjectMap<String,?>)sessionsField.get(menu)).get(player.uuid());
+        select.token=tokenField.getLong(session);menu.handleResult(player,select);
+        var carryAction=new mindustry.ui.builder.MenuResult("carry");carryAction.token=tokenField.getLong(session);menu.handleResult(player,carryAction);
+        check(system.getEquipment(player).equipped.get(30).equals("wb-01")&&system.getEquipment(player).equipped.get(0).isBlank(),"Standalone Carry button moves equipment into carry without losing it");
+        String carryUi=new String(serializeUi(menu.build(player,30,false,"")),java.nio.charset.StandardCharsets.ISO_8859_1);
+        check(!carryUi.contains("Item too small for slot!"),"Small-item warning is shown only while equipped, never while carried");
+        select=new mindustry.ui.builder.MenuResult("inv:30");select.token=tokenField.getLong(session);menu.handleResult(player,select);
+        var equipAction=new mindustry.ui.builder.MenuResult("equip");equipAction.token=tokenField.getLong(session);menu.handleResult(player,equipAction);
+        var equippedAgain=system.getEquipment(player);
+        check(equippedAgain.equipped.get(0).equals("wb-01")&&coolplugin.gameplay.PlayerItemSystem.usedCapacity(equippedAgain,true)==4,
+            "Standalone Equip button accepts a small item and charges the T5 minimum four spaces");
+        select=new mindustry.ui.builder.MenuResult("inv:0");select.token=tokenField.getLong(session);menu.handleResult(player,select);
+        destroy=new mindustry.ui.builder.MenuResult("destroy");destroy.token=tokenField.getLong(session);menu.handleResult(player,destroy);
+        select.token=tokenField.getLong(session);menu.handleResult(player,select); // selecting again cancels any armed destruction
+        destroy.token=tokenField.getLong(session);menu.handleResult(player,destroy);
+        check(system.getEquipment(player).equipped.get(0).equals("wb-01"),"Changing selection clears destroy confirmation and requires two fresh clicks");
+
+        owners.put(player.uuid(),savedOwner);player.unit(savedUnit);invHost.remove();
     }
 
     private static Seq<String> legacySlots(Seq<String> old){

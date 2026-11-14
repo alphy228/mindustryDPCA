@@ -215,7 +215,7 @@ public final class WorldItemLogicManager {
         LogicBuild procBuild = ensureProcessorPlaced(slot);
         if (procBuild == null){rejectRig(ownerKey,"No safe map tile available for visual processors.");return;}
         String signature = buildRigSignature(unit, ownerPlayerName, equippedIds);
-        for(String id:equippedIds){var def=catalog.findItem(id);if(def!=null)signature+="/"+def.subweaponRecoilTime+"/"+def.subweaponRecoil+"/"+def.subweaponShootEffect+"/"+def.mountWeaponSprite;}
+        for(String id:equippedIds){var def=catalog.findItem(id);if(def!=null)signature+="/"+def.subweaponRecoilTime+"/"+def.subweaponRecoil+"/"+def.subweaponShootEffect+"/"+def.mountWeaponSprite+"/"+def.subweaponAutoTarget;}
         boolean codeChanged = !signature.equals(slot.compiledSignature)
             || procBuild.code == null || procBuild.code.isEmpty();
         for(ProcessorSlot child:slot.children)if(getExistingProcessor(child)==null)codeChanged=true;
@@ -378,6 +378,24 @@ public final class WorldItemLogicManager {
             for(ProcessorSlot child:slot.children)copy.addAll(child.entries);
         }
         return copy;
+    }
+
+    /** Server target coordinates only; all sprite rotation and recoil stay client-local. */
+    public void syncSubweaponAim(String owner,ShopItemDef def,float forward,float side,float x,float y,boolean active){
+        var root=slotsByOwner.get(owner);if(root==null)return;
+        var parts=new Seq<ProcessorSlot>();parts.add(root);parts.addAll(root.children);
+        for(var slot:parts){var processor=getExistingProcessor(slot);if(processor==null)continue;
+            for(var entry:slot.entries)if(entry.kind==RenderedKind.SUBWEAPON&&entry.def==def
+                &&Math.abs(entry.localForwardWorld-forward)<.01f&&Math.abs(entry.localSideWorld-side)<.01f){
+                syncNumber(processor,"autoX"+entry.primaryMarkerId,x/tilesize);
+                syncNumber(processor,"autoY"+entry.primaryMarkerId,y/tilesize);
+                syncNumber(processor,"autoAim"+entry.primaryMarkerId,active?1:0);
+            }
+        }
+    }
+    private static void syncNumber(LogicBuild processor,String name,double value){
+        var variable=processor.executor.optionalVar(name);if(variable==null)return;
+        variable.setnum(value);if(net!=null&&net.server())Call.syncVariable(processor,variable.id,Double.valueOf(value));
     }
 
     /** Native logic-variable sync drives recoil from real server shots, including auto-fire. */
@@ -967,8 +985,14 @@ public final class WorldItemLogicManager {
                     sb.append("op min mountBase baseLayer 99\n");
                     sb.append("op add mountLayer mountBase ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
-                    sb.append("op sub adx sx mx\n");
-                    sb.append("op sub ady sy my\n");
+                    sb.append("set aimX sx\nset aimY sy\n");
+                    if(ce.def.subweaponAutoTarget){
+                        sb.append("jump manualAim").append(e).append(" equal autoAim").append(ce.primaryMarkerId).append(" 0\n");
+                        sb.append("set aimX autoX").append(ce.primaryMarkerId).append("\nset aimY autoY").append(ce.primaryMarkerId).append("\n");
+                        sb.append("manualAim").append(e).append(":\n");
+                    }
+                    sb.append("op sub adx aimX mx\n");
+                    sb.append("op sub ady aimY my\n");
                     sb.append("op len alen adx ady\n");
                     sb.append("op add mrot urot ").append(f(ce.angleOffsetDeg - 90f)).append("\n");
                     sb.append("jump swAimDone").append(e).append(" lessThan alen 0.25\n");

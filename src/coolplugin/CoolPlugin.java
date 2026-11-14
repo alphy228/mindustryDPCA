@@ -48,6 +48,7 @@ public class CoolPlugin extends Plugin {
     private PlayerItemSystem playerItemSystem;
     private ItemShopSystem itemShopSystem;
     private ColouringSystem colouringSystem;
+    private coolplugin.gameplay.InventoryMenu inventoryMenu;
 
     @Override
     public void init() {
@@ -82,6 +83,7 @@ public class CoolPlugin extends Plugin {
         TechTreeCommands.registerClientCommands(handler, techTree);
         AccountCommands.registerClientCommands(handler, sessionManager);
         playerUnitSystem.registerCommands(handler);
+        inventoryMenu.registerCommands(handler);
     }
 
     public PlayerDatabase getPlayerDatabase() {
@@ -164,6 +166,7 @@ public class CoolPlugin extends Plugin {
             playerUnitSystem = new PlayerUnitSystem(buildSystem, techTree, sessionManager);
             launchPadSystem = new LaunchPadSystem(playerDatabase, sessionManager);
             playerItemSystem = new PlayerItemSystem(alphyDir, playerDatabase, sessionManager, buildSystem);
+            inventoryMenu=new coolplugin.gameplay.InventoryMenu(playerItemSystem);
             colouringSystem = new ColouringSystem(configBaseDir, playerItemSystem, playerUnitSystem);
             itemShopSystem = new ItemShopSystem(
                 playerItemSystem,

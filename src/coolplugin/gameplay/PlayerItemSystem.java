@@ -105,6 +105,8 @@ public class PlayerItemSystem {
         final float localSide;
         float reloadCounter;
         float targetScanTimer;
+        float aimSyncTimer=6f;
+        boolean lastAutoAim;
         @Nullable Teamc cachedTarget;
 
         ServerSubweaponBarrel(ShopItemDef def, float localForward, float localSide, float phaseOffset) {
@@ -244,6 +246,9 @@ public class PlayerItemSystem {
         return data;
     }
 
+    public String inventoryContext(Player player){
+        return sessionManager.getOrInitSession(player).id+"/"+sessionManager.getActiveFactionId(player.uuid());
+    }
     public void saveEquipment(Player player, EquipmentData data) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
@@ -754,7 +759,7 @@ public class PlayerItemSystem {
                     aimX = muzzleX + Angles.trnsx(unit.rotation, 64f);
                     aimY = muzzleY + Angles.trnsy(unit.rotation, 64f);
                 }
-            } else {
+            } else if(barrel.def.subweaponAutoTarget) {
                 barrel.targetScanTimer += dt;
                 if (barrel.targetScanTimer >= 12f) {
                     barrel.targetScanTimer = 0f;
@@ -768,13 +773,19 @@ public class PlayerItemSystem {
                     );
                 }
                 Teamc tgt = barrel.cachedTarget;
-                if (tgt != null && Mathf.within(muzzleX, muzzleY, tgt.x(), tgt.y(), barrel.def.subweaponRange + 8f)) {
+                if (tgt != null && !Units.invalidateTarget(tgt,unit.team,muzzleX,muzzleY,barrel.def.subweaponRange)) {
                     shouldFire = true;
                     aimX = tgt.x();
                     aimY = tgt.y();
                 }
             }
 
+            boolean autoAim=barrel.def.subweaponAutoTarget&&!unit.isShooting()&&shouldFire;
+            barrel.aimSyncTimer+=dt;
+            if(barrel.def.subweaponAutoTarget&&(barrel.aimSyncTimer>=6f||autoAim!=barrel.lastAutoAim)){
+                worldLogicManager.syncSubweaponAim(rigKey,barrel.def,barrel.localForward,barrel.localSide,aimX,aimY,autoAim);
+                barrel.aimSyncTimer=0f;barrel.lastAutoAim=autoAim;
+            }
             float reloadThreshold = Math.max(4f, barrel.def.subweaponReload);
             if (!shouldFire) {
                 barrel.reloadCounter = Math.min(barrel.reloadCounter, reloadThreshold);
@@ -806,6 +817,7 @@ public class PlayerItemSystem {
                             if(delay>0f)Time.run(delay,fire);else fire.run();
                         },null);
                     }else Call.createBullet(bulletType, unit.team, spawnX, spawnY, aimAngle, dmg, 1f, lifeScl);
+                    if(barrel.def.subweaponAutoTarget)worldLogicManager.syncSubweaponAim(rigKey,barrel.def,barrel.localForward,barrel.localSide,aimX,aimY,autoAim);
                     worldLogicManager.kickSubweapon(rigKey,barrel.def,barrel.localForward,barrel.localSide);
                     var muzzle=barrel.def.resolveWeaponEffect(barrel.def.subweaponShootEffect);
                     var smoke=barrel.def.resolveWeaponEffect(barrel.def.subweaponSmokeEffect);

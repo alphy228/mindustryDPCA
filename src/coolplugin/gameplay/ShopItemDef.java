@@ -252,6 +252,8 @@ public final class ShopItemDef {
 
     // Subweapon server projectile parameters (fired via Call.createBullet only while equipped)
     public String subweaponPreset = "kinetic";
+    /** Opt-in autonomous targeting; otherwise this mount fires only with the wearer. */
+    public boolean subweaponAutoTarget=false;
     public float subweaponRecoil = 2.5f, subweaponRecoilTime = 12f;
     public String subweaponShootEffect = "shootSmall", subweaponSmokeEffect = "shootSmallSmoke";
     public String subweaponShootSound = "none";

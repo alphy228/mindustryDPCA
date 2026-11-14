@@ -1,10 +1,11 @@
+mountAimVersion: 1
 inventorySizeVersion: 1
 # Item Shop Catalog (48 Placeholder Items + Bazaar Orbital Ship Trades)
 # Categories: resource | attack | defense | utility
 # attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON | VFX (ORBIT removed)
 # mountSubtype: SIDE_SHIELD | WING_BLADE | SHOULDER_PAD | REAR_THRUSTER | SIDE_POD | WING_POD | NOSE_PROW | SPINE_CORE | TAIL_BOOSTER | DORSAL_TURRET
 # haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)
-# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.
+# Equipped items grant bonuses; carry fullness slows by up to 75%. Capacities and minimum equip costs depend on the unit.
 
 
 
@@ -128,6 +129,7 @@ items: [
     subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
+    subweaponAutoTarget: false
     subweaponPreset: "kinetic"
     subweaponReload: 16
     subweaponDamage: 10
@@ -430,6 +432,7 @@ items: [
     subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
+    subweaponAutoTarget: true
     subweaponPreset: "blaster"
     subweaponReload: 12
     subweaponDamage: 13
@@ -484,6 +487,7 @@ items: [
     subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: DORSAL_TURRET
+    subweaponAutoTarget: false
     subweaponPreset: "mortar"
     subweaponReload: 46
     subweaponDamage: 38
@@ -516,6 +520,7 @@ items: [
     subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: WING_POD
+    subweaponAutoTarget: false
     subweaponPreset: "pierce"
     subweaponReload: 20
     subweaponDamage: 24
@@ -803,6 +808,7 @@ items: [
     subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
+    subweaponAutoTarget: true
     subweaponPreset: "incendiary"
     subweaponReload: 7
     subweaponDamage: 18

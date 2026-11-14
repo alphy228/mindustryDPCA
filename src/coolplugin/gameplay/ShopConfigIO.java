@@ -76,6 +76,7 @@ public final class ShopConfigIO {
             default->1;
         };
     }
+    public static boolean defaultAutoTarget(String id){return "bz-05".equals(id)||"ca-05".equals(id);}
     private ShopConfigIO() {}
 
     public static Catalog loadOrCreate(Fi file) {
@@ -89,7 +90,7 @@ public final class ShopConfigIO {
         try {
             Catalog catalog=load(file);
             boolean changed=addWeaponTests(catalog);
-            if(Jval.read(file.readString()).getInt("inventorySizeVersion",0)<1)changed=true;
+            if(Jval.read(file.readString()).getInt("inventorySizeVersion",0)<1||Jval.read(file.readString()).getInt("mountAimVersion",0)<1)changed=true;
             if(arc.util.serialization.Jval.read(file.readString()).getInt("weaponVisualVersion",0)<1){
                 for(var item:catalog.items)if(item.attachMode==AttachMode.SUBWEAPON&&item.subweaponRecoilTime==12f)item.subweaponRecoilTime=Math.max(1f,item.subweaponReload*.65f);
                 changed=true;
@@ -149,6 +150,7 @@ public final class ShopConfigIO {
                 item.subweaponShootSound=v.getString("subweaponShootSound","none");
                 item.subweaponSoundVolume=Math.max(0f,Math.min(2f,v.getFloat("subweaponSoundVolume",0.6f)));
                 item.subweaponSoundPitch=Math.max(0.25f,Math.min(3f,v.getFloat("subweaponSoundPitch",1f)));
+                item.subweaponAutoTarget=v.getBoolean("subweaponAutoTarget",defaultAutoTarget(item.id));
                 item.subweaponReload = Math.max(3f, v.getFloat("subweaponReload", 16f));
                 item.subweaponDamage = Math.max(1f, v.getFloat("subweaponDamage", 11f));
                 item.subweaponRange = Math.max(40f, v.getFloat("subweaponRange", 160f));
@@ -231,10 +233,10 @@ public final class ShopConfigIO {
         sb.append("# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON | VFX (ORBIT removed)\n");
         sb.append("# mountSubtype: SIDE_SHIELD | WING_BLADE | SHOULDER_PAD | REAR_THRUSTER | SIDE_POD | WING_POD | NOSE_PROW | SPINE_CORE | TAIL_BOOSTER | DORSAL_TURRET\n");
         sb.append("# haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)\n");
-        sb.append("# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.\n\n");
+        sb.append("# Equipped items grant bonuses; carry fullness slows by up to 75%. Capacities and minimum equip costs depend on the unit.\n\n");
 
         sb.append("weaponVisualVersion: 1\n");
-        sb.append("inventorySizeVersion: 1\n\n");
+        sb.append("inventorySizeVersion: 1\nmountAimVersion: 1\n\n");
         sb.append("items: [\n");
         for (ShopItemDef it : cat.items) {
             sb.append("  {\n");
@@ -257,6 +259,7 @@ public final class ShopConfigIO {
                 if (it.mountSideOffset != 0f) sb.append("    mountSideOffset: ").append(fmt(it.mountSideOffset)).append("\n");
                 if (!Float.isNaN(it.mountAngleOffset)) sb.append("    mountAngleOffset: ").append(fmt(it.mountAngleOffset)).append("\n");
                 if (it.attachMode == AttachMode.SUBWEAPON) {
+                    sb.append("    subweaponAutoTarget: ").append(it.subweaponAutoTarget).append("\n");
                     sb.append("    subweaponPreset: ").append(quote(it.subweaponPreset)).append("\n");
                     sb.append("    subweaponReload: ").append(fmt(it.subweaponReload)).append("\n");
                     sb.append("    subweaponDamage: ").append(fmt(it.subweaponDamage)).append("\n");
@@ -671,6 +674,7 @@ public final class ShopConfigIO {
     ) {
         d.mountSubtype = subtype;
         d.subweaponPreset = preset;
+        d.subweaponAutoTarget=defaultAutoTarget(d.id);
         d.subweaponReload = reload;
         d.subweaponDamage = damage;
         d.subweaponRange = range;

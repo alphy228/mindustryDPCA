@@ -96,6 +96,9 @@ public class PlayerInventoryDrawer {
         DrawerTheme theme,
         boolean allowDecraft
     ) {
+        return buildHexInventory(eq,selectedSlot,theme,allowDecraft,true);
+    }
+    public StackBuilder buildHexInventory(EquipmentData eq,int selectedSlot,DrawerTheme theme,boolean allowDecraft,boolean quickActions){
         Catalog cat = itemSystem.getCatalog();
 
         StackBuilder hexStack = stack()
@@ -200,10 +203,9 @@ public class PlayerInventoryDrawer {
             }
         }
         hexInner.add(pane().add(grid).height(150f)).row();
-        hexInner.add(label("[gray]Min equip "+eq.minimumEquipSize+"\nCarry slow "+Math.round(75f*Math.min(1f,carryUsed/(float)eq.carryCapacity))+"%[]")).row();
 
         // Selected slot quick-actions tucked cleanly above the lower hexagon peak
-        if (selectedSlot >= 0 && selectedSlot < eq.equipped.size) {
+        if (quickActions&&selectedSlot >= 0 && selectedSlot < eq.equipped.size) {
             String selId = eq.equipped.get(selectedSlot);
             ShopItemDef selDef = cat.findItem(selId);
             String selName = selDef != null ? selDef.name : selId;
@@ -288,9 +290,6 @@ public class PlayerInventoryDrawer {
             );
         }
 
-        grid.row();
-        grid.add(label("[gray]Carry speed[] ×"+String.format(Locale.ROOT,"%.2f",st.carrySpeedFactor))
-            .colspan(2).padTop(5f));
         box.add(grid.growX());
         return box;
     }

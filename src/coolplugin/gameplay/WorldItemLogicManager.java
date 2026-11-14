@@ -606,33 +606,10 @@ public final class WorldItemLogicManager {
                         needsAimSensors = true;
                     }
 
-                    int repeatIdx = subtypeCounts.get(def.mountSubtype, 0);
-                    subtypeCounts.put(def.mountSubtype, repeatIdx + 1);
-
-                    float baseForward = def.computeForwardOffset(hullRadius);
-                    float absSide = Math.abs(def.computeSideOffset(hullRadius));
-                    float angleOff = def.effectiveMountAngleOffset();
-
-                    if (def.isSymmetricallyDuplicated(hullRadius)) {
-                        if (nextMarkerOffset + 2 > MARKERS_PER_SLOT) break;
-                        float fwd = baseForward - repeatIdx * 2.6f;
-                        float sideMag = absSide + repeatIdx * 1.6f;
-
-                        int leftId = baseMarkerId + (nextMarkerOffset++);
-                        int rightId = baseMarkerId + (nextMarkerOffset++);
-                        outEntries.add(new CompiledVisualEntry(
-                            def, i, kind, false, leftId, -1, fwd, +sideMag, +angleOff
-                        ));
-                        outEntries.add(new CompiledVisualEntry(
-                            def, i, kind, false, rightId, -1, fwd, -sideMag, -angleOff
-                        ));
-                    } else {
-                        if (nextMarkerOffset + 1 > MARKERS_PER_SLOT) break;
-                        float fwd = baseForward - repeatIdx * 3.0f;
-                        int centerId = baseMarkerId + (nextMarkerOffset++);
-                        outEntries.add(new CompiledVisualEntry(
-                            def, i, kind, false, centerId, -1, fwd, 0f, angleOff
-                        ));
+                    for(var placement:MountLayout.resolve(unit,equippedIds,catalog))if(placement.slot()==i){
+                        if(nextMarkerOffset+1>MARKERS_PER_SLOT)break;
+                        outEntries.add(new CompiledVisualEntry(def,i,kind,false,baseMarkerId+(nextMarkerOffset++),-1,
+                            placement.forward(),placement.side(),placement.mirrored()?-def.effectiveMountAngleOffset():def.effectiveMountAngleOffset()));
                     }
                 }
                 case HALO -> {
@@ -675,11 +652,13 @@ public final class WorldItemLogicManager {
             switch (ce.kind) {
                 case MOUNT, SUBWEAPON -> {
                     float sz = ce.kind == RenderedKind.SUBWEAPON ? spriteTiles * 1.04f : spriteTiles;
+                    var fit=ColouringAssets.mountSizes.get(ce.def.id);
+                    float width=sz*(fit==null?1f:fit.x),height=sz*(fit==null?1f:fit.y);
                     sb.append("makemarker texture ").append(ce.primaryMarkerId).append(" 0 0 true\n");
                     sb.append("setmarker texture ").append(ce.primaryMarkerId).append(" 0 \"")
-                        .append(ce.def.worldTextureName()).append("\" 0\n");
+                        .append(MountLayout.texture(unit,ce.def)).append("\" 0\n");
                     sb.append("setmarker textureSize ").append(ce.primaryMarkerId).append(" ")
-                        .append(f(sz)).append(" ").append(f(sz)).append(" 0\n");
+                        .append(f(ce.localSideWorld<0?-width:width)).append(" ").append(f(height)).append(" 0\n");
                     sb.append("setmarker minimap ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                     sb.append("setmarker world ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                 }
@@ -704,7 +683,7 @@ public final class WorldItemLogicManager {
                     // Tail-following item texture marker
                     sb.append("makemarker texture ").append(ce.primaryMarkerId).append(" 0 0 true\n");
                     sb.append("setmarker texture ").append(ce.primaryMarkerId).append(" 0 \"")
-                        .append(ce.def.worldTextureName()).append("\" 0\n");
+                        .append(ce.def.attachMode==AttachMode.MOUNT||ce.def.attachMode==AttachMode.SUBWEAPON?MountLayout.texture(unit,ce.def):ce.def.worldTextureName()).append("\" 0\n");
                     sb.append("setmarker textureSize ").append(ce.primaryMarkerId).append(" ")
                         .append(f(tailSpriteTiles)).append(" ").append(f(tailSpriteTiles)).append(" 0\n");
                     sb.append("setmarker minimap ").append(ce.primaryMarkerId).append(" 0 0 0\n");

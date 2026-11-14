@@ -1,0 +1,79 @@
+Host-palette mounts / colouring preview / unique active slots
+============================================================
+Base master: cb189673a66fc8039da1d5bbfbef47f581774afa
+
+Mount appearance
+----------------
+Mounts now follow the carrying unit's original or painted scheme, not colorHex
+on the item. Both active mounts and carried mount-item textures select the host
+variant. Changing the host type/paint rebuilds the visual rig as before.
+
+Preset sources are outlined Stell, Precept, Vanquish, Conquer and Quell weapons.
+A source without a visible dark boundary is rejected. Where a unit weapon has a
+separate native -outline region, that real outline is composited below its native
+weapon region. No invented Python/UI mockup sprites or external assets are used.
+Optional mountWeaponSprite overrides must also pass the outline check; otherwise
+an outlined Stell weapon is used. Explicit non-generated worldSprite overrides
+remain explicit overrides, so remove one if you want automatic host colouring.
+
+Generated files live under config/assets/sprites/item-mounts. They are generated
+on startup, not embedded in the plugin JAR. Source aspect ratios are preserved.
+Dual mounts use signed native texture widths for actual horizontal mirroring.
+
+Mount placement
+---------------
+MountLayout provides a single deterministic layout for both marker rendering and
+authoritative bullet spawn/recoil matching. It reserves conservative sprite disks
+including recoil clearance, across all four active slots rather than just repeated
+subtypes. Dual sides remain symmetric. Small hulls may need mounts extending beyond
+the body: avoiding overlap at arbitrary aim angles takes priority over fitting all
+weapons inside a tiny hull. Rear-over-front depth ordering remains in place.
+
+Palette transfer
+----------------
+Source-unit material tables now map into the corresponding destination armour and
+accent roles. Body, weapon and full-preview images use the source-family table,
+instead of treating every original scheme as the same fixed pink/grey reference.
+Exact source-role colours map to exact target-role colours. Alpha, transparent
+pixels and dark outlines are preserved. Generated cache version is invalidated.
+
+Colouring stations
+------------------
+Both stations use category effect, matching Workbench and Bazaar.
+A real, compact full-unit preview is now included in the datapatch for every base
+unit and generated painted variant. It is the menu's fallback before/without a
+high-resolution preview stream. Native SDL/OpenGL tests verify that it is visible
+before any preview stream, and verify late arrival, selection changes and already-
+painted entry without cans. These are actual Mindustry scene renders, not mockups.
+
+World-only mount variants are excluded from UiSpriteSync: connection-time UI image
+streams remain 101, rather than needlessly queuing thousands of world textures.
+The measured packed atlas is 256 MiB in five packing orders (not process RAM).
+
+Unique active slots
+-------------------
+Only one copy of a given item ID can occupy slots 1-4. New duplicates automatically
+go into slots 5-10, even if some active slots are empty. Empty slots are explicitly
+stored so duplicates cannot slide forward, and contribute no weight/overload count.
+Different IDs remain different items, even if their display names or sprites match.
+
+Trying to promote a carry duplicate keeps it in carry while the existing copy is
+active. Full carry rejects another duplicate; crafting/trade capacity is checked
+before payment. Normalization also runs on load/save and after conversions.
+
+Legacy inventories that cannot fit the new rule are not silently deleted: excess
+old duplicates remain in the existing persistent stash as a migration queue and
+are automatically restored as carry space opens. No extra stash UI is introduced.
+
+Validation / installation
+-------------------------
+105 feature checks passed, 0 failed.
+67 gameplay regression checks passed, 0 failed.
+Native preview fallback check and 3 dynamic texture-stream checks passed.
+Native unit/marker renders include outlined host-coloured mounts and a painted host.
+
+Apply the patch against the base above, install the JAR as
+config/mods/coolplugin.jar, restart the server to regenerate assets, and reconnect
+clients so they receive the updated datapatch. Do not install the JAR alone without
+the matching source/config deployment. No README changes or compacted-resource
+construction changes are included.

@@ -523,6 +523,83 @@ public class VerifyColouringGeneration {
         System.out.println("MOUNT FX LAYERS "+(groundFx==null?"null":groundFx.effect.layer)+" / "+(airFx==null?"null":airFx.effect.layer));
         check(groundFx!=null&&airFx!=null&&groundFx.effect.layer>60.55f&&airFx.effect.layer>115.55f,
             "Native datapatch shooting effects render above ground and airborne mounted weapons");
+        check(Vars.content.block("dp-colouring-station").category==mindustry.type.Category.effect
+            &&Vars.content.block("dp-colouring-station-2").category==mindustry.type.Category.effect,
+            "Both colouring stations share Workbench/Bazaar's effect build category");
+        String fallbackUi=new String(serializeUi(system.buildMenu(p,base,2,palette.id())),StandardCharsets.UTF_8);
+        check(fallbackUi.contains("dp-colour-preview-"+copy.name)
+            &&workConfig.child("assets/sprites/colouring-generated/colour-preview-"+copy.name+".png").exists(),
+            "Station preview has a real packed fallback image even if its dynamic stream never arrives");
+        int missingHostTextures=0;
+        for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
+            String texture=coolplugin.gameplay.MountLayout.texture(type.create(Team.sharded),cannon);
+            if(!workConfig.child("assets/sprites/item-mounts/"+texture.substring(3)+".png").exists())missingHostTextures++;
+        }
+        check(missingHostTextures==0,"Every controllable original and painted host resolves an existing generated mount texture");
+        int outlinedErrors=0;
+        for(var def:catalog.items)if(def.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.MOUNT||def.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.SUBWEAPON){
+            var image=javax.imageio.ImageIO.read(workConfig.child("assets/sprites/item-mounts/item-mount-"+def.id+".png").file());
+            if(!coolplugin.gameplay.ColouringAssets.hasOutline(image))outlinedErrors++;
+        }
+        check(outlinedErrors==0,"Every mounted weapon source has a real visible outline; unoutlined sources are excluded");
+        String nativeMount=coolplugin.gameplay.MountLayout.texture(wearer,cannon);
+        Unit paintedHost=copy.create(Team.sharded);
+        String paintedMount=coolplugin.gameplay.MountLayout.texture(paintedHost,cannon);
+        check(!nativeMount.equals(paintedMount)&&nativeMount.contains("-host-dagger")&&paintedMount.contains("-scheme-"+palette.id())
+            &&workConfig.child("assets/sprites/item-mounts/"+paintedMount.substring(3)+".png").exists(),
+            "Mount texture follows the host's native or painted palette, not the item's old colour");
+        var layoutIds=Seq.with("wb-06","bz-07","wb-07","bz-13");
+        boolean disjoint=true;
+        for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
+            var placements=coolplugin.gameplay.MountLayout.resolve(type.create(Team.sharded),layoutIds,catalog);
+            float minimum=arc.math.Mathf.clamp(5.4f+type.hitSize*.14f,5.76f,10.56f)*1.04f*1.415f+5.5f;
+            for(int i=0;i<placements.size;i++)for(int j=i+1;j<placements.size;j++){
+                var a=placements.get(i);var b=placements.get(j);
+                if(arc.math.Mathf.dst(a.forward(),a.side(),b.forward(),b.side())<minimum-.02f)disjoint=false;
+            }
+        }
+        check(disjoint,"Shared mount layout avoids sprite/recoil overlap across all controllable units");
+        itemSystem.updateVisualRigForUnit("mirror-test",wearer,Seq.with(cannon.id),itemSystem.computeStats(Seq.with(cannon.id),wearer));
+        var mirrorProc=itemSystem.getWorldLogicManager().getProcessorForOwner("mirror-test");mirrorProc.executor.optionalVar("hostUnit").setobj(wearer);
+        for(int step=0;step<3000;step++)mirrorProc.executor.runOnce();
+        var mirrorEntries=itemSystem.getWorldLogicManager().getCompiledEntries("mirror-test");
+        boolean positive=false,negative=false;
+        for(var entry:mirrorEntries){var marker=(mindustry.game.MapObjectives.TextureMarker)Vars.state.markers.get(entry.primaryMarkerId());positive|=marker.width>0;negative|=marker.width<0;}
+        check(positive&&negative,"Real dual texture markers mirror horizontally, not merely by rotation");itemSystem.destroyRig("mirror-test");
+        var duplicates=new coolplugin.database.PlayerDatabase.EquipmentData();
+        check(coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon)
+            &&coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon)
+            &&duplicates.equipped.get(0).equals(cannon.id)&&duplicates.equipped.get(4).equals(cannon.id)
+            &&duplicates.equipped.get(1).isBlank(),"Second purchased copy automatically bypasses empty active slots into carry");
+        var duplicateStats=itemSystem.computeStats(duplicates.equipped,wearer);
+        check(duplicateStats.totalEquipped==2&&duplicateStats.activeSlotsUsed==1&&duplicateStats.overloadCount==1,
+            "Empty active placeholders do not add item count, weight or overload penalties");
+        for(int i=0;i<5;i++)coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon);
+        String beforeFull=duplicates.equipped.toString();
+        check(!coolplugin.gameplay.PlayerItemSystem.grantCraftedOrTradedItem(duplicates,cannon)&&beforeFull.equals(duplicates.equipped.toString()),
+            "Full carry rejects another duplicate without modifying inventory despite empty active slots");
+        itemSystem.saveEquipment(p,duplicates);
+        var restoredDuplicates=itemSystem.getEquipment(p);
+        check(restoredDuplicates.equipped.get(0).equals(cannon.id)&&restoredDuplicates.equipped.get(1).isBlank()
+            &&restoredDuplicates.equipped.get(4).equals(cannon.id),"Carry routing and empty active slots persist through database roundtrip");
+        check(itemSystem.promoteSlotToActive(p,4).success()&&itemSystem.getEquipment(p).equipped.get(1).isBlank(),
+            "Promoting a duplicate never enables a second active copy");
+        for(var cost:cannon.resourceCosts)if(cost.resolveItem()!=null)plugin.getBuildSystem().giveItems(p,cost.resolveItem(),cost.amount()*5);
+        int resourcesBefore=plugin.getBuildSystem().getAvailableAmount(p,mindustry.content.Items.graphite);
+        var rejectedCraft=itemSystem.craft(p,cannon.id,cannon.tier);
+        check(!rejectedCraft.success()&&resourcesBefore==plugin.getBuildSystem().getAvailableAmount(p,mindustry.content.Items.graphite),
+            "Rejected duplicate purchase consumes no map resources");
+        var legacyDuplicates=new coolplugin.database.PlayerDatabase.EquipmentData();legacyDuplicates.equipped.addAll("wb-06","wb-06","wb-06","wb-06","wb-06","wb-06","wb-06","wb-06","wb-06","wb-06");
+        coolplugin.gameplay.PlayerItemSystem.normalizeEquipment(legacyDuplicates);
+        check(legacyDuplicates.equipped.count(id->id.equals("wb-06"))+legacyDuplicates.stash.get("wb-06",0)==10
+            &&legacyDuplicates.equipped.get(1).isBlank(),"Legacy duplicate migration preserves overflow instead of deleting owned items");
+        int[] sourceRoles={0x606068,0x787880,0x909098,0xa8a8b0,0xc0c0c8,0xd8d8e0,0x806040,0xa07848,0xc09050,0xe0a858};
+        int[] targetRoles={0x545464,0x686878,0x7c7c8c,0x9090a0,0xa4a4b4,0xb8b8c8,0x805080,0xa060a0,0xc070c0,0xe080e0};
+        var rolePixels=new java.awt.image.BufferedImage(11,1,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for(int i=0;i<10;i++)rolePixels.setRGB(i,0,0xff000000|sourceRoles[i]);rolePixels.setRGB(10,0,0xff404049);
+        var roleOutput=coolplugin.gameplay.ColouringAssets.recolour(rolePixels,targetRoles,sourceRoles);
+        boolean exactRoles=true;for(int i=0;i<10;i++)exactRoles&=(roleOutput.getRGB(i,0)&0xffffff)==targetRoles[i];
+        check(exactRoles&&roleOutput.getRGB(10,0)==0xff404049,"Source-aware recolouring replaces each material role exactly and preserves the outline");
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 

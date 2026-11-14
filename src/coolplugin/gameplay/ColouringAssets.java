@@ -31,11 +31,14 @@ public final class ColouringAssets {
         public String spritePrefix() { return "paint-" + id + "-"; }
     }
     public static final Seq<Palette> palettes = new Seq<>();
+    public static final ObjectMap<String,arc.math.geom.Vec2> mountSizes=new ObjectMap<>();
     public static final ObjectMap<String, String> originals = new ObjectMap<>();
     public static final int MAX_PALETTES = 20;
     public static final long BULK_RGBA_BUDGET_BYTES = 144L * 1024 * 1024;
     public static final ObjectMap<String,String> paletteAliases = new ObjectMap<>();
     private long bulkPixelsPerPalette;
+    private final ObjectMap<String,int[]> sourceRamps=new ObjectMap<>();
+    private final ObjectMap<String,int[]> hostRamps=new ObjectMap<>();
     private static final Map<String,Double> schemeDistances=new HashMap<>();
     private static final String DIR = "colouring-generated";
     private final Map<Class<?>,Object> defaults=new HashMap<>();
@@ -92,12 +95,13 @@ public final class ColouringAssets {
             // A candidate is a complete controllable-unit family scheme, never a turret,
             // internal projectile, or a new palette per component sprite.
             for (UnitType unit : units) addFamilyPalette(unit);
-            generateItemMounts();
             Seq<String> names = unitSpriteNames(units); names.sort();
+            indexSourceRamps(units,names);
             int budgetCount = (int)Math.min(MAX_PALETTES, BULK_RGBA_BUDGET_BYTES / Math.max(1,bulkPixelsPerPalette*4));
             if(budgetCount<1)throw new IllegalStateException("One unit-family texture set exceeds the colouring memory budget");
             consolidatePalettes(budgetCount);
             palettes.sort(Comparator.comparing(Palette::id));
+            generateItemMounts(units);
             Log.info("[Colouring] @ distinct whole-unit schemes (hard cap @); @ MiB bulk RGBA, @ MiB conservative packing estimate.",
                 palettes.size,MAX_PALETTES,String.format(Locale.ROOT,"%.1f",bulkPixelsPerPalette*4.0*palettes.size/1048576),
                 String.format(Locale.ROOT,"%.1f",bulkPixelsPerPalette*4.0*palettes.size*1.9/1048576));
@@ -120,7 +124,7 @@ public final class ColouringAssets {
                     int c=image.getRGB(x,y); hash.update((byte)(c>>>24));hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);
                 }
             }
-            String digest = HexFormat.of().formatHex(hash.digest()) + "-material-role-schemes-v6";
+            String digest = HexFormat.of().formatHex(hash.digest()) + "-source-material-roles-preview-v8";
             Fi stamp = data.child("colouring-cache/digest");
             boolean cached = stamp.exists() && stamp.readString().equals(digest);
             if (cached) target=liveImages;
@@ -141,7 +145,7 @@ public final class ColouringAssets {
                 Log.info("[Colouring] Generating palette @/@: @ (@ source sprites)", count, palettes.size, p.id(), names.size);
                 for (String name : names) {
                     Fi out = target.child(p.spritePrefix() + name + ".png");
-                    if (!cached || !out.exists()) ImageIO.write(isMask(name)?sprites.get(name):recolour(sprites.get(name), p.ramp()), "png", out.file());
+                    if (!cached || !out.exists()) ImageIO.write(isMask(name)?sprites.get(name):recolour(sprites.get(name), p.ramp(),sourceRamps.get(name)), "png", out.file());
                 }
                 // Paint can artwork is generated from the same fixed palette, not a UI mockup.
                 Fi can = target.child("paint-can-" + p.id() + ".png");
@@ -154,7 +158,9 @@ public final class ColouringAssets {
                     // Full menu icons stay on the server and are streamed only when selected.
                     for(String icon:new String[]{"unit-"+u.name+"-full",u.name+"-full",u.name}){
                         if(sprites.containsKey(icon)){
-                            ImageIO.write(recolour(sprites.get(icon),p.ramp()),"png",previews.child(name+".png").file());break;
+                            BufferedImage painted=recolour(sprites.get(icon),p.ramp(),hostRamps.get(u.name));
+                            ImageIO.write(painted,"png",previews.child(name+".png").file());
+                            ImageIO.write(smallPreview(painted),"png",target.child("colour-preview-dp-"+name+".png").file());break;
                         }
                     }
 
@@ -163,7 +169,9 @@ public final class ColouringAssets {
             // Cache unchanged full icons too: empty inventory and already-painted entry use
             // the same reliable streamed-image path as selected paints.
             for(UnitType u:units)for(String icon:new String[]{"unit-"+u.name+"-full",u.name+"-full",u.name}){
-                if(sprites.containsKey(icon)){ImageIO.write(sprites.get(icon),"png",previews.child("base-"+u.name+".png").file());break;}
+                if(sprites.containsKey(icon)){
+                    ImageIO.write(sprites.get(icon),"png",previews.child("base-"+u.name+".png").file());
+                    ImageIO.write(smallPreview(sprites.get(icon)),"png",target.child("colour-preview-"+u.name+".png").file());break;}
             }
             writeUpgradePatch();
             writeStations(units);
@@ -185,36 +193,114 @@ public final class ColouringAssets {
         target.deleteDirectory();target.parent().mkdirs();source.moveTo(target);
     }
 
-    private void generateItemMounts() throws Exception {
+    private static BufferedImage smallPreview(BufferedImage source){
+        float scale=Math.min(1f,80f/Math.max(source.getWidth(),source.getHeight()));
+        BufferedImage out=new BufferedImage(Math.max(1,Math.round(source.getWidth()*scale)),Math.max(1,Math.round(source.getHeight()*scale)),BufferedImage.TYPE_INT_ARGB);
+        var graphics=out.createGraphics();
+        graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,java.awt.RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        graphics.drawImage(source,0,0,out.getWidth(),out.getHeight(),null);graphics.dispose();return out;
+    }
+    private static boolean outlineColour(int rgb){
+        int r=(rgb>>16)&255,g=(rgb>>8)&255,b=rgb&255;
+        return Math.max(r,Math.max(g,b))<=82 && Math.max(r,Math.max(g,b))-Math.min(r,Math.min(g,b))<=24;
+    }
+    public static boolean hasOutline(BufferedImage image){
+        if(image==null)return false;
+        int edge=0,dark=0;
+        for(int y=0;y<image.getHeight();y++)for(int x=0;x<image.getWidth();x++){
+            int c=image.getRGB(x,y);if((c>>>24)<200)continue;
+            boolean boundary=x==0||y==0||x==image.getWidth()-1||y==image.getHeight()-1;
+            if(!boundary)boundary=(image.getRGB(x-1,y)>>>24)<100||(image.getRGB(x+1,y)>>>24)<100||(image.getRGB(x,y-1)>>>24)<100||(image.getRGB(x,y+1)>>>24)<100;
+            if(boundary){edge++;if(outlineColour(c))dark++;}
+        }
+        return edge>0 && dark>=edge*0.55f;
+    }
+    private void indexSourceRamps(Seq<UnitType> units,Seq<String> names)throws Exception{
+        sourceRamps.clear();hostRamps.clear();
+        for(UnitType unit:units){
+            ObjectSet<String> family=new ObjectSet<>();family.add(unit.name);
+            collectSpriteFamilies(unit,unit.name,0,new IdentityHashMap<>(),family);
+            Map<Integer,Integer> histogram=new HashMap<>();
+            for(String name:names){
+                boolean belongs=false;for(String root:family)if(name.equals(root)||name.startsWith(root+"-")){belongs=true;break;}
+                if(!belongs||isMask(name)||isMenuIconOrWreck(name))continue;
+                BufferedImage img=sprites.get(name);if(img==null)continue;
+                for(int y=0;y<img.getHeight();y++)for(int x=0;x<img.getWidth();x++){
+                    int c=img.getRGB(x,y);if((c>>>24)>240&&!outlineColour(c))histogram.merge(c&0xffffff,1,Integer::sum);
+                }
+            }
+            int[] ramp=roleRamp(histogram);if(ramp.length==0)continue;hostRamps.put(unit.name,ramp);
+            for(String name:names)for(String root:family)if(name.equals(root)||name.startsWith(root+"-")){
+                if(!sourceRamps.containsKey(name))sourceRamps.put(name,ramp);break;
+            }
+        }
+    }
+    public static BufferedImage recolour(BufferedImage source,int[] target,int[] original){
+        if(original==null||original.length!=10||target.length!=10)return recolour(source,target);
+        BufferedImage out=new BufferedImage(source.getWidth(),source.getHeight(),BufferedImage.TYPE_INT_ARGB);
+        Map<Integer,Integer> lookup=new HashMap<>();
+        for(int y=0;y<source.getHeight();y++)for(int x=0;x<source.getWidth();x++){
+            int c=source.getRGB(x,y),rgb=c&0xffffff;
+            if((c>>>24)==0||outlineColour(rgb)){out.setRGB(x,y,c);continue;}
+            int mapped=lookup.computeIfAbsent(rgb,key->{
+                int exact=-1;for(int i=0;i<original.length;i++)if(original[i]==key){exact=i;break;}
+                if(exact>=0)return target[exact];
+                int start=accent(key)?6:0,end=accent(key)?10:6,best=start;
+                for(int i=start+1;i<end;i++)if(colourDistance(key,original[i])<colourDistance(key,original[best]))best=i;
+                return target[best];
+            });out.setRGB(x,y,(c&0xff000000)|mapped);
+        }return out;
+    }
+
+    private BufferedImage outlinedWeapon(String name){
+        BufferedImage source=sprites.get(name);if(source==null)return null;
+        if(hasOutline(source))return source;
+        BufferedImage outline=sprites.get(name+"-outline");if(outline==null)return null;
+        BufferedImage combined=new BufferedImage(Math.max(source.getWidth(),outline.getWidth()),Math.max(source.getHeight(),outline.getHeight()),BufferedImage.TYPE_INT_ARGB);
+        var graphics=combined.createGraphics();
+        graphics.drawImage(outline,(combined.getWidth()-outline.getWidth())/2,(combined.getHeight()-outline.getHeight())/2,null);
+        graphics.drawImage(source,(combined.getWidth()-source.getWidth())/2,(combined.getHeight()-source.getHeight())/2,null);graphics.dispose();
+        return hasOutline(combined)?combined:null;
+    }
+
+    private void generateItemMounts(Seq<UnitType> units) throws Exception {
+        mountSizes.clear();
         Fi target=data.child("assets/sprites/item-mounts");target.deleteDirectory();target.mkdirs();
         var catalog=ShopConfigIO.loadOrCreate(data.child("alphystuff/shop.hjson"));
         // Use the same catalog path as PlayerItemSystem.
         for(var item:catalog.items){
             if(item.attachMode!=ShopItemDef.AttachMode.MOUNT && item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON)continue;
             String family=switch(item.subweaponPreset.toLowerCase(java.util.Locale.ROOT)){
-                case "mortar","artillery","blast" -> "fortress";
-                case "pierce","lance","phase" -> "vela";
-                case "incendiary","pyratite","gatling" -> "reign";
-                case "blaster","homing","plastanium" -> "zenith";
-                default -> "dagger";
+                case "mortar","artillery","blast" -> "precept";
+                case "pierce","lance","phase" -> "vanquish";
+                case "incendiary","pyratite","gatling" -> "conquer";
+                case "blaster","homing","plastanium" -> "quell";
+                default -> "stell";
             };
             UnitType unit=Vars.content.unit(family);
             BufferedImage source=null;
             if(unit!=null)for(var weapon:unit.weapons){
-                source=sprites.get(weapon.name);
+                source=outlinedWeapon(weapon.name);
                 if(source!=null)break;
             }
-            if(!item.mountWeaponSprite.isBlank())source=sprites.get(item.mountWeaponSprite);
-            if(source==null)source=sprites.get("dagger-weapon");
-            if(source==null)throw new IllegalStateException("Missing unit weapon source for "+item.id);
-            Color c;
-            try{c=Color.valueOf(item.colorHex);}catch(Exception ignored){c=Color.valueOf("ffd37f");}
-            int[] ramp=new int[10];
-            for(int i=0;i<ramp.length;i++){
-                float v=i<6?0.22f+i*0.13f:0.50f+(i-6)*0.16f;
-                ramp[i]=((int)(c.r*v*255)<<16)|((int)(c.g*v*255)<<8)|(int)(c.b*v*255);
+            boolean overrideAccepted=false;
+            if(!item.mountWeaponSprite.isBlank()){source=outlinedWeapon(item.mountWeaponSprite);overrideAccepted=source!=null;}
+            if(source==null){source=outlinedWeapon("stell-weapon");family="stell";}
+            if(source==null)throw new IllegalStateException("No outlined weapon source for "+item.id);
+            // Prefer a real outlined weapon; small unoutlined barrels are not suitable mounts.
+            if(!hasOutline(source)){source=outlinedWeapon("stell-weapon");family="stell";}
+            if(source==null||!hasOutline(source))throw new IllegalStateException("No outlined weapon sprite for "+item.id);
+            float largest=Math.max(source.getWidth(),source.getHeight());
+            mountSizes.put(item.id,new arc.math.geom.Vec2(source.getWidth()/largest,source.getHeight()/largest));
+            int[] weaponRamp=overrideAccepted?sourceRamps.get(item.mountWeaponSprite,hostRamps.get(family)):hostRamps.get(family);
+            ImageIO.write(source,"png",target.child("item-mount-"+item.id+".png").file());
+            for(UnitType host:units){
+                int[] nativeRamp=hostRamps.get(host.name);
+                if(nativeRamp!=null)ImageIO.write(recolour(source,nativeRamp,weaponRamp),"png",
+                    target.child("item-mount-"+item.id+"-host-"+host.name+".png").file());
             }
-            ImageIO.write(recolour(source,ramp),"png",target.child("item-mount-"+item.id+".png").file());
+            for(Palette palette:palettes)ImageIO.write(recolour(source,palette.ramp(),weaponRamp),"png",
+                target.child("item-mount-"+item.id+"-scheme-"+palette.id()+".png").file());
         }
         Fi effects=data.child("assets/content/statuses/item-mounts");effects.deleteDirectory();effects.mkdirs();
         for(String domain:new String[]{"ground","air"})for(String kind:new String[]{"flash","smoke"}){
@@ -335,7 +421,7 @@ public final class ColouringAssets {
             if(!belongs)continue;
             BufferedImage img=sprites.get(name);
             for(int y=0;y<img.getHeight();y++)for(int x=0;x<img.getWidth();x++){
-                int c=img.getRGB(x,y);if((c>>>24)<240)continue;
+                int c=img.getRGB(x,y);if((c>>>24)<240||outlineColour(c))continue;
                 histogram.merge(c&0xffffff,1,Integer::sum);
             }
         }
@@ -417,7 +503,7 @@ public final class ColouringAssets {
         Map<Integer,Integer> lookup=new HashMap<>();
         for(int y=0;y<src.getHeight();y++)for(int x=0;x<src.getWidth();x++){
             int c=src.getRGB(x,y),a=c>>>24;
-            if(a==0){out.setRGB(x,y,c);continue;}
+            if(a==0||outlineColour(c)){out.setRGB(x,y,c);continue;}
             int mapped=lookup.computeIfAbsent(c&0xffffff,rgb->{
                 if(ramp.length!=10){ // compatibility for externally supplied colour tables
                     int closest=0;for(int i=1;i<ramp.length;i++)if(colourDistance(rgb,ramp[i])<colourDistance(rgb,ramp[closest]))closest=i;
@@ -576,13 +662,13 @@ public final class ColouringAssets {
 
     private void writeStations(Seq<UnitType> units) {
         Fi dir=data.child("colouring-cache/staging/blocks");dir.mkdirs();
-        dir.child("colouring-station.hjson").writeString("{\"type\":\"PayloadConveyor\",\"name\":\"Colouring Station\",\"size\":3,\"health\":650,\"payloadLimit\":3,\"moveTime\":60,\"category\":\"units\",\"buildVisibility\":\"shown\",\"requirements\":[\"copper/200\",\"lead/150\",\"silicon/100\"]}");
+        dir.child("colouring-station.hjson").writeString("{\"type\":\"PayloadConveyor\",\"name\":\"Colouring Station\",\"size\":3,\"health\":650,\"payloadLimit\":3,\"moveTime\":60,\"category\":\"effect\",\"buildVisibility\":\"shown\",\"requirements\":[\"copper/200\",\"lead/150\",\"silicon/100\"]}");
         Jval pairs=Jval.newArray();
         for(UnitType u:units){Jval pair=Jval.newArray();pair.add(Jval.valueOf(u.name));pair.add(Jval.valueOf(u.name));pairs.add(pair);}
         for(var entry:originals){Jval pair=Jval.newArray();pair.add(Jval.valueOf(entry.key));pair.add(Jval.valueOf(entry.key));pairs.add(pair);}
         Jval j=Jval.newObject();j.add("type",Jval.valueOf("Reconstructor"));j.add("name",Jval.valueOf("Colouring Station II"));j.add("size",Jval.valueOf(5));
         j.add("solid",Jval.valueOf(false)); // T2 is a walkable paint bay, including for grounded mechs.
-        j.add("health",Jval.valueOf(1800));j.add("constructTime",Jval.valueOf(1e30));j.add("upgrades",pairs);j.add("category",Jval.valueOf("units"));j.add("buildVisibility",Jval.valueOf("shown"));
+        j.add("health",Jval.valueOf(1800));j.add("constructTime",Jval.valueOf(1e30));j.add("upgrades",pairs);j.add("category",Jval.valueOf("effect"));j.add("buildVisibility",Jval.valueOf("shown"));
         Jval req=Jval.newArray();for(String v:new String[]{"copper/600","lead/500","silicon/400","titanium/250"})req.add(Jval.valueOf(v));j.add("requirements",req);
         dir.child("colouring-station-2.hjson").writeString(j.toString());
     }

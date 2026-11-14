@@ -135,7 +135,7 @@ public final class ColouringSystem {
         String base=ColouringAssets.baseName(unit.name);
         TableBuilder left=table().width(330f);
         // Always draw the stream, even if no cans exist or selection equals current unit.
-        left.add(image("net-"+previewKey(preview==null?unit:preview)).placeholder(base+"-full")
+        left.add(image("net-"+previewKey(preview==null?unit:preview)).placeholder("dp-colour-preview-"+(preview==null?unit:preview).name)
             .scaling(Scaling.fit).size(280f).padBottom(12f)).row();
         left.add(label(unit.localizedName)).row();
         var chosen=ColouringAssets.palette(selected);

@@ -111,7 +111,7 @@ public class PlayerInventoryDrawer {
         TableBuilder hexInner = table().margin(0f).align("top");
 
         // Header tucked cleanly inside upper hexagon shoulders; x/10 turns red when > 4!
-        int count = eq.equipped.size;
+        int count = eq.equipped.count(id -> !id.isBlank());
         String countCol = count > PlayerItemSystem.ACTIVE_PASSIVE_SLOTS ? "[scarlet]" : "[gray]";
         hexInner.add(
             label("[#" + theme.accentHex + "]Inventory[] " + countCol + count + "/" + PlayerItemSystem.MAX_EQUIPPED_SLOTS + "[]")
@@ -131,7 +131,7 @@ public class PlayerInventoryDrawer {
         TableBuilder grid = table().align("center");
         for (int idx = 0; idx < PlayerItemSystem.MAX_EQUIPPED_SLOTS; idx++) {
             boolean activeTier = idx < PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
-            boolean occupied = idx < eq.equipped.size;
+            boolean occupied = idx < eq.equipped.size && !eq.equipped.get(idx).isBlank();
             boolean selected = occupied && (selectedSlot == idx);
 
             if (idx == PlayerItemSystem.ACTIVE_PASSIVE_SLOTS) {

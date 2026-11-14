@@ -221,18 +221,11 @@ public class PlayerItemSystem {
                 if(scheme!=null&&!id.equals("paint-"+scheme)){data.equipped.set(i,"paint-"+scheme);dirty=true;}
             }
         }
-        if (!data.stash.isEmpty()) {
-            Seq<String> keys = data.stash.keys().toSeq();
-            for (String k : keys) {
-                int cnt = data.stash.get(k, 0);
-                while (cnt > 0 && data.equipped.size < MAX_EQUIPPED_SLOTS) {
-                    data.equipped.add(k);
-                    cnt--;
-                    dirty = true;
-                }
-            }
-            data.stash.clear();
-            dirty = true;
+        dirty |= normalizeEquipment(data);
+        if(!data.stash.isEmpty())for(String id:data.stash.keys().toSeq()){
+            int count=data.stash.get(id,0);ShopItemDef item=getCatalog().findItem(id);
+            while(count>0&&item!=null&&grantCraftedOrTradedItem(data,item)){count--;dirty=true;}
+            if(count==0)data.stash.remove(id,0);else data.stash.put(id,count);
         }
         // Keep retired v17 cans salvageable without bringing back their palettes/textures.
         Catalog activeCatalog=getCatalog();
@@ -243,10 +236,7 @@ public class PlayerItemSystem {
             retired.resourceCosts.add(new ResourceCost("copper",50));retired.resourceCosts.add(new ResourceCost("lead",25));
             activeCatalog.items.add(retired);activeCatalog.rebuildIndexes();
         }
-        while (data.equipped.size > MAX_EQUIPPED_SLOTS) {
-            data.equipped.pop();
-            dirty = true;
-        }
+
         if (dirty) {
             database.saveEquipmentData(acc.id, factionId, data);
         }
@@ -256,10 +246,7 @@ public class PlayerItemSystem {
     public void saveEquipment(Player player, EquipmentData data) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
-        data.stash.clear();
-        while (data.equipped.size > MAX_EQUIPPED_SLOTS) {
-            data.equipped.pop();
-        }
+        normalizeEquipment(data);
         database.saveEquipmentData(acc.id, factionId, data);
     }
 
@@ -290,9 +277,9 @@ public class PlayerItemSystem {
 
         Catalog cat = getCatalog();
         int n = Math.min(MAX_EQUIPPED_SLOTS, equippedIds.size);
-        st.totalEquipped = n;
-        st.activeSlotsUsed = Math.min(ACTIVE_PASSIVE_SLOTS, n);
-        st.overloadCount = Math.max(0, n - ACTIVE_PASSIVE_SLOTS);
+        for(int i=0;i<n;i++)if(cat.findItem(equippedIds.get(i))!=null){
+            st.totalEquipped++;if(i<ACTIVE_PASSIVE_SLOTS)st.activeSlotsUsed++;else st.overloadCount++;
+        }
 
         for(int i=0;i<n;i++){ShopItemDef def=cat.findItem(equippedIds.get(i));if(def!=null)st.totalWeight+=Math.max(0f,def.weight);}
         if(unit!=null&&unit.type!=null){st.weightReferenceHealth=Math.max(1f,unit.type.health);st.weightSpeedFactor=weightFactor(st.totalWeight,st.weightReferenceHealth);}
@@ -302,7 +289,7 @@ public class PlayerItemSystem {
         float rldBonus = 0f;
         float bldBonus = 0f;
 
-        for (int i = 0; i < st.activeSlotsUsed; i++) {
+        for (int i = 0; i < Math.min(ACTIVE_PASSIVE_SLOTS,n); i++) {
             ShopItemDef def = cat.findItem(equippedIds.get(i));
             if (def == null) continue;
             hpBonus += def.healthMultBonus;
@@ -334,6 +321,10 @@ public class PlayerItemSystem {
         if (slotIndex < 0 || slotIndex >= data.equipped.size) {
             return new ActionOutcome(false, "[scarlet]Empty inventory slot.[]");
         }
+        String requested=data.equipped.get(slotIndex);
+        if(requested.isBlank())return new ActionOutcome(false,"[scarlet]Empty inventory slot.[]");
+        if(slotIndex>=ACTIVE_PASSIVE_SLOTS)for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++)
+            if(requested.equals(data.equipped.get(i)))return new ActionOutcome(true,"[stat]One copy is already active; this copy stays in carry.[]");
         if (slotIndex == 0) {
             return new ActionOutcome(true, "");
         }
@@ -378,7 +369,9 @@ public class PlayerItemSystem {
                 return false;
             }
         }
-        return true;
+        EquipmentData trial=new EquipmentData();trial.equipped.addAll(data.equipped);
+        for(ItemIngredient ingredient:item.itemCosts)consumeOwnedItem(trial,ingredient.shopItemId(),ingredient.amount());
+        normalizeEquipment(trial);return grantCraftedOrTradedItem(trial,item);
     }
 
     public ActionOutcome craft(Player player, String itemId, StationTier station) {
@@ -393,8 +386,13 @@ public class PlayerItemSystem {
 
         EquipmentData data = getEquipment(player);
         if (!canAffordCraft(player, item, data)) {
-            return new ActionOutcome(false, "[scarlet]Missing required resources or ingredient items.[]");
+            return new ActionOutcome(false, "[scarlet]Missing resources/ingredients, or no free inventory/carry slot.[]");
         }
+
+        EquipmentData trial=new EquipmentData();trial.equipped.addAll(data.equipped);
+        for(ItemIngredient ingredient:item.itemCosts)consumeOwnedItem(trial,ingredient.shopItemId(),ingredient.amount());
+        normalizeEquipment(trial);
+        if(!grantCraftedOrTradedItem(trial,item))return new ActionOutcome(false,"[scarlet]No free carry/inventory slot. No resources consumed.[]");
 
         for (ResourceCost rc : item.resourceCosts) {
             Item mItem = rc.resolveItem();
@@ -407,6 +405,7 @@ public class PlayerItemSystem {
             consumeOwnedItem(data, ing.shopItemId(), ing.amount());
         }
 
+        normalizeEquipment(data);
         boolean stored = grantCraftedOrTradedItem(data, item);
         saveEquipment(player, data);
         if (!stored) {
@@ -458,8 +457,8 @@ public class PlayerItemSystem {
         for (ItemIngredient ing : item.itemCosts) {
             ShopItemDef subDef = getCatalog().findItem(ing.shopItemId());
             for (int c = 0; c < ing.amount(); c++) {
-                if (subDef != null && data.equipped.size < MAX_EQUIPPED_SLOTS) {
-                    data.equipped.add(subDef.id);
+                if (subDef != null) {
+                    if(!grantCraftedOrTradedItem(data,subDef))data.stash.increment(subDef.id,0,1);
                 } else {
                     vanishedSubItems++;
                 }
@@ -498,6 +497,11 @@ public class PlayerItemSystem {
             return new ActionOutcome(false, "[scarlet]Insufficient resources in persistent Orbital Storage.[]");
         }
 
+        if(trade.rewardShopItemId!=null){
+            var reward=getCatalog().findItem(trade.rewardShopItemId);
+            EquipmentData trial=new EquipmentData();trial.equipped.addAll(getEquipment(player).equipped);
+            if(reward!=null&&!grantCraftedOrTradedItem(trial,reward))return new ActionOutcome(false,"[scarlet]No free carry/inventory slot. No resources consumed.[]");
+        }
         AccountRecord acc = sessionManager.getOrInitSession(player);
         String factionId = sessionManager.getActiveFactionId(player.uuid());
         for (ResourceCost rc : trade.orbitalCosts) {
@@ -537,12 +541,33 @@ public class PlayerItemSystem {
         return new ActionOutcome(true, outcomeMsg.toString());
     }
 
-    private static boolean grantCraftedOrTradedItem(EquipmentData data, ShopItemDef item) {
-        if (data.equipped.size < MAX_EQUIPPED_SLOTS) {
-            data.equipped.add(item.id);
-            return true;
+    public static boolean grantCraftedOrTradedItem(EquipmentData data, ShopItemDef item) {
+        boolean active=false;
+        for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++)if(item.id.equals(data.equipped.get(i)))active=true;
+        int start=active?ACTIVE_PASSIVE_SLOTS:0;
+        for(int i=start;i<MAX_EQUIPPED_SLOTS;i++)if(i>=data.equipped.size||data.equipped.get(i).isBlank()){
+            while(data.equipped.size<=i)data.equipped.add("");
+            data.equipped.set(i,item.id);return true;
         }
         return false;
+    }
+    /** Keep slot holes explicit: a second copy must never slide into an active slot. */
+    public static boolean normalizeEquipment(EquipmentData data){
+        boolean changed=false;var seen=new arc.struct.ObjectSet<String>();
+        Seq<String> duplicates=new Seq<>();
+        for(int i=0;i<Math.min(ACTIVE_PASSIVE_SLOTS,data.equipped.size);i++){
+            String id=data.equipped.get(i);if(id==null){data.equipped.set(i,"");changed=true;continue;}
+            if(id.isBlank())continue;
+            if(!seen.add(id)){data.equipped.set(i,"");duplicates.add(id);changed=true;}
+        }
+        while(data.equipped.size>MAX_EQUIPPED_SLOTS){String id=data.equipped.pop();if(!id.isBlank())data.stash.increment(id,0,1);changed=true;}
+        for(String id:duplicates){
+            int free=-1;for(int i=ACTIVE_PASSIVE_SLOTS;i<MAX_EQUIPPED_SLOTS;i++)if(i>=data.equipped.size||data.equipped.get(i).isBlank()){free=i;break;}
+            if(free<0)data.stash.increment(id,0,1); // preserve legacy overflow, retry when carry frees
+            else {while(data.equipped.size<=free)data.equipped.add("");data.equipped.set(free,id);}
+        }
+        while(!data.equipped.isEmpty()&&data.equipped.peek().isBlank()){data.equipped.pop();changed=true;}
+        return changed;
     }
 
     private static void consumeOwnedItem(EquipmentData data, String itemId, int amount) {
@@ -658,20 +683,9 @@ public class PlayerItemSystem {
 
             for(String name:def.wearerStatuses){var status=ShopItemDef.resolveWearerStatus(name);if(status!=null)rig.desiredStatuses.add(status);}
             if (def.attachMode == AttachMode.SUBWEAPON) {
-                int repeatIdx = subtypeCounts.get(def.mountSubtype, 0);
-                subtypeCounts.put(def.mountSubtype, repeatIdx + 1);
-
-                float baseForward = def.computeForwardOffset(hullRadius);
-                float absSide = Math.abs(def.computeSideOffset(hullRadius));
-
-                if (def.isSymmetricallyDuplicated(hullRadius)) {
-                    float fwd = baseForward - repeatIdx * 2.6f;
-                    float sideMag = absSide + repeatIdx * 1.6f;
-                    rig.subweapons.add(new ServerSubweaponBarrel(def, fwd, +sideMag, def.subweaponReload));
-                    rig.subweapons.add(new ServerSubweaponBarrel(def, fwd, -sideMag, def.subweaponReload * 0.5f));
-                } else {
-                    float fwd = baseForward - repeatIdx * 3.0f;
-                    rig.subweapons.add(new ServerSubweaponBarrel(def, fwd, 0f, def.subweaponReload));
+                for(var placement:MountLayout.resolve(unit,equippedIds,cat))if(placement.slot()==i){
+                    rig.subweapons.add(new ServerSubweaponBarrel(def,placement.forward(),placement.side(),
+                        placement.mirrored()?def.subweaponReload*.5f:def.subweaponReload));
                 }
             } else if ((def.attachMode == AttachMode.HALO || def.attachMode == AttachMode.VFX) && def.resolveHaloFx() != null) {
                 collectHaloAnchors(unit, def.haloAnchor, tmpAnchors);

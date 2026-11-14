@@ -61,6 +61,7 @@ public final class UiSpriteSync {
 
         spritesDir.walk(file -> {
             if (!"png".equalsIgnoreCase(file.extension())) return;
+            if (file.path().contains("/item-mounts/")) return; // World-only variants belong in the datapatch, not thousands of UI streams.
             if (file.path().contains("/colouring-generated/") && !file.name().startsWith("paint-can-")) return;
             String stem = file.nameWithoutExtension();
             try {

@@ -149,9 +149,31 @@ public class TechTreeService {
     }
 
     private synchronized void rebindDataPatchContentIfNeeded() {
+        migrateColouringStations();
         if (TechTreeConfigIO.rebindContentRecursive(root)) {
             rebuildIndexes();
         }
+    }
+
+    private void migrateColouringStations() {
+        if (root == null || Vars.content == null) return;
+        String parent = findNode("payload-conveyor") == null ? root.id : "payload-conveyor";
+        boolean changed = false;
+        for (int tier = 1; tier <= 2; tier++) {
+            String name = tier == 1 ? "dp-colouring-station" : "dp-colouring-station-2";
+            Block block = Vars.content.block(name);
+            if (block != null && findNode(name) == null) {
+                TechNodeDef node = addCustomDatabaseNode(parent, name, block, TechNodeDef.DIR_DOWN, false);
+                if (node != null) {
+                    node.pluginUnlocked = false;
+                    node.costs = tier == 1 ? ItemStack.with(mindustry.content.Items.copper, 300, mindustry.content.Items.silicon, 200)
+                        : ItemStack.with(mindustry.content.Items.silicon, 800, mindustry.content.Items.titanium, 500);
+                    changed = true;
+                }
+            }
+            parent = name;
+        }
+        if (changed) TechTreeConfigIO.save(treeFile, root, whitelistOrder);
     }
 
     private void applyServerHideBannedBlocksAndCaptureMapBans() {
@@ -549,6 +571,9 @@ public class TechTreeService {
 
     public boolean isUnitUnlockedForUuid(@Nullable String uuid, @Nullable UnitType unit) {
         if (unit == null) return false;
+        String originalName = coolplugin.gameplay.ColouringAssets.baseName(unit.name);
+        UnitType base = Vars.content.unit(originalName);
+        if (base != null) unit = base;
         TechNodeDef node = findNodeByContent(unit);
         if (node != null) {
             return isUnlockedByUuid(uuid, node) && areAncestorsUnlockedByUuid(uuid, node);

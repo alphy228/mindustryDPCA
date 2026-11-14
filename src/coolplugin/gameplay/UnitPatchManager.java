@@ -16,6 +16,7 @@ import mindustry.ctype.ContentType;
 import mindustry.game.EventType.DataPatchLoadEvent;
 import mindustry.mod.DataPatcher;
 import mindustry.mod.data.ContentAsset;
+import mindustry.mod.data.ImageAsset;
 import mindustry.mod.data.PatchAsset;
 import mindustry.type.UnitType;
 
@@ -51,7 +52,7 @@ public final class UnitPatchManager {
     public void runOnServerLoad() {
         patchesDir.mkdirs();
 
-        Seq<ContentAsset> contentAssets = readContentAssets();
+        Seq<ContentAsset> contentAssets = readContentAssets(false);
         ObjectSet<String> explicitItemCapUnits = collectExplicitUnitPropertyTargets("itemCapacity");
         DataPatcher patcher = new DataPatcher();
         int itemCapCount = 0;
@@ -199,7 +200,13 @@ public final class UnitPatchManager {
         return targets;
     }
 
-    private Seq<ContentAsset> readContentAssets() {
+    public void reloadGeneratedAssets() {
+        if (!reloadServerControlDataAssets()) registerFallbackDataPatchHook();
+    }
+
+    private Seq<ContentAsset> readContentAssets() { return readContentAssets(true); }
+
+    private Seq<ContentAsset> readContentAssets(boolean includeGenerated) {
         Seq<ContentAsset> out = new Seq<>();
         if (!contentDir.exists()) return out;
 
@@ -208,6 +215,7 @@ public final class UnitPatchManager {
             if (!folder.exists()) continue;
             folder.walk(file -> {
                 if (!isJsonOrHjson(file)) return;
+                if (!includeGenerated && file.path().contains("/colouring-generated/")) return;
                 ContentAsset asset = new ContentAsset(file.nameWithoutExtension(), type, file.readString());
                 asset.path = SERVER_ASSET_PREFIX + file.pathWithoutExtension().substring(contentDir.path().length() + 1);
                 out.add(asset);
@@ -223,7 +231,7 @@ public final class UnitPatchManager {
 
         patchesDir.walk(file -> {
             if (!isJsonOrHjson(file)) return;
-            if (excludedFileName != null && excludedFileName.equalsIgnoreCase(file.name())) return;
+            if (excludedFileName != null && (excludedFileName.equalsIgnoreCase(file.name()) || file.name().startsWith("zzzz-colouring"))) return;
             PatchAsset asset = new PatchAsset(file.readString());
             asset.path = SERVER_ASSET_PREFIX + file.name();
             out.add(asset);
@@ -272,16 +280,31 @@ public final class UnitPatchManager {
         fallbackHookRegistered = true;
 
         Events.on(DataPatchLoadEvent.class, event -> {
+            ObjectSet<String> paths = new ObjectSet<>();
+            ObjectSet<String> imageNames = new ObjectSet<>();
+            for (var asset : event.assets) {
+                paths.add(asset.path);
+                if (asset instanceof ImageAsset) imageNames.add(asset.name);
+            }
             for (PatchAsset patch : readPatchAssetsExcluding(null)) {
-                if (!event.assets.contains(existing -> existing instanceof PatchAsset && patch.path.equals(existing.path))) {
-                    event.assets.add(patch);
-                }
+                if (paths.add(patch.path)) event.assets.add(patch);
             }
             for (ContentAsset content : readContentAssets()) {
-                if (!event.assets.contains(existing -> existing instanceof ContentAsset && content.path.equals(existing.path))) {
-                    event.assets.add(content);
-                }
+                if (paths.add(content.path)) event.assets.add(content);
             }
+            // ServerControl may not exist yet during plugin init. In that case the fallback
+            // must carry the generated PNGs as well as the hidden unit definitions.
+            Fi generated = assetsDir.child("sprites/colouring-generated");
+            if (generated.exists()) generated.walk(file -> {
+                if (!"png".equalsIgnoreCase(file.extension()) || !imageNames.add(file.nameWithoutExtension())) return;
+                try {
+                    ImageAsset image = new ImageAsset();
+                    image.readOverride(SERVER_ASSET_PREFIX + "colouring-generated/" + file.name(), file);
+                    event.assets.add(image);
+                } catch (Exception error) {
+                    Log.err("[Colouring] Could not register generated sprite " + file.path(), error);
+                }
+            });
             event.assets.sort();
         });
     }

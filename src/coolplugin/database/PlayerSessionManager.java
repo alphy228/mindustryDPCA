@@ -309,6 +309,16 @@ public class PlayerSessionManager {
     public static UnitType lookupUnitTypeOrDefault(@Nullable String name) {
         if (name != null && !name.isEmpty() && Vars.content != null) {
             UnitType direct = Vars.content.unit(name);
+            if(direct==null && name.startsWith("dp-paint-")){
+                String base=coolplugin.gameplay.ColouringAssets.baseName(name);
+                if(!base.equals(name)){
+                    String oldScheme=name.substring("dp-paint-".length(),name.length()-base.length()-1);
+                    String shared=coolplugin.gameplay.ColouringAssets.paletteAliases.get(oldScheme);
+                    var palette=coolplugin.gameplay.ColouringAssets.palette(shared);
+                    if(palette!=null)direct=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant(base,palette));
+                    if(direct==null)direct=Vars.content.unit(base);
+                }
+            }
             if (direct != null) return direct;
             if (!name.startsWith("dp-")) {
                 UnitType dp = Vars.content.unit("dp-" + name);

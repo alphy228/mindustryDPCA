@@ -181,6 +181,20 @@ public class PlayerItemSystem {
 
     public synchronized void reloadCatalog() {
         this.catalog = ShopConfigIO.loadOrCreate(shopConfigFile);
+        for (var palette : ColouringAssets.palettes) {
+            if (catalog.findItem(palette.canId()) != null) continue;
+            ShopItemDef can = new ShopItemDef();
+            can.id = palette.canId();
+            can.name = palette.title() + " Paint Can";
+            can.description = "One use. " + palette.title() + " palette. Requires Colouring Station " + (palette.tier() == 2 ? "II" : "I") + ".";
+            can.tier = StationTier.WORKBENCH;
+            can.category = ShopItemDef.ShopCategory.UTILITY;
+            can.sprite = "paint-can-" + palette.id();
+            can.resourceCosts.add(new ResourceCost("copper", 50));
+            can.resourceCosts.add(new ResourceCost("lead", 25));
+            catalog.items.add(can);
+        }
+        catalog.rebuildIndexes();
     }
 
     public Catalog getCatalog() {
@@ -196,6 +210,13 @@ public class PlayerItemSystem {
         EquipmentData data = database.getEquipmentData(acc.id, factionId);
 
         boolean dirty = false;
+        for(int i=0;i<data.equipped.size;i++){
+            String id=data.equipped.get(i);
+            if(id.startsWith("paint-unit-")){
+                String scheme=ColouringAssets.paletteAliases.get(id.substring("paint-".length()));
+                if(scheme!=null&&!id.equals("paint-"+scheme)){data.equipped.set(i,"paint-"+scheme);dirty=true;}
+            }
+        }
         if (!data.stash.isEmpty()) {
             Seq<String> keys = data.stash.keys().toSeq();
             for (String k : keys) {
@@ -208,6 +229,15 @@ public class PlayerItemSystem {
             }
             data.stash.clear();
             dirty = true;
+        }
+        // Keep retired v17 cans salvageable without bringing back their palettes/textures.
+        Catalog activeCatalog=getCatalog();
+        for(String id:data.equipped)if(id.startsWith("paint-") && activeCatalog.findItem(id)==null){
+            ShopItemDef retired=new ShopItemDef();retired.id=id;retired.name="Retired Paint Can";
+            retired.description="Retired colour scheme. Decraft to recover its recipe materials.";
+            retired.craftable=false;retired.decraftable=true;
+            retired.resourceCosts.add(new ResourceCost("copper",50));retired.resourceCosts.add(new ResourceCost("lead",25));
+            activeCatalog.items.add(retired);activeCatalog.rebuildIndexes();
         }
         while (data.equipped.size > MAX_EQUIPPED_SLOTS) {
             data.equipped.pop();

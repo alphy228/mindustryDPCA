@@ -7,6 +7,8 @@ import coolplugin.database.PlayerDatabase;
 import coolplugin.database.PlayerSessionManager;
 import coolplugin.gameplay.BuildResourceStorage;
 import coolplugin.gameplay.BuildSystem;
+import coolplugin.gameplay.ColouringAssets;
+import coolplugin.gameplay.ColouringSystem;
 import coolplugin.gameplay.ItemShopSystem;
 import coolplugin.gameplay.LaunchPadSystem;
 import coolplugin.gameplay.PlayerItemSystem;
@@ -45,12 +47,15 @@ public class CoolPlugin extends Plugin {
     private LaunchPadSystem launchPadSystem;
     private PlayerItemSystem playerItemSystem;
     private ItemShopSystem itemShopSystem;
+    private ColouringSystem colouringSystem;
 
     @Override
     public void init() {
         ensureSystemsCreated();
-        UiSpriteSync.init(configBaseDir);
         unitPatchManager.runOnServerLoad();
+        new ColouringAssets(configBaseDir).generate();
+        unitPatchManager.reloadGeneratedAssets();
+        UiSpriteSync.init(configBaseDir);
         sessionManager.start();
         techTree.init();
         buildSystem.start();
@@ -58,6 +63,7 @@ public class CoolPlugin extends Plugin {
         launchPadSystem.start();
         playerItemSystem.start();
         itemShopSystem.start();
+        colouringSystem.start();
     }
 
     @Override
@@ -157,6 +163,7 @@ public class CoolPlugin extends Plugin {
             playerUnitSystem = new PlayerUnitSystem(buildSystem, techTree, sessionManager);
             launchPadSystem = new LaunchPadSystem(playerDatabase, sessionManager);
             playerItemSystem = new PlayerItemSystem(alphyDir, playerDatabase, sessionManager, buildSystem);
+            colouringSystem = new ColouringSystem(configBaseDir, playerItemSystem, playerUnitSystem);
             itemShopSystem = new ItemShopSystem(
                 playerItemSystem,
                 buildSystem,

@@ -392,6 +392,10 @@ public class PlayerUnitSystem {
         return UnitTypes.dagger;
     }
 
+    public void persistColour(Player player, Unit unit) {
+        persistUnitTypeForUuid(player.uuid(), chosenFactions.get(player.uuid()), unit.type);
+    }
+
     private void persistUnitTypeForUuid(String uuid, @Nullable FactionDef faction, @Nullable UnitType unitType) {
         if (sessionManager == null || uuid == null || faction == null || unitType == null) return;
         sessionManager.saveUnitTypeByUuid(uuid, faction, unitType);
@@ -697,6 +701,7 @@ public class PlayerUnitSystem {
         @Nullable UnitType sourceType,
         @Nullable ReconstructorBuild reconBuild
     ) {
+        if (ColouringSystem.isStation(reconBuild)) return true;
         UnitType targetType = resolveReconstructorUpgrade(reconBuild, sourceType);
         if (targetType == null) return true;
         return techTree == null || techTree.isUnitUnlockedForUuid(uuid, targetType);
@@ -1190,6 +1195,7 @@ public class PlayerUnitSystem {
     }
 
     private void exitPayload(Player player) {
+        if (ColouringSystem.exit(player)) return;
         String uuid = player.uuid();
         Unit unit = owned.get(uuid);
 

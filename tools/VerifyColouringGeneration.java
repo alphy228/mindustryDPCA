@@ -1200,6 +1200,16 @@ public class VerifyColouringGeneration {
         float slow=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,8),fast=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5,8);
         check(Math.abs(fast/slow-5)<.001f&&coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,32)>slow,
             "Pushback scales linearly with effective speed and strengthens smoothly with penetration");
+        check(coolplugin.gameplay.FlyingTerrainGuard.resistance(12)<.05f&&coolplugin.gameplay.FlyingTerrainGuard.resistance(25.6f)>.99f
+            &&coolplugin.gameplay.FlyingTerrainGuard.hardDepth==28f,
+            "Resistance stays light until 1.75 tiles and ramps near the exact 3.5-tile hard fallback");
+        boolean linearRamp=true;
+        for(int sample=0;sample<=8;sample++){
+            float t=sample/8f,depth=14f+11.6f*t;
+            linearRamp&=Math.abs(coolplugin.gameplay.FlyingTerrainGuard.resistance(depth)-(.04f+.96f*t))<.00001f;
+            linearRamp&=Math.abs(coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5f,depth)-5f*(.08f+.10f*t))<.00001f;
+        }
+        check(linearRamp,"Outward target and resistance rise linearly at equally spaced depths throughout the ramp");
         float repeatedOut=0f;
         float targetOut=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5f,32f);
         for(int frame=0;frame<600;frame++)repeatedOut+=coolplugin.gameplay.FlyingTerrainGuard.pushDelta(repeatedOut,targetOut,1f);
@@ -1213,6 +1223,8 @@ public class VerifyColouringGeneration {
         var waypoint=coolplugin.gameplay.FlyingTerrainGuard.waypoint(flyer,224,160);
         check(waypoint!=null&&!coolplugin.gameplay.FlyingTerrainGuard.forbidden(waypoint.x,waypoint.y),
             "Flying pathfinding finds a non-black waypoint around dark terrain");
+        check(waypoint!=null&&flyer.dst(waypoint)>Vars.tilesize*2,
+            "AI detour lookahead skips nearby tile centres instead of forcing a turn at each tile");
         for(int yy=12;yy<=28;yy++)Vars.world.tile(24,yy).setBlock(Blocks.air);
         obstacle.setBlock(Blocks.air);coolplugin.gameplay.FlyingTerrainGuard.invalidate();
         var oldBlocks=new arc.struct.Seq<Block>();var oldData=new arc.struct.Seq<Byte>();
@@ -1229,15 +1241,14 @@ public class VerifyColouringGeneration {
                 flyer.set(flyer.x+inputSpeed,34*8f);flyer.vel.set(inputSpeed,0);
                 serverOnly.correct(flyer);deepest=Math.max(deepest,flyer.x-(25*8f+4));
             }
-            heldBack&=deepest<coolplugin.gameplay.FlyingTerrainGuard.hardDepth-8;
+            heldBack&=deepest<=coolplugin.gameplay.FlyingTerrainGuard.hardDepth;
         }
-        check(heldBack,"Server-only correction resists sustained inward client movement before the six-tile backstop at slow and fast speeds");
-        flyer.set(27*8f,34*8f);
-        for(int frame=0;frame<180&&coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y);frame++){
-            flyer.vel.setZero();serverOnly.correct(flyer);
-        }
-        check(!coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y),
-            "Idle remote player drifts completely out with no input and no client world logic");
+        check(heldBack,"With client logic absent, the server enforces the 3.5-tile hard fallback at slow and fast input speeds");
+        flyer.set(27*8f,34*8f);flyer.vel.setZero();
+        int packetsBefore=((CapturingCon)picker.con).sentPackets.size;
+        float unchangedX=flyer.x;serverOnly.correct(flyer);
+        check(flyer.x==unchangedX&&((CapturingCon)picker.con).sentPackets.size==packetsBefore,
+            "Soft remote-player guard never rewinds absolute position or emits setPosition packets");
         Unit idleAI=UnitTypes.flare.spawn(Team.crux,27*8f,34*8f);idleAI.vel.setZero();
         for(int frame=0;frame<240&&coolplugin.gameplay.FlyingTerrainGuard.forbidden(idleAI.x,idleAI.y);frame++){
             serverOnly.correct(idleAI);idleAI.set(idleAI.x+idleAI.vel.x,idleAI.y+idleAI.vel.y);idleAI.vel.scl(.9f);
@@ -1246,9 +1257,9 @@ public class VerifyColouringGeneration {
         idleAI.remove();Time.delta=oldTerrainDelta;
         flyer.set(34*8f,34*8f);flyer.vel.set(2,1);terrain.correct(flyer);
         check(!flyer.within(34*8f,34*8f,8)&&flyer.vel.len2()>0,
-            "Six-tile emergency backstop ejects an externally embedded flyer without zeroing momentum");
+            "3.5-tile emergency backstop ejects an externally embedded flyer without zeroing momentum");
         float boundaryX=flyer.x,boundaryY=flyer.y;terrain.correct(flyer);
-        check(flyer.within(boundaryX,boundaryY,8),"Emergency correction places the unit inside the six-tile safety limit rather than repeatedly snapping");
+        check(flyer.within(boundaryX,boundaryY,8),"Emergency correction places the unit inside the 3.5-tile safety limit rather than repeatedly snapping");
         int oldIndex=0;for(int yy=26;yy<=42;yy++)for(int xx=26;xx<=42;xx++){
             Tile cell=Vars.world.tile(xx,yy);cell.setBlock(oldBlocks.get(oldIndex));cell.data=oldData.get(oldIndex++);
         }
@@ -1264,13 +1275,32 @@ public class VerifyColouringGeneration {
         Vars.logicVars.get("@client",true).numval=1;
         Vars.logicVars.get("@clientUnit",true).setconst(flyer);
         for(int i=0;i<120;i++)processors.first().executor.runOnce();
-        check(flyer.within(160,160,1),"Compiled world logic retains the emergency six-tile safety correction");
-        flyer.vel.setZero();Vars.state.tick+=1;
-        logic.pushTerrain(flyer,.3f,.1f);Vars.state.tick+=1;Vars.logicVars.update();
-        Vars.logicVars.get("@client",true).numval=1;
-        Vars.logicVars.get("@clientUnit",true).setconst(flyer);
-        for(int i=0;i<160;i++)processors.first().executor.runOnce();
-        check(flyer.vel.len2()>0,"Client world logic applies a velocity push rather than pinning coordinates during normal pushback");
+        check(flyer.within(160,160,1),"Compiled world logic retains the emergency 3.5-tile safety correction");
+        flyer.set(160,160);flyer.vel.set(0,1.25f);Vars.state.tick+=2;
+        // Plane at x=156, pointing left: the local unit is half a tile into darkness.
+        logic.bindTerrain(flyer,-1,0,-156f/8f,flyer.speed());
+        processors.first().executor.optionalVar("terrainLastTick").setnum(Vars.state.tick-1);
+        Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+        for(int i=0;i<600;i++)processors.first().executor.runOnce();
+        check(flyer.vel.x<0&&Math.abs(flyer.vel.y-1.25f)<.0001f&&flyer.within(160,160,.001f),
+            "Actual client logic nudges only normal velocity and preserves tangential input and current position");
+        double clientClock=processors.first().executor.optionalVar("terrainLastTick").num();
+        logic.bindTerrain(flyer,-1,0,-156f/8f,flyer.speed());
+        check(processors.first().executor.optionalVar("terrainLastTick").num()==clientClock,
+            "Server plane refreshes cannot repeatedly reset or starve the client prediction clock");
+        // Idle local player: execute compiled logic against current coordinates for each frame.
+        flyer.set(170,160);flyer.vel.setZero();
+        for(int frame=0;frame<500&&flyer.x>=156;frame++){
+            Vars.state.tick++;logic.bindTerrain(flyer,-1,0,-156f/8f,flyer.speed());
+            Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+            for(int i=0;i<600;i++)processors.first().executor.runOnce();
+            flyer.set(flyer.x+flyer.vel.x,flyer.y+flyer.vel.y);flyer.vel.scl(.95f);
+        }
+        check(flyer.x<156,"Idle player drifts back out using compiled local logic without absolute-position commands");
+        flyer.set(150,160);flyer.vel.set(0,1.5f);Vars.state.tick++;
+        Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+        for(int i=0;i<600;i++)processors.first().executor.runOnce();
+        check(flyer.vel.x==0&&flyer.vel.y==1.5f,"A stale wall binding releases the unit immediately once local position is outside the wall plane");
         Vars.logicVars.get("@client",true).numval=0;
         var context=rhino.Context.enter();
         try{

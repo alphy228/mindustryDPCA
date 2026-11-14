@@ -640,18 +640,18 @@ public final class WorldItemLogicManager {
         }
     }
 
-    /** Bounded client-local outward speed target, never an accumulating impulse. */
-    public void pushTerrain(Unit unit,float x,float y){pushTerrain(unit,x,y,1f);}
-    public void pushTerrain(Unit unit,float x,float y,float resistance){
+    /** Send a wall plane, not an absolute player position or a repeatedly reset client clock. */
+    public void bindTerrain(Unit unit,float nx,float ny,float plane,float speed){
         for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
             LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
-            String[] names={"terrainPushX","terrainPushY","terrainPushUntil","terrainLastTick","terrainResistance"};
-            double[] values={x*60d/tilesize,y*60d/tilesize,state.tick+4d,state.tick,resistance};
+            if(build.executor.optionalVar("terrainPlane")==null)continue; // child shards deliberately omit the guard
+            String[] names={"terrainNx","terrainNy","terrainPlane","terrainSpeed","terrainPushUntil"};
+            double[] values={nx,ny,plane,Math.max(.1f,speed)*60d/tilesize,state.tick+20d};
             for(int i=0;i<names.length;i++){
                 var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
                 variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);
             }
-            break; // Only one slot applies the impulse, not one per equipment processor.
+            break;
         }
     }
 
@@ -660,7 +660,7 @@ public final class WorldItemLogicManager {
         for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
             LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
             String[] names={"terrainX","terrainY","terrainUntil"};
-            double[] values={x/tilesize,y/tilesize,state.tick+1d};
+            double[] values={x/tilesize,y/tilesize,state.tick+20d};
             for(int i=0;i<names.length;i++){
                 var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
                 variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);
@@ -823,6 +823,8 @@ public final class WorldItemLogicManager {
             }
         }
 
+        int terrainSlot=outEntries.isEmpty()?-1:outEntries.min(e->e.inventorySlot).inventorySlot;
+        boolean includeTerrain=group<0||inGroup(terrainSlot,group);
         if(group>=0){
             var lengths=new Seq<Float>();
             int cursor=0;
@@ -835,7 +837,7 @@ public final class WorldItemLogicManager {
             tailTotal=tailEntryIndices.size;
         }
         if (outEntries.isEmpty()) {
-            return compileClearMlog(baseMarkerId).replace("stop\n","set u hostUnit\n"+FlyingTerrainGuard.mlog()+"wait 0\njump idleDone always 0 0\n");
+            return compileClearMlog(baseMarkerId).replace("stop\n","set u hostUnit\n"+(includeTerrain?FlyingTerrainGuard.mlog():"")+"wait 0\njump idleDone always 0 0\n");
         }
 
         int endSweepId = baseMarkerId + MARKERS_PER_SLOT;
@@ -930,7 +932,7 @@ public final class WorldItemLogicManager {
         sb.append("sensor uy u @y\n");
         sb.append("sensor urot u @rotation\n");
         sb.append("sensor flying u @flying\n");
-        sb.append(FlyingTerrainGuard.mlog());
+        if(includeTerrain)sb.append(FlyingTerrainGuard.mlog());
         if (needsAimSensors) {
             sb.append("sensor sx u @shootX\n");
             sb.append("sensor sy u @shootY\n");

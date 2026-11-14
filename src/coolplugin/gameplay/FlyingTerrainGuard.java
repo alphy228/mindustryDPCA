@@ -14,7 +14,7 @@ import mindustry.world.Tile;
 
 /** Spawn-zone style acceleration away from fully black terrain, independent of leg passability. */
 public final class FlyingTerrainGuard {
-    public static final float fullDarkness=3.5f, hardDepth=6f*Vars.tilesize;
+    public static final float fullDarkness=3.5f, hardDepth=3.5f*Vars.tilesize;
     private static int[] nearest;
     private static int width,height;
     private static Object tiles;
@@ -32,12 +32,7 @@ public final class FlyingTerrainGuard {
             if(Vars.net.client()||!Vars.state.isGame()||Vars.state.isPaused())return;
             for(Unit unit:Groups.unit){
                 if(!unit.isFlying()||unit.dead)continue;
-                // Native, command and logic-controlled AI also steer around black terrain.
-                if(!unit.isPlayer()&&unit.vel.len2()>.01f){
-                    Vec2 goal=new Vec2(unit.vel).setLength(12f*Vars.tilesize).add(unit);
-                    Vec2 waypoint=waypoint(unit,goal.x,goal.y);
-                    if(waypoint!=null)unit.vel.set(waypoint).sub(unit).setLength(Math.max(unit.speed(),unit.vel.len()));
-                }
+                // Never replace AI velocity here: native acceleration/turning owns movement.
                 correct(unit);
             }
         });
@@ -91,24 +86,21 @@ public final class FlyingTerrainGuard {
     }
     /** Gentle outward speed target scales with effective unit speed, not an accumulating impulse. */
     public static float pushStrength(float speed,float depth){
-        float t=Mathf.clamp(depth/(2f*Vars.tilesize));
-        return Math.max(.1f,speed)*(.18f+.17f*t*t*(3f-2f*t));
+        float t=Mathf.clamp((depth-1.75f*Vars.tilesize)/(1.45f*Vars.tilesize));
+        return Math.max(.1f,speed)*(.08f+.10f*t);
     }
     /** Bounded relaxation toward a small outward speed: repeated frames cannot accumulate a launch. */
     public static float pushDelta(float outwardSpeed,float target,float delta){
-        return pushDelta(outwardSpeed,target,delta,.25f);
+        return pushDelta(outwardSpeed,target,delta,.04f);
     }
     public static float pushDelta(float outwardSpeed,float target,float delta,float resistance){
         float blend=1f-(float)Math.pow(1f-Mathf.clamp(resistance),Mathf.clamp(delta,0f,3f));
         return Math.max(0f,(target-outwardSpeed)*blend);
     }
-    /** Cancel sustained inward input by two tiles, without increasing the outward drift speed. */
+    /** Light resistance until 1.75 tiles; full response only near the 3.5-tile safety boundary. */
     public static float resistance(float depth){
-        float t=Mathf.clamp(depth/(2f*Vars.tilesize));
-        return .25f+.75f*t*t*(3f-2f*t);
-    }
-    public static float correctionSpeed(float outward,float speed,float depth){
-        return Math.max(0f,-outward)*resistance(depth)+pushStrength(speed,depth);
+        float t=Mathf.clamp((depth-1.75f*Vars.tilesize)/(1.45f*Vars.tilesize));
+        return .04f+.96f*t;
     }
     public boolean correct(Player player){return player!=null&&correct(player.unit());}
     public boolean correct(Unit unit){
@@ -123,21 +115,15 @@ public final class FlyingTerrainGuard {
         float outward=unit.vel.dot(normal),dt=Mathf.clamp(Time.delta,0f,3f);
         float change=pushDelta(outward,strength,dt,resistance(depth));
         unit.vel.add(normal.x*change,normal.y*change);
-        if(unit.isPlayer()&&!unit.isLocal()){
-            // Remote player positions come from client snapshots, not server velocity integration.
-            // Move the CURRENT position incrementally and synchronize it on every push, including
-            // idle input. Do not restore a safe point or repeatedly add an unbounded impulse.
-            float displacement=correctionSpeed(outward,unit.speed(),depth)*dt;
-            unit.set(unit.x+normal.x*displacement,unit.y+normal.y*displacement);
-            Player player=unit.getPlayer();player.set(unit.x,unit.y);
-            if(player.con!=null)Call.setPosition(player.con,unit.x,unit.y);
-        }
-        if(visuals!=null&&unit.isPlayer())visuals.pushTerrain(unit,normal.x*strength,normal.y*strength,resistance(depth));
-        // Emergency only: normal acceleration already overpowers inward thrust well before this.
+        // Local prediction adjusts only the normal velocity component using the client's
+        // current position. Normal pushback must NEVER send stale absolute positions.
+        if(visuals!=null&&unit.isPlayer())visuals.bindTerrain(unit,normal.x,normal.y,
+            (exit.dot(normal)-Vars.tilesize/2f)/Vars.tilesize,unit.speed());
+        // Emergency only: the hard server fallback remains available without client logic.
         // Preserve velocity; never stop the unit or roll it back to a previous frame.
         if(depth>=hardDepth){
-            Vec2 boundary=exit.cpy().sub(toward.setLength(hardDepth-2f));
-            unit.set(boundary);
+            Vec2 boundary=exit.cpy().sub(toward.setLength(hardDepth+Vars.tilesize/2f-2f));
+            unit.set(boundary);unit.snapSync();
             if(unit.isPlayer()){
                 Player player=unit.getPlayer();player.set(boundary);
                 if(visuals!=null)visuals.correctTerrain(unit,boundary.x,boundary.y);
@@ -155,13 +141,13 @@ public final class FlyingTerrainGuard {
     /** Cached black-terrain-excluding A*, with a global two-search-per-tick budget. Null preserves native motion. */
     public static Vec2 waypoint(Unit unit,float x,float y){
         field();if(forbidden(unit.x,unit.y))return open(unit.x,unit.y);
+        if(clear(unit.x,unit.y,x,y)){routes.remove(unit.id);return null;}
         Route route=routes.get(unit.id);
         if(route!=null&&route.until>Time.time&&route.path.isEmpty())return null;
         if(route!=null&&route.until>Time.time&&!route.path.isEmpty()){
-            while(!route.path.isEmpty()&&unit.within(route.path.first(),Vars.tilesize*.8f))route.path.remove(0);
-            if(!route.path.isEmpty())return new Vec2(route.path.first().worldx(),route.path.first().worldy());
+            Vec2 smooth=smoothWaypoint(unit,route.path);if(smooth!=null)return smooth;
         }
-        if(clear(unit.x,unit.y,x,y))return null;
+
         Tile from=Vars.world.tileWorld(unit.x,unit.y);Vec2 end=open(x,y);if(from==null||end==null)return null;
         Tile to=Vars.world.tileWorld(end.x,end.y);if(to==null)return null;
         if(routeTick!=Time.time){routeTick=Time.time;searches=0;}
@@ -169,7 +155,18 @@ public final class FlyingTerrainGuard {
         route=new Route();route.goal=to.pos();route.until=Time.time+45f;
         route.path.addAll(Astar.pathfind(from,to,t->1f,t->!forbidden(t.worldx(),t.worldy())));
         routes.put(unit.id,route);
-        return route.path.isEmpty()?null:new Vec2(route.path.first().worldx(),route.path.first().worldy());
+        return smoothWaypoint(unit,route.path);
+    }
+    /** Skip intermediate tile centres while keeping the whole steering segment non-black. */
+    private static Vec2 smoothWaypoint(Unit unit,Seq<Tile> path){
+        for(int i=path.size-1;i>=0;i--)if(unit.within(path.get(i),Vars.tilesize*.9f)){
+            path.removeRange(0,i);break;
+        }
+        for(int i=path.size-1;i>=0;i--){Tile tile=path.get(i);
+            if(unit.dst2(tile)>Math.max(3f*Vars.tilesize,unit.speed()*12f)*Math.max(3f*Vars.tilesize,unit.speed()*12f))continue;
+            if(clear(unit.x,unit.y,tile.worldx(),tile.worldy()))return new Vec2(tile.worldx(),tile.worldy());
+        }
+        return null;
     }
     public static String mlog(){return """
 jump terrainDone equal @client 0
@@ -185,16 +182,32 @@ set terrainUntil 0
 terrainPush:
 jump terrainDone lessThanEq terrainPushUntil @tick
 jump terrainDone equal terrainLastTick @tick
+jump terrainClock greaterThan terrainLastTick 0
+set terrainLastTick @tick
+jump terrainDone always 0 0
+terrainClock:
 op sub terrainDt @tick terrainLastTick
 op min terrainDt terrainDt 3
 op max terrainDt terrainDt 0
 set terrainLastTick @tick
+sensor terrainPx u @x
+sensor terrainPy u @y
+op mul terrainPx terrainPx terrainNx
+op mul terrainPy terrainPy terrainNy
+op add terrainProjection terrainPx terrainPy
+op sub terrainDepth terrainPlane terrainProjection
+jump terrainDone lessThanEq terrainDepth 0
+op sub terrainT terrainDepth 1.75
+op div terrainT terrainT 1.45
+op max terrainT terrainT 0
+op min terrainT terrainT 1
+op mul terrainResistance terrainT 0.96
+op add terrainResistance terrainResistance 0.04
+op mul terrainTarget terrainT 0.10
+op add terrainTarget terrainTarget 0.08
+op mul terrainTarget terrainTarget terrainSpeed
 sensor terrainVx u @velocityX
 sensor terrainVy u @velocityY
-op len terrainTarget terrainPushX terrainPushY
-jump terrainDone lessThanEq terrainTarget 0
-op div terrainNx terrainPushX terrainTarget
-op div terrainNy terrainPushY terrainTarget
 op mul terrainDotX terrainVx terrainNx
 op mul terrainDotY terrainVy terrainNy
 op add terrainOutward terrainDotX terrainDotY

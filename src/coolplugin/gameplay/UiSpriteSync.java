@@ -80,7 +80,8 @@ public final class UiSpriteSync {
             if (file.path().contains("/item-mounts/")) return; // World-only variants belong in the datapatch, not thousands of UI streams.
             if (file.path().contains("/colouring-generated/")
                 && !file.name().startsWith("paint-can-")
-                && !file.name().startsWith("colouring-station")) return;
+                && !file.name().startsWith("colouring-station")
+                && !file.name().startsWith("colour-preview-")) return;
             String stem = file.nameWithoutExtension();
             try {
                 byte[] bytes = file.readBytes();
@@ -125,9 +126,19 @@ public final class UiSpriteSync {
      */
     public static synchronized String resolveMenuDrawable(@Nullable String original) {
         if (original == null || original.isEmpty()) return "clear";
+        if(original.startsWith("unit-")&&original.endsWith("-ui")){
+            String unit=original.substring(5,original.length()-3);
+            if(SPRITE_BYTES.containsKey("colour-preview-"+unit))return "net-colour-preview-"+unit;
+        }
         String stem = stripDpPrefix(original);
         if (stem != null && SPRITE_BYTES.containsKey(stem)) {
             return "net-" + stem;
+        }
+        // Content-generated UI names are aliases, not necessarily PNG stems.
+        if(stem!=null){
+            String plain=stem.endsWith("-ui")?stem.substring(0,stem.length()-3):stem;
+            for(String candidate:new String[]{plain+"-ui",plain+"-full",plain})
+                if(SPRITE_BYTES.containsKey(candidate))return "net-"+candidate;
         }
         return original;
     }

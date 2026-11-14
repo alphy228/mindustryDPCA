@@ -186,9 +186,37 @@ public class VerifyColouringGeneration {
         check(workConfig.child("assets/sprites/colouring-generated").findAll(f->f.extension().equals("png")&&f.name().startsWith("paint-")&&(f.name().contains("-wreck")||f.name().endsWith("-full.png")||f.name().endsWith("-ui.png"))).isEmpty(),"No recoloured wreck or full/UI icon copies in the bulk datapatch");
         check(workConfig.child("colouring-cache/previews/"+copy.name.substring(3)+".png").exists(),"Selected full icon is available in the server-only preview cache");
         check(copy!=null && copy.hidden && copy.internal,"Hidden unit variant exists");
+        boolean paletteOutlines=true;
+        for(var scheme:coolplugin.gameplay.ColouringAssets.palettes){
+            var variant=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant("dagger",scheme));
+            paletteOutlines &= (variant.outlineColor.rgba()>>>8)==scheme.ramp()[0];
+        }
+        check(paletteOutlines,"Generated unit outline colour matches each selected palette's manual outline role");
         check(copy.health==base.health && copy.speed==base.speed && copy.weapons.size==base.weapons.size,
             "Variant retains gameplay and exact weapon count: base="+base.weapons.size+" copy="+copy.weapons.size);
         check(errors==0,"All generated content parses without errors");
+        var diss=Vars.content.unit("dp-dissociate-unit");
+        var paintedDiss=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant(diss.name,palette));
+        var sourceDiss=arc.util.serialization.Jval.read(workConfig.child("assets/content/units/dissociate-unit.hjson").readString());
+        var outputDiss=arc.util.serialization.Jval.read(workConfig.child("assets/content/units/colouring-generated/"+paintedDiss.name.substring(3)+".hjson").readString());
+        boolean authoredWeapons=true;
+        for(int wi=0;wi<sourceDiss.get("weapons").asArray().size;wi++){
+            var sw=sourceDiss.get("weapons").asArray().get(wi);
+            var pw=outputDiss.get("weapons").asArray().get(wi);
+            for(var field:sw.asObject())if(!field.key.equals("name")){
+                String expected=field.value.toString(arc.util.serialization.Jval.Jformat.formatted);
+                String actual=pw.get(field.key).toString(arc.util.serialization.Jval.Jformat.formatted)
+                    .replace("dp-"+palette.spritePrefix(),"");
+                // Jval interprets unquoted hexadecimal colours beginning with e as Infinity.
+                expected=expected.replace("Infinity", "\"6e7080\"");
+                boolean equal=expected.equals(actual);
+                authoredWeapons &= equal;
+            }
+        }
+        check(authoredWeapons,"Every authored Dissociate weapon field survives recolouring, including sounds and nested effects");
+        check(diss.weapons.size==paintedDiss.weapons.size && diss.parts.size==paintedDiss.parts.size,
+            "Dissociate retains weapon and glow-part counts after parsing");
+
         int different=0;
         for(UnitType u:Vars.content.units()) {
             if(u.name.startsWith("dp-paint-")) {
@@ -280,6 +308,10 @@ public class VerifyColouringGeneration {
         check(destructionSessionOpen&&sessionsMap.isEmpty(),"Station destruction immediately discards the open menu session");
         station.takePayload();station.enabled=true;
         coolplugin.gameplay.UiSpriteSync.reloadSprites(workConfig);
+        check(coolplugin.gameplay.UiSpriteSync.resolveMenuDrawable("unit-dp-dissociate-unit-ui").equals("net-colour-preview-dp-dissociate-unit")
+            &&coolplugin.gameplay.UiSpriteSync.resolveMenuDrawable("unit-"+paintedDiss.name+"-ui").equals("net-colour-preview-"+paintedDiss.name),
+            "Faction picker resolves real streamed icons for original and painted Dissociate");
+
         check(coolplugin.gameplay.UiSpriteSync.hasSprite("colouring-station-2-ui")
             &&coolplugin.gameplay.UiSpriteSync.resolveMenuDrawable("colouring-station-2-ui").equals("net-colouring-station-2-ui"),
             "Generated T2 station icon is included in reload-safe UI texture streams");
@@ -822,7 +854,10 @@ public class VerifyColouringGeneration {
         var landingSystem=new coolplugin.gameplay.LandingPadSystem(db,plugin.getSessionManager());landingSystem.start();
         var landingTile=Vars.world.tile(38,35);landingTile.setBlock(Blocks.landingPad,Team.sharded,0);
         var landing=(mindustry.world.blocks.campaign.LandingPad.LandingPadBuild)landingTile.build;
-        landingSystem.assignOwner(landing,p);landing.config=Items.copper;landing.efficiency=1f;landing.cooldown=0f;
+        check(landingSystem.claimUnowned(landing,p)&&!landingSystem.claimUnowned(landing,p),
+            "Unowned map/reloaded Landing pads can be explicitly claimed once, never reassigned by another claim");
+        landing.config=Items.copper;landing.efficiency=1f;landing.cooldown=0f;
+        check(landingSystem.deliveryStatus(landing).contains("1500"),"Landing menu explains the actual native 1500-water requirement");
         int batch=landing.block.itemCapacity;db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",batch*3);
         check(landingSystem.requestLanding(landing)&&landing.arriving==Items.copper
             &&db.getOrbitalItemAmount(adminAccount.id,"sharded","copper")==batch*2,
@@ -831,7 +866,12 @@ public class VerifyColouringGeneration {
             "An arrival already in progress cannot debit twice");
         landing.arrivingTimer=1f;landing.updateTile();
         check(landing.items.get(Items.copper)==batch&&landing.arriving==null,"Paid native landing arrival fills the pad for vanilla conveyor unloading");
-        landing.items.clear();landing.cooldown=0f;landing.efficiency=1f;
+        landing.items.clear();landing.cooldown=0f;
+        landing.liquids.add(mindustry.content.Liquids.water,((mindustry.world.blocks.campaign.LandingPad)landing.block).consumeLiquidAmount);
+        landing.efficiency=0f;landing.potentialEfficiency=0f;
+        landing.update();
+        check(landing.arriving==Items.copper,"Water-supplied Landing pad requests delivery through real Building.update without forced efficiency");
+        landing.arrivingTimer=1f;landing.update();landing.items.clear();landing.cooldown=0f;landing.efficiency=1f;
         db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",0);landing.updateTile();
         check(landing.arriving==null&&landing.items.total()==0,"Orbital Landing pad never acts as vanilla's custom-game infinite item source");
         db.setOrbitalItemAmount(adminAccount.id,"crux","copper",batch*10);
@@ -841,7 +881,7 @@ public class VerifyColouringGeneration {
             "Insufficient orbital stock waits for a full batch without consuming anything");
         db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",batch*2);landing.items.add(Items.lead,1);
         check(!landingSystem.requestLanding(landing),"Landing pad waits for conveyor output to empty before another delivery");
-        check(Blocks.landingPad.description.equals("Accepts item shippings from orbit"),"Landing pad description matches the requested wording");
+        check(Blocks.landingPad.description.equals("Accepts item shippings from orbit."),"Landing pad description matches the requested wording");
         var badge=coolplugin.gameplay.LandingPadSystem.ownerDecoration(0f,0f,"[red]Painter[]","ffd37f");
         check(badge.size==5&&((ShapeMarker)badge.get(0)).sides==4&&((ShapeMarker)badge.get(2)).sides==3
             &&((ShapeMarker)badge.get(3)).rotation==180f,"Landing badge has a square receiver plate and opposing inward triangles, unlike Launch pad's octagon");

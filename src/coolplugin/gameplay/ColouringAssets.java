@@ -124,7 +124,7 @@ public final class ColouringAssets {
                     int c=image.getRGB(x,y); hash.update((byte)(c>>>24));hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);
                 }
             }
-            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v12";
+            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v14";
             Fi stamp = data.child("colouring-cache/digest");
             boolean cached = stamp.exists() && stamp.readString().equals(digest);
             if (cached) target=liveImages;
@@ -441,11 +441,26 @@ public final class ColouringAssets {
         String template=unitTemplates.get(u.name);
         if(template==null){
             Jval definition=encodeFields(u,0,new IdentityHashMap<>());
+            // Runtime reflection cannot round-trip custom Sound, Effect or PartProgress
+            // instances. Keep authored nested definitions, including their parser defaults.
+            String stem=u.name.startsWith("dp-")?u.name.substring(3):u.name;
+            Fi authored=data.child("assets/content/units/"+stem+".hjson");
+            if(authored.exists()){
+                Jval source=Jval.read(authored.readString().replaceAll(
+                    "(?m)([A-Za-z]*[Cc]olor[A-Za-z]*\\s*:\\s*)([0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?)(?=\\s*(?:[,}\\r\\n]|$))", "$1\"$2\""));
+                for(var field:source.asObject()){
+                    String key=field.key;
+                    if(key.equals("weapons")||key.equals("parts")||key.equals("abilities")
+                        ||key.endsWith("Effect")||key.endsWith("Sound"))
+                        definition.add(key,field.value);
+                }
+                qualifySpriteNames(definition);
+            }
             if(u.engineSize>0 && definition.get("engines")!=null && definition.get("engines").asArray().size>0)
                 definition.get("engines").asArray().remove(definition.get("engines").asArray().size-1);
             Class<?> cls=u.getClass();while(cls.isAnonymousClass())cls=cls.getSuperclass();
             if(cls!=UnitType.class)definition.add("template",Jval.valueOf(cls.getSimpleName()));
-            template=definition.toString();unitTemplates.put(u.name,template);
+            template=definition.toString(Jval.Jformat.formatted);unitTemplates.put(u.name,template);
         }
         Jval j=Jval.read(template);
         Class<?> entityClass=u.constructor.get().getClass();
@@ -458,6 +473,7 @@ public final class ColouringAssets {
         j.add("type",Jval.valueOf(kind));
         j.add("hidden",Jval.valueOf(true));j.add("internal",Jval.valueOf(true));
         j.add("generateIcons",Jval.valueOf(false));
+        j.add("outlineColor",Jval.valueOf(String.format(Locale.ROOT,"%06x",p.ramp()[0]&0xffffff)));
         j.add("fullOverride",Jval.valueOf("dp-"+p.spritePrefix()+u.name));
         remapNames(j,p);
         Jval weapons=j.get("weapons");
@@ -468,6 +484,16 @@ public final class ColouringAssets {
         j.add("name",Jval.valueOf(u.localizedName));j.add("localizedName",Jval.valueOf(u.localizedName));
         return j;
     }
+    private void qualifySpriteNames(Jval j){
+        if(j.isObject())for(var entry:j.asObject()){
+            if((entry.key.equals("name")||entry.key.equals("sprite")||entry.key.endsWith("Sprite"))
+                &&entry.value.isString()&&!sprites.containsKey(entry.value.asString())
+                &&sprites.containsKey("dp-"+entry.value.asString()))
+                j.add(entry.key,Jval.valueOf("dp-"+entry.value.asString()));
+            else qualifySpriteNames(entry.value);
+        }else if(j.isArray())for(Jval child:j.asArray())qualifySpriteNames(child);
+    }
+
     private void remapNames(Jval j,Palette p) {
         if(j.isObject())for(var entry:j.asObject()) {
             if((entry.key.equals("name") || entry.key.equals("sprite") || entry.key.endsWith("Sprite") || entry.key.equals("fullOverride")) && entry.value.isString() && sprites.containsKey(entry.value.asString()))

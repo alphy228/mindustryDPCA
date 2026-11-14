@@ -31,7 +31,7 @@ public final class LandingPadSystem {
     public void start(){
         LandingPad block=(LandingPad)Blocks.landingPad;
         block.buildVisibility=mindustry.world.meta.BuildVisibility.shown;
-        block.description="Accepts item shippings from orbit";
+        block.description="Accepts item shippings from orbit.";
         Events.run(Trigger.update,()->{
             if(Vars.state==null||!Vars.state.isGame()||Vars.state.isPaused())return;
             decorationTimer+=arc.util.Time.delta;if(decorationTimer<60f)return;decorationTimer=0f;
@@ -57,12 +57,23 @@ public final class LandingPadSystem {
         menu=Menus.registerMenuBuilder((player,result)->{
             if(player==null||result==null||result.wasCancelled())return;
             var tile=Vars.world.tile((int)result.token);
-            if(tile==null||!(tile.build instanceof LandingPadBuild pad)||!canUse(player,pad))return;
+            if(tile==null||!(tile.build instanceof LandingPadBuild pad))return;
+            if("claim".equals(result.result)){claimUnowned(pad,player);return;}
+            if(!canUse(player,pad))return;
             Item item=Vars.content.item(result.result);
             if(item!=null&&!item.hidden)pad.configure(item);
         });
         Events.on(TapEvent.class,e->{
-            if(e.player==null||e.tile==null||!(e.tile.build instanceof LandingPadBuild pad)||!canUse(e.player,pad))return;
+            if(e.player==null||e.tile==null||!(e.tile.build instanceof LandingPadBuild pad)||e.player.team()!=pad.team)return;
+            // Ownership is session-local, so loaded/map-placed pads may have none.
+            // Never silently charge an arbitrary teammate: require an explicit claim.
+            if(owners.get(pad.pos())==null){
+                Call.menuBuilder(e.player.con,menu,pad.pos(),"Landing pad",true,true,false,
+                    table().add(label("Assign this unowned pad to your account and active faction." )).row()
+                        .add(buttonTable().style("defaultt").clicked("claim").add(label("Assign to me"))));
+                return;
+            }
+            if(!canUse(e.player,pad))return;
             var grid=table();int count=0;
             for(Item item:Vars.content.items())if(!item.hidden){
                 grid.add(buttonTable().style("defaultt").clicked(item.name).size(48f)
@@ -70,7 +81,7 @@ public final class LandingPadSystem {
                 if(++count%6==0)grid.row();
             }
             Call.menuBuilder(e.player.con,menu,pad.pos(),"Landing pad · Request item",true,true,false,
-                table().add(pane().add(grid).height(300f)));
+                table().add(label(deliveryStatus(pad))).row().add(pane().add(grid).height(300f)));
         });
         if(Vars.netServer!=null&&Vars.netServer.admins!=null)Vars.netServer.admins.addActionFilter(action->{
             if(action!=null&&action.type==mindustry.net.Administration.ActionType.placeBlock&&action.block==block&&action.player!=null&&action.tile!=null)
@@ -104,6 +115,25 @@ public final class LandingPadSystem {
         return record!=null&&pad.team==record.team&&player.team()==record.team
             &&sessions.getOrInitSession(player).id==record.account&&sessions.getActiveFactionId(player.uuid()).equals(record.faction);
     }
+    public boolean claimUnowned(LandingPadBuild pad,Player player){
+        if(pad==null||player==null||!pad.isValid()||pad.team!=player.team()||owners.get(pad.pos())!=null)return false;
+        assignOwner(pad,player);return true;
+    }
+    public String deliveryStatus(LandingPadBuild pad){
+        Owner record=owners.get(pad.pos());
+        if(record==null)return "Assign this pad before requesting a shipment.";
+        if(pad.config==null)return "Select an item to request from orbital storage.";
+        if(pad.arriving!=null)return "Shipment arriving.";
+        if(pad.items.total()>0)return "Waiting for conveyor output to empty the pad.";
+        if(!pad.enabled)return "Pad disabled.";
+        LandingPad block=(LandingPad)pad.block;
+        int stock=database.getOrbitalItemAmount(record.account,record.faction,pad.config.name);
+        float water=pad.liquids.get(block.consumeLiquid);
+        if(water<block.consumeLiquidAmount)return "Waiting for water: "+(int)water+" / "+(int)block.consumeLiquidAmount+" per shipment.";
+        if(stock<block.itemCapacity)return "Waiting for orbital stock: "+stock+" / "+block.itemCapacity+" "+pad.config.localizedName+" ("+record.faction+").";
+        return pad.cooldown>0f?"Waiting for landing cooldown.":"Ready for shipment.";
+    }
+
     public void assignOwner(LandingPadBuild pad,Player player){
         removeOwner(pad.pos());Owner record=owner(player);owners.put(pad.pos(),record);ensureDecoration(pad,record);
     }

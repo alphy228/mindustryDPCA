@@ -169,7 +169,7 @@ public class TechTreeService {
 
     private void migrateColouringStations() {
         if (root == null || Vars.content == null) return;
-        String parent = findNode("payload-conveyor") == null ? root.id : "payload-conveyor";
+        String parent = findNode("dp-workbench") == null ? root.id : "dp-workbench";
         boolean changed = false;
         for (int tier = 1; tier <= 2; tier++) {
             String name = tier == 1 ? "dp-colouring-station" : "dp-colouring-station-2";
@@ -183,8 +183,20 @@ public class TechTreeService {
                     changed = true;
                 }
             }
+            TechNodeDef existing=findNode(name),desired=findNode(parent);
+            if(existing!=null&&desired!=null&&existing.parent!=desired){
+                if(existing.parent!=null)existing.parent.children.remove(existing,true);
+                desired.children.add(existing);existing.parent=desired;changed=true;
+            }
             parent = name;
         }
+        TechNodeDef launch=findNode("launch-pad"),landing=findNode("landing-pad");
+        if(launch!=null&&landing==null){
+            landing=addCustomDatabaseNode(launch.id,"landing-pad",mindustry.content.Blocks.landingPad,TechNodeDef.DIR_UP,false);
+            if(landing!=null){landing.pluginUnlocked=false;landing.costs=ItemStack.with(mindustry.content.Items.copper,2000,mindustry.content.Items.silicon,1000);changed=true;}
+        }
+        if(landing!=null&&launch!=null&&landing.parent!=launch){if(landing.parent!=null)landing.parent.children.remove(landing,true);launch.children.add(landing);landing.parent=launch;changed=true;}
+        if(changed)rebuildIndexes();
         if (changed) TechTreeConfigIO.save(treeFile, root, whitelistOrder);
     }
 

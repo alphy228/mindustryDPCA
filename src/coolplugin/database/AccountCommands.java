@@ -155,8 +155,13 @@ public final class AccountCommands {
                             return;
                         }
                         UnitType resolved = Vars.content == null ? null : (Vars.content.unit(args[3]) != null ? Vars.content.unit(args[3]) : Vars.content.unit("dp-" + args[3]));
-                        String unitName = resolved != null ? resolved.name : args[3];
+                        if(resolved==null){Log.warn("[AccountDB] Unknown unit '@'.",args[3]);return;}
+                        String unitName = resolved.name;
                         db.setFactionUnitType(acc.id, faction.id, unitName);
+                        for(Player online:mindustry.gen.Groups.player){
+                            AccountRecord active=sessions.getActiveSession(online.uuid());
+                            if(active!=null&&active.id==acc.id)coolplugin.gameplay.PlayerUnitSystem.applyAccountUnitNow(online,faction,resolved);
+                        }
                         Log.info("[AccountDB] Set account #@ (@) faction '@' unit -> '@'.",
                             acc.id, acc.isRegistered() ? acc.login : acc.uuid, faction.id, unitName);
                     }

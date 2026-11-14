@@ -78,7 +78,9 @@ public final class ShopConfigIO {
             return def;
         }
         try {
-            return load(file);
+            Catalog catalog=load(file);
+            if(addWeaponTests(catalog))save(file,catalog);
+            return catalog;
         } catch (Throwable t) {
             Log.err("[CoolPlugin] Failed parsing shop.hjson; falling back to default catalog", t);
             return createDefaultCatalog();
@@ -589,6 +591,7 @@ public final class ShopConfigIO {
 
         addEffectExamples(c);
         c.rebuildIndexes();
+        addWeaponTests(c);
         return c;
     }
 
@@ -615,6 +618,25 @@ public final class ShopConfigIO {
     private static ShopItemDef mount(ShopItemDef d, MountSubtype subtype) {
         d.mountSubtype = subtype;
         return d;
+    }
+
+    private static boolean addWeaponTests(Catalog c){
+        boolean changed=false;
+        for(String unit:new String[]{"reign","precept"}){
+            String id="bz-test-"+unit;if(c.findItem(id)!=null)continue;
+            var type=mindustry.Vars.content==null?null:mindustry.Vars.content.unit(unit);
+            var weapon=type==null||type.weapons.isEmpty()?null:type.weapons.first();
+            ShopItemDef d=subweapon(item(id,"Test: "+(unit.equals("reign")?"Dual Reign":"Precept")+" weapon",
+                "Temporary test mount using the native "+unit+" projectile and weapon sprite.",
+                StationTier.BAZAAR,ShopCategory.ATTACK,"silicon","ffd37f",AttachMode.SUBWEAPON,true,true,
+                0f,0f,0f,0f,0f,0f,0f,res("copper",1),items()),
+                unit.equals("reign")?MountSubtype.SIDE_POD:MountSubtype.DORSAL_TURRET,
+                unit,weapon==null?30f:weapon.reload,weapon==null?10f:weapon.bullet.damage,type==null?200f:type.range);
+            d.mountWeaponSprite=weapon==null?unit+"-weapon":weapon.name;
+            if(weapon!=null){d.subweaponRecoil=weapon.recoil;d.subweaponShootEffect="shootBig";d.subweaponSmokeEffect="shootBigSmoke";}
+            add(c,d);changed=true;
+        }
+        return changed;
     }
 
     private static ShopItemDef subweapon(

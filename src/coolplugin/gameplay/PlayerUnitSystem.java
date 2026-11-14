@@ -392,6 +392,24 @@ public class PlayerUnitSystem {
         return UnitTypes.dagger;
     }
 
+    /** Apply an admin account override now for the active faction; inactive saves remain untouched. */
+    public static void applyAccountUnitNow(Player player,FactionDef faction,UnitType type){
+        if(instance==null||player==null||type==null||instance.chosenFactions.get(player.uuid())!=faction)return;
+        var self=instance;Unit old=self.owned.get(player.uuid());
+        if(old==null||old.dead())return;
+        // Release payload holders first so no obsolete unit can reappear from a factory.
+        ColouringSystem.exit(player);
+        float x=old.x,y=old.y,rotation=old.rotation;
+        self.removeUnitFromWorldOrPayload(player.uuid(),old);self.owned.remove(player.uuid());
+        self.holders.remove(player.uuid());self.assemblerHolders.remove(player.uuid());
+        Unit replacement=type.spawn(faction.team(),x,y);replacement.rotation=rotation;
+        Units.notifyUnitSpawn(replacement);
+        self.respawnAt.remove(player.uuid());self.lostScans.remove(player.uuid());
+        self.lastRespawnOffer.remove(player.uuid());self.lastExitOffer.remove(player.uuid());
+        self.owned.put(player.uuid(),replacement);player.unit(replacement);self.snapCamera(player,replacement);
+        self.buildSystem.syncClientCoreNow(player);
+    }
+
     public void persistColour(Player player, Unit unit) {
         persistUnitTypeForUuid(player.uuid(), chosenFactions.get(player.uuid()), unit.type);
     }

@@ -90,6 +90,8 @@ public class LaunchPadSystem {
         if (started) return;
         started = true;
 
+        Blocks.launchPad.localizedName="Launch pad";
+        Blocks.launchPad.description="Launches items into orbital storage to use in research, trading or with Landing pads";
         // Keep only the 3x3 launch-pad player-buildable; hide v8 advanced-launch-pad and landing-pad
         if (Blocks.launchPad != null) {
             Blocks.launchPad.buildVisibility = mindustry.world.meta.BuildVisibility.shown;
@@ -98,7 +100,7 @@ public class LaunchPadSystem {
             Blocks.advancedLaunchPad.buildVisibility = mindustry.world.meta.BuildVisibility.hidden;
         }
         if (Blocks.landingPad != null) {
-            Blocks.landingPad.buildVisibility = mindustry.world.meta.BuildVisibility.hidden;
+            Blocks.landingPad.buildVisibility = mindustry.world.meta.BuildVisibility.shown;
         }
 
         if (netServer != null && netServer.admins != null) {

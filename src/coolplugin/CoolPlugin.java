@@ -61,6 +61,7 @@ public class CoolPlugin extends Plugin {
         buildSystem.start();
         playerUnitSystem.start();
         launchPadSystem.start();
+        new coolplugin.gameplay.LandingPadSystem(playerDatabase,sessionManager).start();
         playerItemSystem.start();
         itemShopSystem.start();
         colouringSystem.start();

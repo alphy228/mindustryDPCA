@@ -261,6 +261,7 @@ public final class ColouringAssets {
         for(var item:catalog.items){
             if(item.attachMode!=ShopItemDef.AttachMode.MOUNT && item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON)continue;
             String family=switch(item.subweaponPreset.toLowerCase(java.util.Locale.ROOT)){
+                case "reign","precept" -> item.subweaponPreset.toLowerCase(java.util.Locale.ROOT);
                 case "mortar","artillery","blast" -> "elude";
                 case "pierce","lance","phase" -> "cleroi";
                 case "incendiary","pyratite","gatling" -> "cleroi";

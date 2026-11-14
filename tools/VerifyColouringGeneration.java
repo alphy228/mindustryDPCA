@@ -748,6 +748,58 @@ public class VerifyColouringGeneration {
             "Explicit intermediate orange shades no longer leave original-colour pixel seams");
         check(coolplugin.gameplay.ManualUnitPalettes.map(0x123456,seamSource,seamTarget)==0x123456,
             "Seam corrections leave unknown RGB values untouched");
+        check(Math.abs(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.nova.health)-UnitTypes.nova.buildSpeed)<.0001f
+            &&Math.abs(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.mega.health)-UnitTypes.mega.buildSpeed/2f)<.0001f
+            &&Math.abs(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.quad.health)-UnitTypes.quad.buildSpeed/3f)<.0001f
+            &&Math.abs(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.oct.health)-UnitTypes.oct.buildSpeed/3f)<.0001f,
+            "Build fallback curve exactly matches Nova, Mega/2, Quad/3 and Oct/3 anchors");
+        check(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.arkyid.health)>.2f,
+            "Arkyid health-based build fallback is no longer the stale 20 percent override");
+        check(tech.findNode("dp-colouring-station").parent.id.equals("dp-workbench")
+            &&tech.findNode("dp-colouring-station-2").parent.id.equals("dp-colouring-station")
+            &&tech.findNode("landing-pad").parent.id.equals("launch-pad"),
+            "Existing research trees migrate colouring to a Workbench split and Landing pad after Launch pad");
+        var demoCatalog=coolplugin.gameplay.ShopConfigIO.loadOrCreate(workConfig.child("alphystuff/shop.hjson"));
+        var reignTest=demoCatalog.findItem("bz-test-reign");var preceptTest=demoCatalog.findItem("bz-test-precept");
+        check(reignTest!=null&&preceptTest!=null&&reignTest.tier==StationTier.BAZAAR&&preceptTest.tier==StationTier.BAZAAR
+            &&reignTest.isSymmetricallyDuplicated(4f)&&!preceptTest.isSymmetricallyDuplicated(4f),
+            "Bazaar migrates dual Reign and single Precept test mounts into existing catalogs");
+        check(PlayerItemSystem.resolveSubweaponBullet("reign")==UnitTypes.reign.weapons.first().bullet
+            &&PlayerItemSystem.resolveSubweaponBullet("precept")==UnitTypes.precept.weapons.first().bullet,
+            "Test mounts use actual native Reign and Precept projectile types");
+        var chosenField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("chosenFactions");chosenField.setAccessible(true);
+        ((arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)chosenField.get(plugin.getPlayerUnitSystem())).put(p.uuid(),coolplugin.gameplay.FactionDef.SHARDED);
+         p.team(Team.sharded);Unit adminOld=UnitTypes.dagger.spawn(Team.sharded,200,200);p.unit(adminOld);owned.put(p.uuid(),adminOld);
+        var adminAccount=plugin.getSessionManager().getOrInitSession(p);
+        var accountHandler=new CommandHandler("");coolplugin.database.AccountCommands.registerServerCommands(accountHandler,plugin.getSessionManager());
+        accountHandler.handleMessage("account setunit "+adminAccount.uuid+" sharded mega");
+        check(p.unit().type==UnitTypes.mega&&!adminOld.isAdded()&&owned.get(p.uuid())==p.unit(),
+            "account setunit immediately replaces the online controlled unit without reload");
+        accountHandler.handleMessage("account setunit "+adminAccount.uuid+" crux nova");
+        check(p.unit().type==UnitTypes.mega,"Setting another faction unit does not replace the currently active unit");
+        var landingSystem=new coolplugin.gameplay.LandingPadSystem(db,plugin.getSessionManager());landingSystem.start();
+        var landingTile=Vars.world.tile(38,35);landingTile.setBlock(Blocks.landingPad,Team.sharded,0);
+        var landing=(mindustry.world.blocks.campaign.LandingPad.LandingPadBuild)landingTile.build;
+        landingSystem.assignOwner(landing,p);landing.config=Items.copper;landing.efficiency=1f;landing.cooldown=0f;
+        int batch=landing.block.itemCapacity;db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",batch*3);
+        check(landingSystem.requestLanding(landing)&&landing.arriving==Items.copper
+            &&db.getOrbitalItemAmount(adminAccount.id,"sharded","copper")==batch*2,
+            "Landing request debits exactly one full native batch from owner's faction orbital storage");
+        check(!landingSystem.requestLanding(landing)&&db.getOrbitalItemAmount(adminAccount.id,"sharded","copper")==batch*2,
+            "An arrival already in progress cannot debit twice");
+        landing.arrivingTimer=1f;landing.updateTile();
+        check(landing.items.get(Items.copper)==batch&&landing.arriving==null,"Paid native landing arrival fills the pad for vanilla conveyor unloading");
+        landing.items.clear();landing.cooldown=0f;landing.efficiency=1f;
+        db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",0);landing.updateTile();
+        check(landing.arriving==null&&landing.items.total()==0,"Orbital Landing pad never acts as vanilla's custom-game infinite item source");
+        db.setOrbitalItemAmount(adminAccount.id,"crux","copper",batch*10);
+        check(!landingSystem.requestLanding(landing),"Landing pad cannot draw the same account's other faction orbital stock");
+        db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",batch-1);
+        check(!landingSystem.requestLanding(landing)&&db.getOrbitalItemAmount(adminAccount.id,"sharded","copper")==batch-1,
+            "Insufficient orbital stock waits for a full batch without consuming anything");
+        db.setOrbitalItemAmount(adminAccount.id,"sharded","copper",batch*2);landing.items.add(Items.lead,1);
+        check(!landingSystem.requestLanding(landing),"Landing pad waits for conveyor output to empty before another delivery");
+
         check(otherFactionsIsolated,"Malis and Neoplasm also retain their own independent research profiles");
         p.team(Team.sharded);Vars.state.rules.researched.remove(mindustry.content.Blocks.graphitePress);
         System.out.println("GENERATED CONFIG="+workConfig);

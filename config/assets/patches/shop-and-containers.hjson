@@ -1,7 +1,7 @@
 name: Copper Container, Item Shops, and Launch Pad
 block.launch-pad.buildVisibility: shown
 block.advanced-launch-pad.buildVisibility: hidden
-block.landing-pad.buildVisibility: hidden
+block.landing-pad.buildVisibility: shown
 block.dp-copper-container: {
   region: dp-copper-container
   fullIcon: dp-copper-container
@@ -25,3 +25,6 @@ block.dp-cursed-altar: {
   fullIcon: dp-cursed-altar
   uiIcon: dp-cursed-altar
 }
+
+block.launch-pad.localizedName: "Launch pad"
+block.launch-pad.description: "Launches items into orbital storage to use in research, trading or with Landing pads"

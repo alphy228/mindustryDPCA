@@ -215,7 +215,7 @@ public final class DefaultSerpuloPreThoriumTree {
             ));
         TechNodeDef router = findById(conveyorSubtree, "router");
         if (router != null) {
-            router.children.insert(0, customBlockNode(
+            TechNodeDef launch=customBlockNode(
                 "launch-pad",
                 TechNodeDef.DIR_UP,
                 new ItemStack[]{
@@ -224,7 +224,10 @@ public final class DefaultSerpuloPreThoriumTree {
                     new ItemStack(Items.titanium, 1800),
                     new ItemStack(Items.silicon, 1500)
                 }
-            ));
+            );
+            launch.children.add(customBlockNode("landing-pad",TechNodeDef.DIR_UP,
+                new ItemStack[]{new ItemStack(Items.copper,2000),new ItemStack(Items.silicon,1000)}));
+            router.children.insert(0,launch);
         }
 
         TechNodeDef container = findById(conveyorSubtree, "container");

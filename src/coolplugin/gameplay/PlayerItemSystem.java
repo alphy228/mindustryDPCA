@@ -760,7 +760,19 @@ public class PlayerItemSystem {
                     float dmg = Math.max(1f, barrel.def.subweaponDamage * stats.damageMult);
                     float bSpeed = Math.max(1.5f, bulletType.speed);
                     float lifeScl = Mathf.clamp(barrel.def.subweaponRange / (bSpeed * Math.max(8f, bulletType.lifetime)), 0.45f, 1.85f);
-                    Call.createBullet(bulletType, unit.team, spawnX, spawnY, aimAngle, dmg, 1f, lifeScl);
+                    if(barrel.def.subweaponPreset.equals("reign")||barrel.def.subweaponPreset.equals("precept")){
+                        var source=Vars.content.unit(barrel.def.subweaponPreset);
+                        var nativeWeapon=source.weapons.first();
+                        nativeWeapon.shoot.shoot(0,(ox,oy,angle,delay,mover)->{
+                            Runnable fire=()->{
+                                if(unit.dead()||!unit.isValid())return;
+                                float bx=spawnX+Angles.trnsx(aimAngle-90f,ox,oy);
+                                float by=spawnY+Angles.trnsy(aimAngle-90f,ox,oy);
+                                Call.createBullet(bulletType,unit.team,bx,by,aimAngle+angle+Mathf.range(nativeWeapon.inaccuracy),dmg,1f,lifeScl);
+                            };
+                            if(delay>0f)Time.run(delay,fire);else fire.run();
+                        },null);
+                    }else Call.createBullet(bulletType, unit.team, spawnX, spawnY, aimAngle, dmg, 1f, lifeScl);
                     worldLogicManager.kickSubweapon(rigKey,barrel.def,barrel.localForward,barrel.localSide);
                     var muzzle=barrel.def.resolveWeaponEffect(barrel.def.subweaponShootEffect);
                     var smoke=barrel.def.resolveWeaponEffect(barrel.def.subweaponSmokeEffect);
@@ -815,6 +827,10 @@ public class PlayerItemSystem {
 
         try {
             return switch (key) {
+                case "reign", "precept" -> {
+                    var type=Vars.content.unit(key);
+                    yield type!=null&&!type.weapons.isEmpty()?type.weapons.first().bullet:fallbackBullet();
+                }
                 case "mortar", "artillery", "blast" ->
                     (UnitTypes.fortress != null && !UnitTypes.fortress.weapons.isEmpty())
                         ? UnitTypes.fortress.weapons.first().bullet

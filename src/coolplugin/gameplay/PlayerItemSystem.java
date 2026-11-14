@@ -131,6 +131,9 @@ public class PlayerItemSystem {
         int unitId = -1;
         int teamId = -1;
         String signature = "";
+        Unit wearer;
+        final arc.struct.ObjectSet<mindustry.type.StatusEffect> desiredStatuses=new arc.struct.ObjectSet<>();
+        final arc.struct.ObjectSet<mindustry.type.StatusEffect> grantedStatuses=new arc.struct.ObjectSet<>();
         final Seq<ServerSubweaponBarrel> subweapons = new Seq<>();
         final Seq<ServerHaloFxEmitter> haloFxEmitters = new Seq<>();
     }
@@ -614,16 +617,19 @@ public class PlayerItemSystem {
         String sig = buildSignature(unit, equippedIds);
         ActiveServerRig rig = serverRigs.get(rigKey);
         if (rig == null || rig.unitId != unit.id || rig.teamId != unit.team.id || !sig.equals(rig.signature)) {
+            if(rig!=null)clearWearerStatuses(rig);
             rig = buildServerRig(unit, equippedIds, sig);
             serverRigs.put(rigKey, rig);
         }
 
+        updateWearerStatuses(unit,rig);
         updateServerSubweapons(unit, rig, stats);
         updateOptionalHaloFx(unit, rig);
     }
 
     private ActiveServerRig buildServerRig(Unit unit, Seq<String> equippedIds, String sig) {
         ActiveServerRig rig = new ActiveServerRig();
+        rig.wearer=unit;
         rig.unitId = unit.id;
         rig.teamId = unit.team.id;
         rig.signature = sig;
@@ -639,6 +645,7 @@ public class PlayerItemSystem {
             ShopItemDef def = cat.findItem(equippedIds.get(i));
             if (def == null) continue;
 
+            for(String name:def.wearerStatuses){var status=ShopItemDef.resolveWearerStatus(name);if(status!=null)rig.desiredStatuses.add(status);}
             if (def.attachMode == AttachMode.SUBWEAPON) {
                 int repeatIdx = subtypeCounts.get(def.mountSubtype, 0);
                 subtypeCounts.put(def.mountSubtype, repeatIdx + 1);
@@ -655,7 +662,7 @@ public class PlayerItemSystem {
                     float fwd = baseForward - repeatIdx * 3.0f;
                     rig.subweapons.add(new ServerSubweaponBarrel(def, fwd, 0f, def.subweaponReload));
                 }
-            } else if (def.attachMode == AttachMode.HALO && def.resolveHaloFx() != null) {
+            } else if ((def.attachMode == AttachMode.HALO || def.attachMode == AttachMode.VFX) && def.resolveHaloFx() != null) {
                 collectHaloAnchors(unit, def.haloAnchor, tmpAnchors);
                 int count = Math.max(1, tmpAnchors.size);
                 for (int a = 0; a < count; a++) {
@@ -727,9 +734,25 @@ public class PlayerItemSystem {
                     float bSpeed = Math.max(1.5f, bulletType.speed);
                     float lifeScl = Mathf.clamp(barrel.def.subweaponRange / (bSpeed * Math.max(8f, bulletType.lifetime)), 0.45f, 1.85f);
                     Call.createBullet(bulletType, unit.team, spawnX, spawnY, aimAngle, dmg, 1f, lifeScl);
+                    var sound=barrel.def.resolveShootSound();
+                    if(sound!=null&&barrel.def.subweaponSoundVolume>0f)Call.soundAt(sound,spawnX,spawnY,barrel.def.subweaponSoundVolume,barrel.def.subweaponSoundPitch);
                 }
             }
         }
+    }
+
+    private static void updateWearerStatuses(Unit unit,ActiveServerRig rig){
+        for(var status:rig.desiredStatuses){
+            // Do not take ownership of a status already supplied by the map/another source.
+            if(rig.grantedStatuses.contains(status)&&unit.getDuration(status)>31f)rig.grantedStatuses.remove(status);
+            if(rig.grantedStatuses.contains(status)||unit.getDuration(status)<=0f){
+                unit.apply(status,30f);rig.grantedStatuses.add(status);
+            }
+        }
+    }
+    private static void clearWearerStatuses(ActiveServerRig rig){
+        if(rig.wearer!=null)for(var status:rig.grantedStatuses)rig.wearer.unapply(status);
+        rig.grantedStatuses.clear();
     }
 
     private void updateOptionalHaloFx(Unit unit, ActiveServerRig rig) {
@@ -881,11 +904,13 @@ public class PlayerItemSystem {
     }
 
     public void destroyRig(String rigKey) {
-        serverRigs.remove(rigKey);
+        ActiveServerRig removed=serverRigs.remove(rigKey);
+        if(removed!=null)clearWearerStatuses(removed);
         worldLogicManager.clearRig(rigKey);
     }
 
     public void clearAllRigs() {
+        for(var rig:serverRigs.values())clearWearerStatuses(rig);
         serverRigs.clear();
         worldLogicManager.clearAllRigs();
     }

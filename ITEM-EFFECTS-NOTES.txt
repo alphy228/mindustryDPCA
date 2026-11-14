@@ -1,0 +1,68 @@
+Item sound / cosmetic / wearer-status options (Mindustry v160.7)
+=============================================================
+
+Edit config/alphystuff/shop.hjson. Config save/load preserves these options.
+Existing item definitions remain valid. The original 45 shop items remain; three
+additional temporary Workbench items demonstrate the new options. Delete or replace
+these definitions when remaking the catalog; existing configs are not auto-reseeded.
+
+Subweapon firing audio
+---------------------
+Any SUBWEAPON may specify:
+  subweaponShootSound: "shoot"
+  subweaponSoundVolume: 0.6
+  subweaponSoundPitch: 1
+
+The sound is a field name from mindustry.gen.Sounds, not a filename. "none" or an
+unknown sound is silent. Volume is clamped to 0..2; pitch to 0.25..3 on config load.
+The server emits native positional soundAt packets at the firing barrel, only when
+that barrel fires a real bullet. Mirrored barrels each have their own firing sound.
+The bundled/default subweapons now use "shoot". No audio assets enter the plugin.
+
+VFX-only item type
+------------------
+  attachMode: VFX
+  vfxStatus: "burning"
+  haloEffect: "none"
+  haloInterval: 18
+  haloRadius: 0
+
+VFX items emit particles on the unit, without an attachment sprite, rope or geometric
+HaloPart. They do not apply gameplay statuses by themselves. vfxStatus borrows the
+named status's Effect, not its damage/buffs/debuffs. Alternatively, haloEffect names
+a mindustry.content.Fx field directly (e.g. "heal") and takes precedence. haloInterval
+is in ticks (60 ticks/second). Existing halo colour/anchor options also work.
+Only active slots 1-4 emit these cosmetic particles; VFX items in slots 5-10 have no
+world sprite, no particles and no status grants, but retain the normal carry penalty.
+
+Real wearer statuses (works with ANY attachMode)
+-----------------------------------------------
+  wearerStatuses: ["overclock"]
+
+Only active slots 1-4 grant these statuses. Duplicate grants are combined per wearer.
+The grant is refreshed while equipped. Moving the item out of the active slots,
+removing it, changing units, or destroying the rig removes statuses granted by the
+item, including permanent statuses such as overdrive. Pre-existing statuses are not
+claimed or removed. A later external extension beyond the item refresh duration is
+also left in place. Mindustry does not track per-source status ownership; simultaneous
+same-status applications still obey its normal global status and reaction rules.
+Immunities and normal status interactions are respected. none/dynamic, unknown names
+and reactive one-shot damage statuses are not accepted as continuous wearer grants.
+These are real native statuses; their native particles may appear in addition to a
+configured cosmetic emitter. Use only vfxStatus for purely cosmetic effects.
+
+Temporary examples (all Workbench: 75 copper + 35 silicon)
+--------------------------------------------------------
+temp-ember-vfx     Ember Projector: burning particles, no burning damage/status.
+temp-overclock     Overclock Injector: actual overclock status + cosmetic particles.
+temp-mending-vfx   Mending Spark: healing particles, no healing status/gameplay.
+
+Validation
+----------
+66 colouring/item checks, including actual positional sound packet volume/pitch,
+status slot changes, permanent-status cleanup, config round-trip and VFX sprite
+absence. The 67-check gameplay suite also passed, with its catalog-count assertion
+updated only for the three requested temporary items. Three native SDL/OpenGL
+streaming checks exercised late preview arrival, selected-colour texture replacement,
+and entering as an already-painted unit without cans. Actual patch atlas packing
+remains 192 MiB across five insertion orders (not total game RAM).

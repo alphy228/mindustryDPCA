@@ -113,12 +113,18 @@ public final class ShopConfigIO {
 
                 item.haloAnchor = HaloAnchor.parse(v.getString("haloAnchor", "CENTER"));
                 item.haloEffect = v.getString("haloEffect", "none");
+                item.vfxStatus = v.getString("vfxStatus", "none");
+                JsonValue statuses=v.get("wearerStatuses");
+                if(statuses!=null&&statuses.isArray())for(JsonValue entry=statuses.child;entry!=null;entry=entry.next)item.wearerStatuses.add(entry.asString());
                 item.haloColorHex = v.getString("haloColorHex", "");
                 item.haloRadius = v.getFloat("haloRadius", 12f);
                 item.haloInterval = v.getFloat("haloInterval", 26f);
                 item.haloSides = Math.max(3, Math.min(24, v.getInt("haloSides", 6)));
 
                 item.subweaponPreset = v.getString("subweaponPreset", "kinetic");
+                item.subweaponShootSound=v.getString("subweaponShootSound","none");
+                item.subweaponSoundVolume=Math.max(0f,Math.min(2f,v.getFloat("subweaponSoundVolume",0.6f)));
+                item.subweaponSoundPitch=Math.max(0.25f,Math.min(3f,v.getFloat("subweaponSoundPitch",1f)));
                 item.subweaponReload = Math.max(3f, v.getFloat("subweaponReload", 16f));
                 item.subweaponDamage = Math.max(1f, v.getFloat("subweaponDamage", 11f));
                 item.subweaponRange = Math.max(40f, v.getFloat("subweaponRange", 160f));
@@ -194,9 +200,9 @@ public final class ShopConfigIO {
     public static void save(Fi file, Catalog cat) {
         if (file.parent() != null) file.parent().mkdirs();
         StringBuilder sb = new StringBuilder(20480);
-        sb.append("# Item Shop Catalog (45 Placeholder Items + Bazaar Orbital Ship Trades)\n");
+        sb.append("# Item Shop Catalog (Placeholder Items + VFX/Status Examples + Bazaar Orbital Ship Trades)\n");
         sb.append("# Categories: resource | attack | defense | utility\n");
-        sb.append("# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON (ORBIT removed)\n");
+        sb.append("# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON | VFX (ORBIT removed)\n");
         sb.append("# mountSubtype: SIDE_SHIELD | WING_BLADE | SHOULDER_PAD | REAR_THRUSTER | SIDE_POD | WING_POD | NOSE_PROW | SPINE_CORE | TAIL_BOOSTER | DORSAL_TURRET\n");
         sb.append("# haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)\n");
         sb.append("# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.\n\n");
@@ -225,7 +231,7 @@ public final class ShopConfigIO {
                     sb.append("    subweaponDamage: ").append(fmt(it.subweaponDamage)).append("\n");
                     sb.append("    subweaponRange: ").append(fmt(it.subweaponRange)).append("\n");
                 }
-            } else if (it.attachMode == AttachMode.HALO) {
+            } else if (it.attachMode == AttachMode.HALO || it.attachMode == AttachMode.VFX) {
                 sb.append("    haloAnchor: ").append(it.haloAnchor.name()).append("\n");
                 sb.append("    haloSides: ").append(it.haloSides).append("\n");
                 sb.append("    haloEffect: ").append(quote(it.haloEffect)).append("\n");
@@ -236,6 +242,18 @@ public final class ShopConfigIO {
                 sb.append("    haloInterval: ").append(fmt(it.haloInterval)).append("\n");
             } else if (it.attachMode == AttachMode.FOLLOW) {
                 sb.append("    followDistance: ").append(fmt(it.followDistance)).append("\n");
+            }
+
+            if(it.attachMode==AttachMode.SUBWEAPON){
+                sb.append("    subweaponShootSound: ").append(quote(it.subweaponShootSound)).append("\n");
+                sb.append("    subweaponSoundVolume: ").append(fmt(it.subweaponSoundVolume)).append("\n");
+                sb.append("    subweaponSoundPitch: ").append(fmt(it.subweaponSoundPitch)).append("\n");
+            }
+            if(it.attachMode==AttachMode.VFX)sb.append("    vfxStatus: ").append(quote(it.vfxStatus)).append("\n");
+            if(!it.wearerStatuses.isEmpty()){
+                sb.append("    wearerStatuses: [");
+                for(int si=0;si<it.wearerStatuses.size;si++){if(si>0)sb.append(", ");sb.append(quote(it.wearerStatuses.get(si)));}
+                sb.append("]\n");
             }
 
             sb.append("    craftable: ").append(it.craftable).append("\n");
@@ -547,8 +565,25 @@ public final class ShopConfigIO {
             "Acquire an Astral Compass from the deep-space guild fleet.",
             res("surge-alloy", 180, "phase-fabric", 180, "silicon", 400), "bz-15", res()));
 
+        addEffectExamples(c);
         c.rebuildIndexes();
         return c;
+    }
+
+    private static void addEffectExamples(Catalog c){
+        for(int i=0;i<3;i++){
+            ShopItemDef d=new ShopItemDef();
+            d.id=new String[]{"temp-ember-vfx","temp-overclock","temp-mending-vfx"}[i];
+            d.name=new String[]{"Ember Projector","Overclock Injector","Mending Spark"}[i];
+            d.description=new String[]{"Temporary cosmetic burning particles; does not burn the wearer.","Temporary overclock status while equipped in active slots 1-4.","Temporary cosmetic healing particles; does not heal the wearer."}[i];
+            d.attachMode=AttachMode.VFX;d.iconItem=new String[]{"pyratite","silicon","phase-fabric"}[i];
+            d.vfxStatus=i==0?"burning":i==1?"overclock":"none";
+            d.haloEffect=i==2?"heal":"none";d.haloInterval=18f;d.haloRadius=0f;
+            if(i==1)d.wearerStatuses.add("overclock");
+            d.resourceCosts.add(new ResourceCost("copper",75));d.resourceCosts.add(new ResourceCost("silicon",35));
+            c.items.add(d);
+        }
+        for(ShopItemDef d:c.items)if(d.attachMode==AttachMode.SUBWEAPON)d.subweaponShootSound="shoot";
     }
 
     private static void add(Catalog c, ShopItemDef def) {

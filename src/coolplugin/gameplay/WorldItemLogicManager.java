@@ -538,7 +538,7 @@ public final class WorldItemLogicManager {
         int tailTotal = 0;
         for (int i = 0; i < n; i++) {
             ShopItemDef def = catalog.findItem(equippedIds.get(i));
-            if (def == null) continue;
+            if (def == null || def.attachMode == AttachMode.VFX) continue;
             boolean overloaded = i >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
             if (overloaded || def.attachMode == AttachMode.FOLLOW) {
                 tailTotal++;
@@ -554,7 +554,7 @@ public final class WorldItemLogicManager {
 
         for (int i = 0; i < n; i++) {
             ShopItemDef def = catalog.findItem(equippedIds.get(i));
-            if (def == null) continue;
+            if (def == null || def.attachMode == AttachMode.VFX) continue;
 
             boolean overloaded = i >= PlayerItemSystem.ACTIVE_PASSIVE_SLOTS;
             // Items outside the first 4 slots ALWAYS become tail-following with physical spring-tether physics!

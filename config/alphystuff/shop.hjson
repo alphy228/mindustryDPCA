@@ -1,6 +1,6 @@
-# Item Shop Catalog (45 Placeholder Items + Bazaar Orbital Ship Trades)
+# Item Shop Catalog (48 Placeholder Items + Bazaar Orbital Ship Trades)
 # Categories: resource | attack | defense | utility
-# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON (ORBIT removed)
+# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON | VFX (ORBIT removed)
 # mountSubtype: SIDE_SHIELD | WING_BLADE | SHOULDER_PAD | REAR_THRUSTER | SIDE_POD | WING_POD | NOSE_PROW | SPINE_CORE | TAIL_BOOSTER | DORSAL_TURRET
 # haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)
 # Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.
@@ -92,6 +92,9 @@ items: [
     sprite: "shop-wb-06"
     iconItem: graphite
     colorHex: "95abd9"
+    subweaponShootSound: "shoot"
+    subweaponSoundVolume: 0.6
+    subweaponSoundPitch: 1
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
     subweaponPreset: "kinetic"
@@ -331,6 +334,9 @@ items: [
     sprite: "shop-bz-05"
     iconItem: plastanium
     colorHex: "cbd97e"
+    subweaponShootSound: "shoot"
+    subweaponSoundVolume: 0.6
+    subweaponSoundPitch: 1
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
     subweaponPreset: "blaster"
@@ -370,6 +376,9 @@ items: [
     sprite: "shop-bz-07"
     iconItem: blast-compound
     colorHex: "ff795e"
+    subweaponShootSound: "shoot"
+    subweaponSoundVolume: 0.6
+    subweaponSoundPitch: 1
     attachMode: SUBWEAPON
     mountSubtype: DORSAL_TURRET
     subweaponPreset: "mortar"
@@ -391,6 +400,9 @@ items: [
     sprite: "shop-bz-08"
     iconItem: phase-fabric
     colorHex: "f4ba6e"
+    subweaponShootSound: "shoot"
+    subweaponSoundVolume: 0.6
+    subweaponSoundPitch: 1
     attachMode: SUBWEAPON
     mountSubtype: WING_POD
     subweaponPreset: "pierce"
@@ -623,6 +635,9 @@ items: [
     sprite: "shop-ca-05"
     iconItem: pyratite
     colorHex: "ff6b5b"
+    subweaponShootSound: "shoot"
+    subweaponSoundVolume: 0.6
+    subweaponSoundPitch: 1
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
     subweaponPreset: "incendiary"
@@ -838,6 +853,58 @@ items: [
     resources: { surge-alloy: 1000, phase-fabric: 1000 }
     items: { "ca-04": 1, "ca-08": 1, "ca-12": 1 }
   }
+  {
+    id: "temp-ember-vfx"
+    name: "Ember Projector"
+    description: "Temporary cosmetic burning particles; does not burn the wearer."
+    tier: workbench
+    category: utility
+    iconItem: "pyratite"
+    attachMode: VFX
+    vfxStatus: "burning"
+    haloEffect: "none"
+    haloInterval: 18
+    haloRadius: 0
+    craftable: true
+    decraftable: true
+    resources: { copper: 75, silicon: 35 }
+  }
+
+  {
+    id: "temp-overclock"
+    name: "Overclock Injector"
+    description: "Temporary overclock status while equipped in active slots 1-4."
+    tier: workbench
+    category: utility
+    iconItem: "silicon"
+    attachMode: VFX
+    vfxStatus: "overclock"
+    haloEffect: "none"
+    haloInterval: 18
+    haloRadius: 0
+    wearerStatuses: ["overclock"]
+    craftable: true
+    decraftable: true
+    resources: { copper: 75, silicon: 35 }
+  }
+
+  {
+    id: "temp-mending-vfx"
+    name: "Mending Spark"
+    description: "Temporary cosmetic healing particles; does not heal the wearer."
+    tier: workbench
+    category: utility
+    iconItem: "phase-fabric"
+    attachMode: VFX
+    vfxStatus: "none"
+    haloEffect: "heal"
+    haloInterval: 18
+    haloRadius: 0
+    craftable: true
+    decraftable: true
+    resources: { copper: 75, silicon: 35 }
+  }
+
 ]
 
 orbitalTrades: [

@@ -235,7 +235,7 @@ public class VerifyColouringGeneration {
         String emptyUi=new String(serializeUi(system.buildMenu(p,base,2,"")),StandardCharsets.UTF_8);
         check(emptyUi.contains("You dont have any paint cans on you")&&!emptyUi.contains("Apply"),"Empty inventory hides all palettes and apply action");
         var eq=plugin.getPlayerItemSystem().getEquipment(p);eq.equipped.add(palette.canId());plugin.getPlayerItemSystem().saveEquipment(p,eq);
-        check(system.available(p,1).size==(palette.tier()==1?1:0)&&system.available(p,2).size==1,"Paint availability respects its shared scheme station tier");
+        check(system.available(p,1).size==1&&system.available(p,2).size==1,"Owned cans remain visible at either station tier");
         String paintedUi=new String(serializeUi(system.buildMenu(p,base,2,palette.id())),StandardCharsets.UTF_8);
         check(paintedUi.contains("palette:"+palette.id())&&paintedUi.contains("Apply")&&!paintedUi.contains("exit"),"Menu has owned palette, preview and apply but no redundant exit button");
         Tile t=Vars.world.tile(20,20);t.setNet(Vars.content.block("dp-colouring-station-2"),Team.sharded,0);
@@ -325,6 +325,77 @@ public class VerifyColouringGeneration {
         plugin.getPlayerItemSystem().getEquipment(p);
         var retired=plugin.getPlayerItemSystem().getCatalog().findItem("paint-turret-duo");
         check(retired!=null&&!retired.craftable&&retired.decraftable,"Retired turret cans remain salvageable without regenerating turret palettes");
+        check(emptyUi.contains("net-colour-preview-live"),"Empty inventory still displays the player unit preview");
+        check(workConfig.child("colouring-cache/previews/base-dagger.png").exists(),"Unpainted full preview is cached server-side");
+        String alreadyPainted=new String(serializeUi(system.buildMenu(p,copy,2,palette.id())),StandardCharsets.UTF_8);
+        check(alreadyPainted.contains("net-colour-preview-live")&&!alreadyPainted.contains("unit-"+copy.name+"-full"),"Already-painted unit uses streamed preview, never missing variant atlas icon");
+        var tier2=coolplugin.gameplay.ColouringAssets.palettes.find(pal->pal.tier()==2);
+        if(tier2!=null){
+            setEquipped(plugin,p,tier2.canId());
+            String lockedUi=new String(serializeUi(system.buildMenu(p,base,1,"")),StandardCharsets.UTF_8);
+            check(lockedUi.contains("Requires colouring station 2")&&lockedUi.contains("paint-can-"+tier2.id()),"T1 displays owned T2 can with requirement text");
+            check(!system.apply(p,station,host,tier2.id()),"Tier restrictions remain server-authoritative");
+        }
+        check(paintedUi.contains("shop-inv-hex-workbench")&&!paintedUi.contains(palette.title()),"Paints use icon-only hex panel, not text palette buttons");
+        check(coolplugin.gameplay.ColouringAssets.paletteAliases.get("unit-dp-corrode-unit").equals(coolplugin.gameplay.ColouringAssets.paletteAliases.get("unit-dp-dissociate-unit")),"Corrode and Dissociate share one scheme rather than duplicate cans");
+        int[] target={0x101010,0x202020,0x303030,0x404040,0x505050,0x606060,0x800000,0xa00000,0xc00000,0xff0000};
+        var pixels=new java.awt.image.BufferedImage(4,1,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        pixels.setRGB(0,0,0xff989aa4);pixels.setRGB(1,0,0xfff98dc9);pixels.setRGB(2,0,0x7f565666);pixels.setRGB(3,0,0x00123456);
+        var mapped=coolplugin.gameplay.ColouringAssets.recolour(pixels,target);
+        check((mapped.getRGB(0,0)&0xffffff)==target[3]&&(mapped.getRGB(1,0)&0xffffff)==target[8],"Armour maps to armour and accents map to accents, not one mixed brightness ramp");
+        check((mapped.getRGB(2,0)>>>24)==127&&mapped.getRGB(3,0)==pixels.getRGB(3,0),"Recolour preserves alpha and transparent pixels exactly; no added edges or lines");
+        int alphaErrors=0;
+        for(var pal:coolplugin.gameplay.ColouringAssets.palettes)for(String unitName:new String[]{"dagger","toxopid","oct","dp-corrode-unit","dp-dissociate-unit"}){
+            Fi originalIcon=workConfig.child("colouring-cache/previews/base-"+unitName+".png");
+            Fi paintedIcon=workConfig.child("colouring-cache/previews/"+pal.spritePrefix()+unitName+".png");
+            if(!originalIcon.exists()||!paintedIcon.exists()){alphaErrors++;continue;}
+            var originalPixels=javax.imageio.ImageIO.read(originalIcon.file());var paintedPixels=javax.imageio.ImageIO.read(paintedIcon.file());
+            if(originalPixels.getWidth()!=paintedPixels.getWidth()||originalPixels.getHeight()!=paintedPixels.getHeight()){alphaErrors++;continue;}
+            for(int y=0;y<originalPixels.getHeight();y++)for(int x=0;x<originalPixels.getWidth();x++)
+                if((originalPixels.getRGB(x,y)>>>24)!=(paintedPixels.getRGB(x,y)>>>24))alphaErrors++;
+        }
+        check(alphaErrors==0,"Actual body/full-icon recolours retain every source alpha pixel and dimensions across all schemes");
+        var itemSystem=plugin.getPlayerItemSystem();var catalog=itemSystem.getCatalog();
+        var ember=catalog.findItem("temp-ember-vfx");var injector=catalog.findItem("temp-overclock");
+        check(ember!=null&&injector!=null&&catalog.findItem("temp-mending-vfx")!=null,"Three temporary craftable effect examples are loaded");
+        check(ember.resolveHaloFx()==mindustry.content.Fx.burning&&ember.wearerStatuses.isEmpty(),"Cosmetic burning uses status VFX without applying burning");
+        var entries=new arc.struct.Seq<coolplugin.gameplay.WorldItemLogicManager.CompiledVisualEntry>();
+        coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(5000,null,host,arc.struct.Seq.with(ember.id),catalog,entries);
+        check(entries.isEmpty(),"VFX-only item spawns no attachment sprite or geometric halo");
+        Unit wearer=UnitTypes.dagger.create(Team.sharded);wearer.set(240,240);wearer.add();
+        var equipped=arc.struct.Seq.with(injector.id);
+        itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));
+        check(wearer.hasEffect(mindustry.content.StatusEffects.overclock),"Active wearer item applies real configured status");
+        equipped=arc.struct.Seq.with("wb-01","wb-02","wb-03","wb-04",injector.id);
+        itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));
+        check(wearer.getDuration(mindustry.content.StatusEffects.overclock)==0f,"Moving status item to slot 5 removes its granted status");
+        wearer.apply(mindustry.content.StatusEffects.overclock,900f);
+        equipped=arc.struct.Seq.with(injector.id);itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));
+        itemSystem.destroyRig("effect-check");
+        check(wearer.hasEffect(mindustry.content.StatusEffects.overclock),"Removing item preserves a status that existed before equipping");
+        wearer.unapply(mindustry.content.StatusEffects.overclock);
+        injector.wearerStatuses.add("overdrive");
+        itemSystem.updateVisualRigForUnit("effect-check",wearer,equipped,itemSystem.computeStats(equipped));itemSystem.destroyRig("effect-check");
+        check(wearer.getDuration(mindustry.content.StatusEffects.overdrive)==0f,"Permanent statuses granted by an item are removed when the item rig is destroyed");
+        injector.wearerStatuses.remove("overdrive");
+        var cannon=catalog.findItem("wb-06");
+        check(cannon.resolveShootSound()!=null,"Configured subweapon sound resolves to a real Sounds field");
+        cannon.subweaponShootSound="invalid-nonexistent";
+        check(cannon.resolveShootSound()==null,"Invalid shoot sounds are safely silent");cannon.subweaponShootSound="shoot";
+        var oldNet=Vars.net;var sounds=new Seq<mindustry.gen.SoundAtCallPacket>();
+        Vars.net=new Net(null){@Override public boolean server(){return true;}@Override public boolean active(){return true;}
+            @Override public void send(Object packet,boolean reliable){if(packet instanceof mindustry.gen.SoundAtCallPacket sound)sounds.add(sound);}};
+        cannon.subweaponSoundVolume=0.37f;cannon.subweaponSoundPitch=1.23f;
+        wearer.isShooting=true;wearer.aimX=wearer.x+80;wearer.aimY=wearer.y;
+        equipped=arc.struct.Seq.with(cannon.id);
+        itemSystem.updateVisualRigForUnit("sound-check",wearer,equipped,itemSystem.computeStats(equipped));
+        check(!sounds.isEmpty()&&Math.abs(sounds.first().volume-0.37f)<0.001f&&Math.abs(sounds.first().pitch-1.23f)<0.001f,
+            "Firing a subweapon emits native positional sound packets with configured volume and pitch");
+        Vars.net=oldNet;itemSystem.destroyRig("sound-check");wearer.isShooting=false;
+        Fi saved=workConfig.child("effect-catalog-roundtrip.hjson");coolplugin.gameplay.ShopConfigIO.save(saved,catalog);
+        var roundtrip=coolplugin.gameplay.ShopConfigIO.load(saved);
+        check(roundtrip.findItem(injector.id).wearerStatuses.contains("overclock")&&"burning".equals(roundtrip.findItem(ember.id).vfxStatus)
+            &&"shoot".equals(roundtrip.findItem("wb-06").subweaponShootSound),"Status, cosmetic VFX and sound configuration survive save/load");
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 

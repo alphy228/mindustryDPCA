@@ -91,14 +91,15 @@ public final class ColouringSystem {
         if(existing!=null && existing.station==station && existing.unit==unit){lock(station,true);return;}
         if(existing!=null)release(player);
         Session s=new Session();s.player=player;s.station=station;s.unit=unit;s.token=++tokens;
-        var available=available(player,tier(station));if(!available.isEmpty())s.selected=available.first().id();
+        var available=available(player,tier(station)).select(pal->pal.tier()<=tier(station));if(!available.isEmpty())s.selected=available.first().id();
         sessions.put(player.uuid(),s);lock(station,true);show(s);
     }
     public Seq<ColouringAssets.Palette> available(Player p,int stationTier){
         var eq=items.getEquipment(p);
-        return ColouringAssets.palettes.select(pal->pal.tier()<=stationTier && items.countOwnedTotal(eq,pal.canId())>0);
+        return ColouringAssets.palettes.select(pal->items.countOwnedTotal(eq,pal.canId())>0);
     }
     private void show(Session s){
+        s.token=++tokens; // reject late results from a replaced menu
         UiSpriteSync.ensureSent(s.player);
         UnitType preview=selectedType(s.unit.type,s.selected);
         if(preview!=null)streamPreview(s.player,preview);
@@ -108,32 +109,60 @@ public final class ColouringSystem {
         var p=ColouringAssets.palette(palette);
         return p==null?original:Vars.content.unit(ColouringAssets.variant(original.name,p));
     }
+    private Fi previewFile(UnitType type){
+        String name=type.name.startsWith("dp-paint-")?type.name.substring(3):"base-"+type.name;
+        return data.child("colouring-cache/previews/"+name+".png");
+    }
     private void streamPreview(Player player,UnitType type){
-        Fi png=data.child("colouring-cache/previews/"+type.name.replaceFirst("^dp-","")+".png");
+        Fi png=previewFile(type);
         if(!png.exists()||Vars.netServer==null)return;
-        try{Vars.netServer.sendTexture(player.con,"colour-preview-live",png.readBytes());}catch(Exception ignored){}
+        try{Vars.netServer.sendTexture(player.con,"colour-preview-live",png.readBytes());}
+        catch(Exception e){arc.util.Log.warn("[Colouring] Preview stream failed for @: @",type.name,e.toString());}
     }
     public TableBuilder buildMenu(Player player,UnitType unit,int stationTier,String selected){
-        TableBuilder root=table().width(660f).margin(10f);
+        TableBuilder root=table().width(760f).margin(10f);
         root.add(label(stationTier==2?"Colouring Station II":"Colouring Station").style("outlineLabel")).row();
-        var choices=available(player,stationTier);
-        if(choices.isEmpty()){
-            root.add(label("You dont have any paint cans on you").padTop(24f).padBottom(24f));return root;
-        }
-        TableBuilder list=table();int col=0;
-        for(var palette:choices){
-            list.add(buttonTable().style("defaultt").checked(palette.id().equals(selected)).clicked("palette:"+palette.id())
-                .margin(5f).width(150f).add(image("net-paint-can-"+palette.id()).size(24f))
-                .add(label(palette.id().equals(selected)?"[accent]"+palette.title()+"[]":palette.title()).wrap().width(105f)));
-            if(++col%4==0)list.row();
-        }
-        root.add(pane().add(list).width(640f).height(Math.min(248f,64f*((choices.size+3)/4))).padTop(10f)).row();
+        TableBuilder body=table();
         UnitType preview=selectedType(unit,selected);
-        String drawable=preview!=null && !preview.name.equals(unit.name)?"net-colour-preview-live":"unit-"+unit.name+"-full";
-        root.add(image(drawable).placeholder("unit-"+unit.name+"-ui").scaling(Scaling.fit).size(250f).padTop(14f).padBottom(8f)).row();
-        root.add(label(unit.localizedName)).row();
-        root.add(buttonTable().style("defaultt").clicked("apply").disabled(preview==null).margin(8f)
-            .add(label("Apply · 1 paint can")).padTop(10f));
+        String base=ColouringAssets.baseName(unit.name);
+        TableBuilder left=table().width(330f);
+        // Always draw the stream, even if no cans exist or selection equals current unit.
+        left.add(image("net-colour-preview-live").placeholder("unit-"+base+"-full")
+            .scaling(Scaling.fit).size(280f).padBottom(12f)).row();
+        left.add(label(unit.localizedName)).row();
+        var chosen=ColouringAssets.palette(selected);
+        boolean canApply=chosen!=null&&chosen.tier()<=stationTier&&preview!=null&&preview!=unit;
+        if(chosen!=null)left.add(buttonTable().style("defaultt").clicked("apply").disabled(!canApply).margin(8f)
+            .add(label("Apply · 1 paint can")).padTop(12f));
+        body.add(left.padRight(20f));
+        var choices=available(player,stationTier);
+        StackBuilder hex=stack().width(380f).height(420f);
+        hex.add(image(UiSpriteSync.resolveMenuDrawable("shop-inv-hex-workbench")).scaling(Scaling.stretch));
+        TableBuilder right=table().margin(30f).align("top");
+        right.add(label("[accent]Paints[]").padTop(14f).padBottom(12f)).row();
+        if(choices.isEmpty()){
+            right.add(label("You dont have any paint cans on you").wrap().width(290f).padTop(90f));
+        }else{
+            TableBuilder grid=table();int col=0;
+            for(var palette:choices){
+                boolean locked=palette.tier()>stationTier,active=palette.id().equals(selected)&&!locked;
+                TableBuilder tile=table().width(140f).height(locked?134f:76f);
+                ButtonTableBuilder button=buttonTable().style("defaultt").checked(active).disabled(locked)
+                    .clicked("palette:"+palette.id()).size(58f).margin(6f);
+                button.add(image(UiSpriteSync.resolveMenuDrawable("paint-can-"+palette.id()))
+                    .placeholder("item-silicon-ui").color(locked?"666670ff":"ffffffff").scaling(Scaling.fit).size(40f));
+                StackBuilder framed=stack().size(72f);
+                if(active)framed.add(image(UiSpriteSync.resolveMenuDrawable(PlayerInventoryDrawer.GLOW_SPRITE))
+                    .color(mindustry.graphics.Pal.accent.toString()).scaling(Scaling.stretch));
+                framed.add(table().add(button));
+                tile.add(framed).row();
+                if(locked)tile.add(label("Requires colouring station 2").wrap().width(135f).labelAlign("center").color("9999aaff"));
+                grid.add(tile);
+                if(++col%2==0)grid.row();
+            }
+            right.add(pane().add(grid).width(306f).height(310f));
+        }
+        hex.add(right);body.add(hex);root.add(body.padTop(12f));
         return root;
     }
     private void result(Player player,MenuResult result){
@@ -143,9 +172,9 @@ public final class ColouringSystem {
         if(!s.station.isValid()||payload(s.station)==null||payload(s.station).unit!=s.unit||s.station.team!=player.team()){release(player);return;}
         if(result.result.startsWith("palette:")){
             String id=result.result.substring(8);
-            if(available(player,tier(s.station)).contains(p->p.id().equals(id)))s.selected=id;
+            if(available(player,tier(s.station)).contains(p->p.id().equals(id)&&p.tier()<=tier(s.station)))s.selected=id;
         }else if(result.is("apply"))apply(player,s.station,s.unit,s.selected);
-        var choices=available(player,tier(s.station));
+        var choices=available(player,tier(s.station)).select(pal->pal.tier()<=tier(s.station));
         if(!choices.contains(p->p.id().equals(s.selected)))s.selected=choices.isEmpty()?"":choices.first().id();
         show(s);
     }

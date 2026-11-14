@@ -119,7 +119,7 @@ public final class ColouringAssets {
                     int c=image.getRGB(x,y); hash.update((byte)(c>>>24));hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);
                 }
             }
-            String digest = HexFormat.of().formatHex(hash.digest()) + "-whole-unit-schemes-v4";
+            String digest = HexFormat.of().formatHex(hash.digest()) + "-material-role-schemes-v6";
             Fi stamp = data.child("colouring-cache/digest");
             boolean cached = stamp.exists() && stamp.readString().equals(digest);
             if (cached) target=liveImages;
@@ -140,7 +140,7 @@ public final class ColouringAssets {
                 Log.info("[Colouring] Generating palette @/@: @ (@ source sprites)", count, palettes.size, p.id(), names.size);
                 for (String name : names) {
                     Fi out = target.child(p.spritePrefix() + name + ".png");
-                    if (!cached || !out.exists()) ImageIO.write(recolour(sprites.get(name), p.ramp()), "png", out.file());
+                    if (!cached || !out.exists()) ImageIO.write(isMask(name)?sprites.get(name):recolour(sprites.get(name), p.ramp()), "png", out.file());
                 }
                 // Paint can artwork is generated from the same fixed palette, not a UI mockup.
                 Fi can = target.child("paint-can-" + p.id() + ".png");
@@ -158,6 +158,11 @@ public final class ColouringAssets {
                     }
 
                 }
+            }
+            // Cache unchanged full icons too: empty inventory and already-painted entry use
+            // the same reliable streamed-image path as selected paints.
+            for(UnitType u:units)for(String icon:new String[]{"unit-"+u.name+"-full",u.name+"-full",u.name}){
+                if(sprites.containsKey(icon)){ImageIO.write(sprites.get(icon),"png",previews.child("base-"+u.name+".png").file());break;}
             }
             writeUpgradePatch();
             writeStations(units);
@@ -281,7 +286,7 @@ public final class ColouringAssets {
         collectSpriteFamilies(unit,unit.name,0,new IdentityHashMap<>(),family);
         Map<Integer,Integer> histogram=new HashMap<>();
         for(String name:sprites.keys()){
-            if(isMenuIconOrWreck(name)||name.endsWith("-cell")||name.contains("-cell-"))continue;
+            if(isMenuIconOrWreck(name)||isMask(name))continue;
             boolean belongs=false;
             for(String root:family)if(!root.isEmpty()&&(name.equals(root)||name.startsWith(root+"-"))){belongs=true;break;}
             if(!belongs)continue;
@@ -291,10 +296,39 @@ public final class ColouringAssets {
                 histogram.merge(c&0xffffff,1,Integer::sum);
             }
         }
-        int[] colours=histogram.entrySet().stream().sorted(Map.Entry.<Integer,Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
-            .limit(24).map(Map.Entry::getKey).sorted(Comparator.comparingDouble(ColouringAssets::luminance)).mapToInt(Integer::intValue).toArray();
+        int[] colours=roleRamp(histogram);
         if(colours.length>1)palettes.add(new Palette("unit-"+unit.name,unit.localizedName+" scheme",unit.isPatchContent()?2:1,colours));
     }
+    private static boolean isMask(String name){
+        return name.endsWith("-cell")||name.contains("-cell-")||name.endsWith("-heat")||name.endsWith("-glow")||name.endsWith("-light");
+    }
+    // Stable material roles: six armour shades followed by four accent shades.
+    // Never put saturated glow/heat pixels in the armour colour table.
+    private static boolean accent(int c){
+        int r=(c>>>16)&255,g=(c>>>8)&255,b=c&255;
+        int hi=Math.max(r,Math.max(g,b)),lo=Math.min(r,Math.min(g,b));
+        return hi-lo>45 && (hi-lo)/(double)Math.max(1,hi)>0.25;
+    }
+    private static final int[] MATERIAL_REFERENCE={0x393944,0x565666,0x6e7080,0x989aa4,0xb0bac0,0xd7dbe0,0x70424f,0xa8527d,0xf98dc9,0xffc6e8};
+    private static int[] roleRamp(Map<Integer,Integer> histogram){
+        int[] result=new int[10];
+        for(int role=0;role<2;role++){
+            final boolean wantAccent=role==1;
+            int count=role==0?6:4,offset=role==0?0:6;
+            int[] colours=histogram.entrySet().stream().filter(e->accent(e.getKey())==wantAccent)
+                .sorted(Map.Entry.<Integer,Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+                .limit(count).map(Map.Entry::getKey).sorted(Comparator.comparingDouble(ColouringAssets::luminance)).mapToInt(Integer::intValue).toArray();
+            if(colours.length==0){
+                // A neutral scheme has neutral accents too, not invented hue gradients.
+                colours=histogram.entrySet().stream().sorted(Map.Entry.<Integer,Integer>comparingByValue().reversed()).limit(6)
+                    .map(Map.Entry::getKey).sorted(Comparator.comparingDouble(ColouringAssets::luminance)).mapToInt(Integer::intValue).toArray();
+            }
+            if(colours.length==0)return new int[0];
+            for(int i=0;i<count;i++)result[offset+i]=colours[(int)Math.round(i*(colours.length-1.0)/Math.max(1,count-1))];
+        }
+        return result;
+    }
+
     private static double colourDistance(int a,int b){
         double r=((a>>16)&255)-((b>>16)&255),g=((a>>8)&255)-((b>>8)&255),bl=(a&255)-(b&255);
         return Math.sqrt(0.2126*r*r+0.7152*g*g+0.0722*bl*bl);
@@ -337,10 +371,20 @@ public final class ColouringAssets {
     private static double luminance(int c) { return (((c>>16)&255)*0.2126+((c>>8)&255)*0.7152+(c&255)*0.0722)/255.0; }
     public static BufferedImage recolour(BufferedImage src,int[] ramp) {
         BufferedImage out=new BufferedImage(src.getWidth(),src.getHeight(),BufferedImage.TYPE_INT_ARGB);
-        for(int y=0;y<src.getHeight();y++) for(int x=0;x<src.getWidth();x++) {
-            int c=src.getRGB(x,y), a=c>>>24;
-            int index=Math.min(ramp.length-1,(int)Math.round(luminance(c)*(ramp.length-1)));
-            out.setRGB(x,y,a==0?0:(a<<24)|ramp[index]);
+        Map<Integer,Integer> lookup=new HashMap<>();
+        for(int y=0;y<src.getHeight();y++)for(int x=0;x<src.getWidth();x++){
+            int c=src.getRGB(x,y),a=c>>>24;
+            if(a==0){out.setRGB(x,y,c);continue;}
+            int mapped=lookup.computeIfAbsent(c&0xffffff,rgb->{
+                if(ramp.length!=10){ // compatibility for externally supplied colour tables
+                    int closest=0;for(int i=1;i<ramp.length;i++)if(colourDistance(rgb,ramp[i])<colourDistance(rgb,ramp[closest]))closest=i;
+                    return ramp[closest];
+                }
+                int start=accent(rgb)?6:0,end=accent(rgb)?10:6,best=start;
+                for(int i=start+1;i<end;i++)if(colourDistance(rgb,MATERIAL_REFERENCE[i])<colourDistance(rgb,MATERIAL_REFERENCE[best]))best=i;
+                return ramp[best];
+            });
+            out.setRGB(x,y,(a<<24)|mapped);
         }
         return out;
     }
@@ -348,7 +392,7 @@ public final class ColouringAssets {
         BufferedImage out=new BufferedImage(24,24,BufferedImage.TYPE_INT_ARGB);
         for(int y=3;y<22;y++) for(int x=4;x<20;x++) {
             if((y==3||y==21)&&(x<6||x>17))continue;
-            int col=y<6||y>18?0x5b6574:ramp[Math.min(ramp.length-1,ramp.length*2/3)];
+            int col=y<6||y>18?0x5b6574:ramp[ramp.length==10?8:Math.min(ramp.length-1,ramp.length*2/3)];
             if(x<6||x>17)col=0x303743;
             out.setRGB(x,y,0xff000000|col);
         }

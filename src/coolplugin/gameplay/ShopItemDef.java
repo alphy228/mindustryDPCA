@@ -96,7 +96,9 @@ public final class ShopItemDef {
         /** Floating companion that smoothly follows the unit and maintains a specific standoff distance. */
         FOLLOW("Follow"),
         /** Becomes a real rotating, recoiling, firing weapon mounted on the unit (symmetrically duplicated if off-axis). */
-        SUBWEAPON("Subweapon");
+        SUBWEAPON("Subweapon"),
+        /** Cosmetic particles only; no world attachment sprite or halo geometry. */
+        VFX("VFX");
 
         public final String label;
 
@@ -236,6 +238,9 @@ public final class ShopItemDef {
     // Halo placement & steady geometric ShapeMarker / optional Fx parameters
     public HaloAnchor haloAnchor = HaloAnchor.CENTER;
     public String haloEffect = "none";
+    public String vfxStatus = "none";
+    /** Real statuses, granted only in active inventory slots 1-4. */
+    public final Seq<String> wearerStatuses = new Seq<>();
     public String haloColorHex = "";
     public float haloRadius = 12f;
     public float haloInterval = 26f;
@@ -243,6 +248,8 @@ public final class ShopItemDef {
 
     // Subweapon server projectile parameters (fired via Call.createBullet when in active slots 1..4)
     public String subweaponPreset = "kinetic";
+    public String subweaponShootSound = "none";
+    public float subweaponSoundVolume = 0.6f, subweaponSoundPitch = 1f;
     public float subweaponReload = 16f;
     public float subweaponDamage = 11f;
     public float subweaponRange = 160f;
@@ -303,7 +310,8 @@ public final class ShopItemDef {
 
     public @Nullable Effect resolveHaloFx() {
         if (haloEffect == null || haloEffect.isBlank() || "none".equalsIgnoreCase(haloEffect.trim())) {
-            return null;
+            var status=resolveWearerStatus(vfxStatus);
+            return status==null?null:status.effect;
         }
         String fxName = haloEffect.trim();
         try {
@@ -315,6 +323,19 @@ public final class ShopItemDef {
         } catch (Throwable ignored) {
         }
         return Fx.dynamicWave;
+    }
+
+    public static @Nullable mindustry.type.StatusEffect resolveWearerStatus(String name){
+        if(name==null||name.isBlank()||Vars.content==null)return null;
+        var effect=Vars.content.statusEffect(name);
+        // Reactive statuses are one-shot damage events, not wearable continuous buffs.
+        return effect==null||effect==mindustry.content.StatusEffects.none||effect==mindustry.content.StatusEffects.dynamic||effect.reactive?null:effect;
+    }
+
+    public @Nullable arc.audio.Sound resolveShootSound(){
+        if(subweaponShootSound==null||subweaponShootSound.isBlank()||"none".equalsIgnoreCase(subweaponShootSound))return null;
+        try{Object value=mindustry.gen.Sounds.class.getField(subweaponShootSound).get(null);return value instanceof arc.audio.Sound sound?sound:null;}
+        catch(ReflectiveOperationException ignored){return null;}
     }
 
     public String effectiveSprite() {

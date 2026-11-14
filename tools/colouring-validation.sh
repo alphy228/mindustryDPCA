@@ -9,7 +9,7 @@ trap 'rm -rf "$CLASSES"' EXIT
 JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
 JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 "$JAVAC" -cp "$SERVER_JAR:$ROOT/config/mods/coolplugin.jar" -d "$CLASSES" "$ROOT/tools/VerifyColouringGeneration.java"
-"$JAVA" -Xmx1200m -Dcoolplugin.colouring.vanillaJar="$MINDUSTRY_JAR" \
+"$JAVA" "-Xmx${VALIDATION_HEAP:-700m}" -Dcoolplugin.colouring.vanillaJar="$MINDUSTRY_JAR" \
   -Dcoolplugin.colouring.testPaletteLimit="${PALETTE_LIMIT:-2147483647}" \
   -Dcolourtest.output="${OUTPUT_DIR:-$ROOT/.cache/colouring-validation}" \
   -cp "$CLASSES:$SERVER_JAR:$ROOT/config/mods/coolplugin.jar" VerifyColouringGeneration "$ROOT"

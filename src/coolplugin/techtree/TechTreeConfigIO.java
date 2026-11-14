@@ -102,7 +102,7 @@ public final class TechTreeConfigIO {
         node.pluginUnlocked = val.getBoolean("pluginUnlocked",
             val.getBoolean("unlockedByPlugin", val.getBoolean("manualUnlock", false)));
 
-        if (!node.virtual) {
+        if (!node.virtual && !"shop-item".equals(node.contentType)) {
             node.content = resolveContent(node.contentType, node.contentName);
             if (node.content != null && ("resource".equalsIgnoreCase(node.contentType) || "database".equalsIgnoreCase(node.contentType))) {
                 node.contentType = node.content.getContentType().name();
@@ -139,7 +139,7 @@ public final class TechTreeConfigIO {
     public static boolean rebindContentRecursive(TechNodeDef node) {
         if (node == null) return false;
         boolean changed = false;
-        if (!node.virtual && node.contentName != null && !node.contentName.isEmpty()) {
+        if (!node.virtual && !"shop-item".equals(node.contentType) && node.contentName != null && !node.contentName.isEmpty()) {
             UnlockableContent resolved = resolveContent(node.contentType, node.contentName);
             if (resolved != null && resolved != node.content) {
                 node.content = resolved;

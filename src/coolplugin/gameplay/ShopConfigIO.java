@@ -79,7 +79,12 @@ public final class ShopConfigIO {
         }
         try {
             Catalog catalog=load(file);
-            if(addWeaponTests(catalog))save(file,catalog);
+            boolean changed=addWeaponTests(catalog);
+            if(arc.util.serialization.Jval.read(file.readString()).getInt("weaponVisualVersion",0)<1){
+                for(var item:catalog.items)if(item.attachMode==AttachMode.SUBWEAPON&&item.subweaponRecoilTime==12f)item.subweaponRecoilTime=Math.max(1f,item.subweaponReload*.65f);
+                changed=true;
+            }
+            if(changed)save(file,catalog);
             return catalog;
         } catch (Throwable t) {
             Log.err("[CoolPlugin] Failed parsing shop.hjson; falling back to default catalog", t);
@@ -220,6 +225,7 @@ public final class ShopConfigIO {
         sb.append("# haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)\n");
         sb.append("# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.\n\n");
 
+        sb.append("weaponVisualVersion: 1\n");
         sb.append("weightScale: ").append(fmt(cat.weightScale)).append("\n");
         sb.append("minimumWeightSpeedFactor: ").append(fmt(cat.minimumWeightSpeedFactor)).append("\n\n");
         sb.append("items: [\n");
@@ -620,24 +626,33 @@ public final class ShopConfigIO {
         return d;
     }
 
+    public static final String[] TEST_WEAPON_UNITS={"reign","precept","quasar","scepter","locus","vanquish","spiroct","anthicus"};
     private static boolean addWeaponTests(Catalog c){
         boolean changed=false;
-        for(String unit:new String[]{"reign","precept"}){
-            String id="bz-test-"+unit;if(c.findItem(id)!=null)continue;
+        for(String unit:TEST_WEAPON_UNITS){
+            String id="bz-test-"+unit;
             var type=mindustry.Vars.content==null?null:mindustry.Vars.content.unit(unit);
             var weapon=type==null||type.weapons.isEmpty()?null:type.weapons.first();
-            ShopItemDef d=subweapon(item(id,"Test: "+(unit.equals("reign")?"Dual Reign":"Precept")+" weapon",
-                "Temporary test mount using the native "+unit+" projectile and weapon sprite.",
+            ShopItemDef existing=c.findItem(id);
+            if(existing!=null){
+                if(existing.iconSprite==null||existing.iconSprite.isBlank()||existing.iconSprite.startsWith("shop-")){existing.iconSprite="unit-"+unit+"-ui";changed=true;}
+                if(weapon!=null&&!existing.mountWeaponSprite.equals(weapon.name)){existing.mountWeaponSprite=weapon.name;changed=true;}
+                if(weapon!=null&&existing.subweaponRecoilTime==12f){existing.subweaponRecoilTime=Math.max(1f,weapon.recoilTime>0?weapon.recoilTime:weapon.reload);changed=true;}
+                continue;
+            }
+            ShopItemDef d=subweapon(item(id,"Test: "+(unit.equals("reign")?"Dual Reign":TechNames(unit))+" weapon",
+                "Researchable test mount using the native "+unit+" weapon. Sizes stay native; weight follows sprite area.",
                 StationTier.BAZAAR,ShopCategory.ATTACK,"silicon","ffd37f",AttachMode.SUBWEAPON,true,true,
-                0f,0f,0f,0f,0f,0f,0f,res("copper",1),items()),
+                0f,0f,0f,0f,0f,0f,0f,res("copper",25,"silicon",10),items()),
                 unit.equals("reign")?MountSubtype.SIDE_POD:MountSubtype.DORSAL_TURRET,
                 unit,weapon==null?30f:weapon.reload,weapon==null?10f:weapon.bullet.damage,type==null?200f:type.range);
-            d.mountWeaponSprite=weapon==null?unit+"-weapon":weapon.name;
-            if(weapon!=null){d.subweaponRecoil=weapon.recoil;d.subweaponShootEffect="shootBig";d.subweaponSmokeEffect="shootBigSmoke";}
+            d.iconSprite="unit-"+unit+"-ui";d.mountWeaponSprite=weapon==null?unit+"-weapon":weapon.name;
+            if(weapon!=null){d.subweaponRecoil=weapon.recoil;d.subweaponRecoilTime=Math.max(1f,weapon.recoilTime>0?weapon.recoilTime:weapon.reload);d.subweaponShootEffect="shootBig";d.subweaponSmokeEffect="shootBigSmoke";}
             add(c,d);changed=true;
         }
         return changed;
     }
+    private static String TechNames(String name){return Character.toUpperCase(name.charAt(0))+name.substring(1);}
 
     private static ShopItemDef subweapon(
         ShopItemDef d,
@@ -652,6 +667,7 @@ public final class ShopConfigIO {
         d.subweaponReload = reload;
         d.subweaponDamage = damage;
         d.subweaponRange = range;
+        d.subweaponRecoilTime=Math.max(1f,reload*.65f);
         return d;
     }
 

@@ -357,7 +357,12 @@ public class PlayerItemSystem {
         };
     }
 
+    public boolean isItemResearched(Player player,ShopItemDef item){
+        var tech=buildSystem.getTechTree();return tech==null||tech.isShopItemResearched(player,item.id);
+    }
+
     public boolean canAffordCraft(Player player, ShopItemDef item, EquipmentData data) {
+        if(!isItemResearched(player,item))return false;
         for (ResourceCost rc : item.resourceCosts) {
             Item mItem = rc.resolveItem();
             if (mItem == null || buildSystem.getAvailableAmount(player, mItem) < rc.amount()) {
@@ -377,6 +382,7 @@ public class PlayerItemSystem {
     public ActionOutcome craft(Player player, String itemId, StationTier station) {
         ShopItemDef item = getCatalog().findItem(itemId);
         if (item == null) return new ActionOutcome(false, "[scarlet]Item not found.[]");
+        if(!isItemResearched(player,item))return new ActionOutcome(false,"[scarlet]Research this item in the tech tree first. No resources consumed.[]");
         if (!item.craftable) {
             return new ActionOutcome(false, "[scarlet]" + item.name + " cannot be crafted (decraft only).[]");
         }
@@ -760,7 +766,7 @@ public class PlayerItemSystem {
                     float dmg = Math.max(1f, barrel.def.subweaponDamage * stats.damageMult);
                     float bSpeed = Math.max(1.5f, bulletType.speed);
                     float lifeScl = Mathf.clamp(barrel.def.subweaponRange / (bSpeed * Math.max(8f, bulletType.lifetime)), 0.45f, 1.85f);
-                    if(barrel.def.subweaponPreset.equals("reign")||barrel.def.subweaponPreset.equals("precept")){
+                    if(barrel.def.id.startsWith("bz-test-")&&Vars.content.unit(barrel.def.subweaponPreset)!=null){
                         var source=Vars.content.unit(barrel.def.subweaponPreset);
                         var nativeWeapon=source.weapons.first();
                         nativeWeapon.shoot.shoot(0,(ox,oy,angle,delay,mover)->{
@@ -827,7 +833,7 @@ public class PlayerItemSystem {
 
         try {
             return switch (key) {
-                case "reign", "precept" -> {
+                case "reign", "precept", "quasar", "scepter", "locus", "vanquish", "spiroct", "anthicus" -> {
                     var type=Vars.content.unit(key);
                     yield type!=null&&!type.weapons.isEmpty()?type.weapons.first().bullet:fallbackBullet();
                 }

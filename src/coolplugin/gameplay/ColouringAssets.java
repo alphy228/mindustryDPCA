@@ -242,45 +242,63 @@ public final class ColouringAssets {
         }return out;
     }
 
+    public static final ObjectMap<String,String> mountSources=new ObjectMap<>();
     private BufferedImage outlinedWeapon(String name){
         BufferedImage source=sprites.get(name);if(source==null)return null;
         if(hasOutline(source))return source;
-        BufferedImage outline=sprites.get(name+"-outline");if(outline==null)return null;
+        BufferedImage outline=sprites.get(name+"-outline");
+        if(outline==null){
+            outline=new BufferedImage(source.getWidth()+2,source.getHeight()+2,BufferedImage.TYPE_INT_ARGB);
+            for(int y=0;y<source.getHeight();y++)for(int x=0;x<source.getWidth();x++)if((source.getRGB(x,y)>>>24)>0)
+                for(int oy=-1;oy<=1;oy++)for(int ox=-1;ox<=1;ox++)outline.setRGB(x+1+ox,y+1+oy,0xff404049);
+        }
         BufferedImage combined=new BufferedImage(Math.max(source.getWidth(),outline.getWidth()),Math.max(source.getHeight(),outline.getHeight()),BufferedImage.TYPE_INT_ARGB);
         var graphics=combined.createGraphics();
         graphics.drawImage(outline,(combined.getWidth()-outline.getWidth())/2,(combined.getHeight()-outline.getHeight())/2,null);
         graphics.drawImage(source,(combined.getWidth()-source.getWidth())/2,(combined.getHeight()-source.getHeight())/2,null);graphics.dispose();
-        return hasOutline(combined)?combined:null;
+        if(hasOutline(combined))return combined;
+        BufferedImage padded=new BufferedImage(combined.getWidth()+2,combined.getHeight()+2,BufferedImage.TYPE_INT_ARGB);
+        for(int y=0;y<combined.getHeight();y++)for(int x=0;x<combined.getWidth();x++)if((combined.getRGB(x,y)>>>24)>0)
+            for(int oy=-1;oy<=1;oy++)for(int ox=-1;ox<=1;ox++)padded.setRGB(x+1+ox,y+1+oy,0xff404049);
+        var pen=padded.createGraphics();pen.drawImage(combined,1,1,null);pen.dispose();return padded;
     }
 
     private void generateItemMounts(Seq<UnitType> units) throws Exception {
-        mountSizes.clear();
+        mountSizes.clear();mountSources.clear();
         Fi target=data.child("assets/sprites/item-mounts");target.deleteDirectory();target.mkdirs();
         var catalog=ShopConfigIO.loadOrCreate(data.child("alphystuff/shop.hjson"));
         // Use the same catalog path as PlayerItemSystem.
         for(var item:catalog.items){
             if(item.attachMode!=ShopItemDef.AttachMode.MOUNT && item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON)continue;
             String family=switch(item.subweaponPreset.toLowerCase(java.util.Locale.ROOT)){
-                case "reign","precept" -> item.subweaponPreset.toLowerCase(java.util.Locale.ROOT);
+                case "reign","precept","quasar","scepter","locus","vanquish","spiroct","anthicus" -> item.subweaponPreset.toLowerCase(java.util.Locale.ROOT);
                 case "mortar","artillery","blast" -> "elude";
                 case "pierce","lance","phase" -> "cleroi";
                 case "incendiary","pyratite","gatling" -> "cleroi";
                 case "blaster","homing","plastanium" -> "elude";
                 default -> "cleroi";
             };
+            if(item.mountWeaponSprite.isBlank()){
+                String[] varied=switch(item.tier){
+                    case WORKBENCH->new String[]{"dagger","mace","pulsar"};
+                    case BAZAAR->new String[]{"fortress","precept","locus","mega"};
+                    case CURSED_ALTAR->new String[]{"reign","vanquish","scepter","anthicus"};
+                };
+                family=varied[Math.floorMod(item.id.hashCode(),varied.length)];
+            }
             UnitType unit=Vars.content.unit(family);
-            BufferedImage source=null;
+            BufferedImage source=null;String sourceName="";
             if(unit!=null)for(var weapon:unit.weapons){
                 source=outlinedWeapon(weapon.name);
-                if(source!=null)break;
+                if(source!=null){sourceName=weapon.name;break;}
             }
             boolean overrideAccepted=false;
-            if(!item.mountWeaponSprite.isBlank()){source=outlinedWeapon(item.mountWeaponSprite);overrideAccepted=source!=null;}
-            if(source==null){source=outlinedWeapon("cleroi-weapon");family="cleroi";}
+            if(!item.mountWeaponSprite.isBlank()){source=outlinedWeapon(item.mountWeaponSprite);overrideAccepted=source!=null;if(overrideAccepted)sourceName=item.mountWeaponSprite;}
+            if(source==null){source=outlinedWeapon("cleroi-weapon");family="cleroi";sourceName="cleroi-weapon";}
             if(source==null)throw new IllegalStateException("No outlined weapon source for "+item.id);
             // Prefer a real outlined weapon; small unoutlined barrels are not suitable mounts.
-            if(!hasOutline(source)){source=outlinedWeapon("cleroi-weapon");family="cleroi";}
-            if(source==null||!hasOutline(source))throw new IllegalStateException("No outlined weapon sprite for "+item.id);
+            if(source==null)throw new IllegalStateException("No outlined weapon sprite for "+item.id);
+            mountSources.put(item.id,sourceName);
             mountSizes.put(item.id,new arc.math.geom.Vec2(source.getWidth()*.25f,source.getHeight()*.25f));
             int[] weaponRamp=overrideAccepted?sourceRamps.get(item.mountWeaponSprite,ManualUnitPalettes.source(family)):ManualUnitPalettes.source(family);
             ImageIO.write(source,"png",target.child("item-mount-"+item.id+".png").file());

@@ -61,7 +61,8 @@ public final class WorldItemLogicManager {
 
     public static final int MARKER_BASE_ID = 10_000;
     public static final int MARKERS_PER_SLOT = 128;
-    public static final int MAX_PROCESSOR_SLOTS = 64 * 5;
+    public static final int MAX_PROCESSOR_SLOTS = 250;
+    public static final int MAX_PROGRAM_INSTRUCTIONS=500, MAX_PROCESSORS_PER_PLAYER=10;
     /** Dedicated non-derelict system team so WorldProcessors have enabled=true & efficiency=1.0 on clients. */
     public static final Team PROCESSOR_TEAM = Team.get(254);
 
@@ -145,6 +146,14 @@ public final class WorldItemLogicManager {
         }
 
         Events.on(WorldLoadEvent.class, e -> resetForNewWorld());
+        Events.on(mindustry.game.EventType.PlayerConnect.class,e->{
+            if(e.player!=null&&obtainSlot(e.player.uuid())==null&&e.player.con!=null)
+                e.player.con.kick("Server visual processor capacity reached (250). Try again when a slot is free.");
+        });
+        Events.on(mindustry.game.EventType.PlayerConnectionConfirmed.class,e->{
+            if(e.player!=null&&obtainSlot(e.player.uuid())==null)rejectRig(e.player.uuid(),"Server visual processor capacity reached (250). Try again when a slot is free.");
+        });
+        Events.on(mindustry.game.EventType.PlayerLeave.class,e->{if(e.player!=null)clearRig(e.player.uuid());});
     }
 
     public void resetForNewWorld() {
@@ -182,6 +191,13 @@ public final class WorldItemLogicManager {
         Seq<String> equippedIds,
         Catalog catalog
     ) {
+        try{syncRigChecked(ownerKey,ownerPlayerName,unit,equippedIds,catalog);}
+        catch(RuntimeException failure){
+            Log.err("[CoolPlugin] Unable to compile/allocate visual rig for "+ownerKey,failure);
+            if(ownerKey!=null)rejectRig(ownerKey,"Unable to allocate safe visual processors for your equipment (500 instructions, 10 per player).");
+        }
+    }
+    private void syncRigChecked(String ownerKey,String ownerPlayerName,Unit unit,Seq<String> equippedIds,Catalog catalog){
         if (ownerKey == null || unit == null || unit.dead() || !unit.isValid()) {
             clearRig(ownerKey);
             return;
@@ -194,11 +210,12 @@ public final class WorldItemLogicManager {
         ensureWorldProcessorsNonEditableByDefault();
 
         ProcessorSlot slot = obtainSlot(ownerKey);
-        if (slot == null) return;
+        if (slot == null){rejectRig(ownerKey,"Server visual processor capacity reached (250).");return;}
 
         LogicBuild procBuild = ensureProcessorPlaced(slot);
-        if (procBuild == null) return;
+        if (procBuild == null){rejectRig(ownerKey,"No safe map tile available for visual processors.");return;}
         String signature = buildRigSignature(unit, ownerPlayerName, equippedIds);
+        for(String id:equippedIds){var def=catalog.findItem(id);if(def!=null)signature+="/"+def.subweaponRecoilTime+"/"+def.subweaponRecoil+"/"+def.subweaponShootEffect+"/"+def.mountWeaponSprite;}
         boolean codeChanged = !signature.equals(slot.compiledSignature)
             || procBuild.code == null || procBuild.code.isEmpty();
         for(ProcessorSlot child:slot.children)if(getExistingProcessor(child)==null)codeChanged=true;
@@ -206,30 +223,38 @@ public final class WorldItemLogicManager {
             Seq<CompiledVisualEntry> probe=new Seq<>();
             String whole=compileRigShard(slot.baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,probe,-1);
             Seq<Integer> groups=new Seq<>();
-            if(whole.lines().count()<900)groups.add(-1);
-            else {
-                // Keep ALL followers together: their shared spring/collision state must not split.
-                for(int group=0;group<5;group++){
-                    final int g=group;
-                    if(probe.contains(e->g==4?e.kind==RenderedKind.TAIL_FOLLOW:e.kind!=RenderedKind.TAIL_FOLLOW&&e.inventorySlot==g))groups.add(group);
-                }
+            if(instructionCount(whole)<=MAX_PROGRAM_INSTRUCTIONS)groups.add(-1);
+            else for(int group=0;group<PlayerItemSystem.MAX_EQUIPPED_SLOTS;group++){
+                final int g=group;if(probe.contains(e->e.inventorySlot==g))groups.add(group);
             }
             int required=Math.max(1,groups.size);
+            if(required>MAX_PROCESSORS_PER_PLAYER){rejectRig(ownerKey,"Item visuals need more than 10 processors. Reduce equipped visual items.");return;}
+            int freeCount=0;for(ProcessorSlot candidate:allSlots)if(candidate.ownerKey==null)freeCount++;
+            if(required-1-slot.children.size>freeCount){rejectRig(ownerKey,"Server visual processor capacity reached (250). Cannot allocate your item visuals.");return;}
             while(slot.children.size<required-1){
-                ProcessorSlot free=null;
-                for(ProcessorSlot candidate:allSlots)if(candidate.ownerKey==null){free=candidate;break;}
-                if(free==null){Log.warn("[CoolPlugin] Not enough WorldProcessors for item rig @",ownerKey);return;}
-                free.ownerKey=ownerKey;slot.children.add(free);
+                for(ProcessorSlot candidate:allSlots)if(candidate.ownerKey==null){candidate.ownerKey=ownerKey;slot.children.add(candidate);break;}
             }
             Seq<ProcessorSlot> parts=new Seq<>();parts.add(slot);parts.addAll(slot.children);
             // Allocate/compile before replacing any live code. Never publish a truncated program.
             Seq<String> programs=new Seq<>();Seq<Seq<CompiledVisualEntry>> entries=new Seq<>();
             for(int i=0;i<required;i++){
-                ProcessorSlot part=parts.get(i);if(ensureProcessorPlaced(part)==null)return;
+                ProcessorSlot part=parts.get(i);if(ensureProcessorPlaced(part)==null){rejectRig(ownerKey,"No safe map tile available for visual processors.");return;}
                 Seq<CompiledVisualEntry> partEntries=new Seq<>();
                 String code=compileRigShard(part.baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,partEntries,groups.isEmpty()?-1:groups.get(i));
-                if(code.lines().count()>=1000){Log.err("[CoolPlugin] Item rig shard exceeds parser budget: @",code.lines().count());return;}
+                if(instructionCount(code)>MAX_PROGRAM_INSTRUCTIONS){rejectRig(ownerKey,"An equipped visual item exceeds the 500-instruction processor limit. Please change your equipment.");return;}
                 programs.add(code);entries.add(partEntries);
+            }
+            for(int i=0;i<required;i++)if(entries.get(i).contains(e->e.kind==RenderedKind.TAIL_FOLLOW)&&groups.get(i)>=0){
+                var peers=new java.util.ArrayList<int[]>();int tailIndex=0,myIndex=-1;
+                for(int j=0;j<required;j++)if(entries.get(j).contains(e->e.kind==RenderedKind.TAIL_FOLLOW)){if(j==i)myIndex=tailIndex;tailIndex++;}
+                tailIndex=0;
+                for(int j=0;j<required;j++)if(entries.get(j).contains(e->e.kind==RenderedKind.TAIL_FOLLOW)){
+                    if(j!=i&&Math.abs(tailIndex-myIndex)<=3){var other=getExistingProcessor(parts.get(j));peers.add(new int[]{other.tileX(),other.tileY(),i<j?1:-1});}tailIndex++;
+                }
+                float sep=Math.max(.88f,Mathf.clamp((5.4f+unit.hitSize*.14f)/tilesize,.72f,1.32f)*1.12f);
+                String code=addFollowerPeers(programs.get(i),peers,sep);
+                if(instructionCount(code)>MAX_PROGRAM_INSTRUCTIONS){rejectRig(ownerKey,"Follower visuals exceed the 500-instruction processor limit.");return;}
+                programs.set(i,code);
             }
             while(slot.children.size>required-1)clearSlot(slot.children.pop());
             for(int i=0;i<required;i++){
@@ -267,6 +292,35 @@ public final class WorldItemLogicManager {
                 broadcastHostUnitSync(procBuild, unit);
             }
         }
+    }
+
+    /** Cross-processor collision reads are entirely client-local; the server never transports physics state. */
+    private static String addFollowerPeers(String code,java.util.List<int[]> peers,float separation){
+        if(peers.isEmpty())return code;
+        StringBuilder calls=new StringBuilder();int n=0;
+        for(int[] peer:peers){
+            String skip="peerSkip"+n++;
+            calls.append("getblock building peer ").append(peer[0]).append(" ").append(peer[1]).append("\n")
+                .append("read peerReady peer \"vis\"\njump ").append(skip).append(" notEqual peerReady 1\n")
+                .append("read peerHost peer \"hostUnit\"\njump ").append(skip).append(" notEqual peerHost u\n")
+                .append("read peerX peer \"tx0\"\nread peerY peer \"ty0\"\nop sub pdx tx0 peerX\nop sub pdy ty0 peerY\n")
+                .append("set peerSign ").append(peer[2]).append("\nop add peerReturn @counter 1\njump peerImpulse always 0 0\n")
+                .append("op add vx0 vx0 pvx\nop add vy0 vy0 pvy\nop add tx0 tx0 psx\nop add ty0 ty0 psy\n")
+                .append(skip).append(":\n");
+        }
+        code=code.replace("peerFollowStep:\n",calls.toString());
+        return code+"peerImpulse:\nset pvx 0\nset pvy 0\nset psx 0\nset psy 0\nop len pd pdx pdy\n"
+            +"jump peerDone greaterThanEq pd "+f(separation)+"\njump peerNudge lessThan pd 0.02\nop sub pov "+f(separation)+" pd\n"
+            +"op div pinv pov pd\nop mul pimp pinv 0.065\nop mul pimp pimp dt\nop mul pvx pdx pimp\nop mul pvy pdy pimp\n"
+            +"op mul psep pinv 0.16\nop mul psx pdx psep\nop mul psy pdy psep\njump peerDone always 0 0\n"
+            +"peerNudge:\nop mul pvx peerSign 0.02\npeerDone:\nset @counter peerReturn\n";
+    }
+
+    public static int instructionCount(String code){return (int)code.lines().map(String::strip).filter(l->!l.isEmpty()&&!l.startsWith("#")&&!l.endsWith(":" )).count();}
+    private void rejectRig(String owner,String reason){
+        clearRig(owner);
+        if(Groups.player!=null)for(Player player:Groups.player)if(owner.equals(player.uuid())&&player.con!=null){player.con.kick(reason);return;}
+        Log.warn("[CoolPlugin] Visual rig @ rejected: @",owner,reason);
     }
 
     public void clearRig(@Nullable String ownerKey) {
@@ -496,6 +550,7 @@ public final class WorldItemLogicManager {
     }
 
     private void pushCodeAndUnit(LogicBuild procBuild, String mlogCode, @Nullable Unit unit) {
+        if(instructionCount(mlogCode)>MAX_PROGRAM_INSTRUCTIONS)throw new IllegalArgumentException("Visual program exceeds 500 instructions");
         procBuild.ipt = 1000;
         procBuild.updateCode(mlogCode, false, null);
         LVar hostVar = bindHostUnitOnServer(procBuild, unit);
@@ -598,7 +653,6 @@ public final class WorldItemLogicManager {
         Seq<CompiledVisualEntry> outEntries
     ) {
         String code=compileRigShard(baseMarkerId,ownerPlayerName,unit,equippedIds,catalog,outEntries,-1);
-        if(code.lines().count()>=1000)throw new IllegalStateException("Rig needs multiple processors; use syncRig/compileRigPrograms");
         return code;
     }
 
@@ -607,8 +661,8 @@ public final class WorldItemLogicManager {
         Seq<CompiledVisualEntry> entries=new Seq<>();
         String full=compileRigShard(baseMarkerId,ownerName,unit,ids,catalog,entries,-1);
         Seq<String> result=new Seq<>();
-        if(full.lines().count()<900){result.add(full);return result;}
-        for(int group=0;group<5;group++){
+        if(instructionCount(full)<=MAX_PROGRAM_INSTRUCTIONS){result.add(full);return result;}
+        for(int group=0;group<PlayerItemSystem.MAX_EQUIPPED_SLOTS;group++){
             Seq<CompiledVisualEntry> part=new Seq<>();
             String code=compileRigShard(baseMarkerId+group*MARKERS_PER_SLOT,ownerName,unit,ids,catalog,part,group);
             if(!part.isEmpty())result.add(code);
@@ -704,13 +758,15 @@ public final class WorldItemLogicManager {
         }
 
         if(group>=0){
-            for(int i=outEntries.size-1;i>=0;i--){
-                CompiledVisualEntry e=outEntries.get(i);
-                if(group==4?e.kind!=RenderedKind.TAIL_FOLLOW:e.kind==RenderedKind.TAIL_FOLLOW||e.inventorySlot!=group)outEntries.remove(i);
+            var lengths=new Seq<Float>();
+            int cursor=0;
+            for(var entry:outEntries)if(entry.kind==RenderedKind.TAIL_FOLLOW){
+                float length=tailRopeLengthsTiles.get(cursor++);if(entry.inventorySlot==group)lengths.add(length);
             }
-            tailEntryIndices.clear();
+            for(int i=outEntries.size-1;i>=0;i--)if(outEntries.get(i).inventorySlot!=group)outEntries.remove(i);
+            tailEntryIndices.clear();tailRopeLengthsTiles.clear();tailRopeLengthsTiles.addAll(lengths);
             for(int i=0;i<outEntries.size;i++)if(outEntries.get(i).kind==RenderedKind.TAIL_FOLLOW)tailEntryIndices.add(i);
-            if(group!=4){tailTotal=0;tailRopeLengthsTiles.clear();}
+            tailTotal=tailEntryIndices.size;
         }
         if (outEntries.isEmpty()) {
             return compileClearMlog(baseMarkerId);
@@ -1015,6 +1071,7 @@ public final class WorldItemLogicManager {
             }
         }
 
+        sb.append("peerFollowStep:\n");
         // Step B: Pairwise elastic item-to-item collision/jostling among line-connected items!
         if (tailEntryIndices.size >= 2) {
             float minSepTiles = Math.max(0.88f, spriteTiles * 1.12f);
@@ -1176,8 +1233,8 @@ public final class WorldItemLogicManager {
         return compactPhysics(sb.toString());
     }
 
-    // Native LParser truncates at 1000 lines. Share physics instead of unrolling it
-    // six times; retain all spring, collision and hull-deflection calculations.
+    // Share repeated routines; each published program is separately checked against
+    // the configured 500-instruction budget.
     private static String compactPhysics(String code){
         code=shareBlocks(code,"(?m)^subBegin\\d+:\n[\\s\\S]*?^subEnd\\d+:\n","subweapon");
         code=shareBlocks(code,"(?m)^op sub rx anchorX tx\\d+\n[\\s\\S]*?^tForceDone\\d+:\n","towForce");

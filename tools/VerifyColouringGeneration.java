@@ -89,6 +89,8 @@ public class VerifyColouringGeneration {
 
     private static final class CapturingCon extends NetConnection {
         final Seq<Object> sentPackets = new Seq<>();
+        String kickMessage="";
+        @Override public void kick(String message){kickMessage=message;kicked=true;}
 
         CapturingCon(String uuid) {
             super("127.0.0.1");
@@ -440,7 +442,8 @@ public class VerifyColouringGeneration {
         var load=Seq.with("wb-01","wb-02","wb-03","wb-04","wb-05");
         Unit carrier=UnitTypes.oct.create(Team.sharded);
         var lightStats=itemSystem.computeStats(load,wearer);var heavyStats=itemSystem.computeStats(load,carrier);
-        check(lightStats.totalWeight==50f&&heavyStats.totalWeight==50f,"Weight sums all slots, including slot 5");
+        float expectedWeight=0;for(String id:load)expectedWeight+=catalog.findItem(id).carryingWeight();
+        check(lightStats.totalWeight==expectedWeight&&heavyStats.totalWeight==expectedWeight,"Weight sums native-size-adjusted weights across all slots, including slot 5");
         check(lightStats.weightSpeedFactor<heavyStats.weightSpeedFactor&&lightStats.speedMult<heavyStats.speedMult,
             "Same item load penalizes low-base-health units more than high-health units");
         wearer.health=1f;
@@ -649,7 +652,7 @@ public class VerifyColouringGeneration {
             for(var loadout:Seq.with(allGuns,allFollowers)){
                 var programs=coolplugin.gameplay.WorldItemLogicManager.compileRigPrograms(300000,null,type.create(Team.sharded),loadout,catalog);
                 maxPrograms=Math.max(maxPrograms,programs.size);
-                for(String code:programs){int lines=(int)code.lines().count();maxShardLines=Math.max(maxShardLines,lines);multiBudget&=lines<1000;}
+                for(String code:programs){int lines=(int)code.lines().count();maxShardLines=Math.max(maxShardLines,lines);multiBudget&=coolplugin.gameplay.WorldItemLogicManager.instructionCount(code)<=500&&programs.size<=10;}
             }
         }
         check(multiBudget&&maxPrograms>1,"Automatic multi-processor plans stay below parser limit across every playable unit with guns or full followers");
@@ -665,6 +668,26 @@ public class VerifyColouringGeneration {
         }
         for(var entry:multiEntries){distinctMarkers&=markerIds.add(entry.primaryMarkerId());if(entry.connectionLineMarkerId()>=0)distinctMarkers&=markerIds.add(entry.connectionLineMarkerId());}
         check(parts.size>1&&distinctMarkers&&allBound,"Live rig allocates distinct processors and marker IDs, all bound to same host");
+        check(parts.size<=10&&parts.allMatch(part->coolplugin.gameplay.WorldItemLogicManager.instructionCount(part.code)<=500),
+            "Every live program, including client-local cross-processor follower collisions, fits 500 instructions");
+        check(parts.contains(part->part.code.contains("read peerX peer")),"Follower collisions read neighbouring processor state locally, not through server physics sync");
+        int realMax=0;boolean nativeBudgets=true;
+        for(UnitType candidate:Vars.content.units())if(candidate.playerControllable&&!candidate.hidden){
+            Unit stress=candidate.spawn(Team.sharded,180,180);
+            manager.syncRig("budget-live",stress,allFollowers,catalog);
+            var liveParts=manager.getProcessorsForOwner("budget-live");nativeBudgets&=!liveParts.isEmpty()&&liveParts.size<=10;
+            for(var part:liveParts){realMax=Math.max(realMax,coolplugin.gameplay.WorldItemLogicManager.instructionCount(part.code));nativeBudgets&=coolplugin.gameplay.WorldItemLogicManager.instructionCount(part.code)<=500;}
+            manager.clearRig("budget-live");stress.remove();
+        }
+        check(nativeBudgets,"Every playable unit's full follower loadout fits 10 real processors with local peer collisions and no program over 500 instructions");
+        System.out.println("LIVE MAX PROCESSOR INSTRUCTIONS="+realMax);
+
+        float savedRecoil=cannon.subweaponRecoilTime;cannon.subweaponRecoilTime=37f;
+        manager.syncRig("recoil-live",wearer,Seq.with(cannon.id),catalog);String recoilBefore=manager.getLastMlogForOwner("recoil-live");
+        cannon.subweaponRecoilTime=83f;manager.syncRig("recoil-live",wearer,Seq.with(cannon.id),catalog);
+        check(!recoilBefore.equals(manager.getLastMlogForOwner("recoil-live")),"Changing per-item recoil recovery time regenerates live processor code");
+        cannon.subweaponRecoilTime=savedRecoil;manager.clearRig("recoil-live");
+
         boolean childShots=true;
         for(var entry:multiEntries)if(entry.kind()==coolplugin.gameplay.WorldItemLogicManager.RenderedKind.SUBWEAPON){
             manager.kickSubweapon("multi-check",entry.def(),entry.localForwardWorld(),entry.localSideWorld());
@@ -761,6 +784,25 @@ public class VerifyColouringGeneration {
             "Existing research trees migrate colouring to a Workbench split and Landing pad after Launch pad");
         var demoCatalog=coolplugin.gameplay.ShopConfigIO.loadOrCreate(workConfig.child("alphystuff/shop.hjson"));
         var reignTest=demoCatalog.findItem("bz-test-reign");var preceptTest=demoCatalog.findItem("bz-test-precept");
+        check(UnitTypes.reign.weapons.first().name.equals(coolplugin.gameplay.ColouringAssets.mountSources.get(reignTest.id)),
+            "Reign test mount uses the actual Reign weapon region, never the generic fallback");
+        var testSources=new arc.struct.ObjectSet<String>();var testRecovery=new arc.struct.ObjectSet<Float>();
+        boolean allGated=true;
+        for(String unit:coolplugin.gameplay.ShopConfigIO.TEST_WEAPON_UNITS){
+            var test=demoCatalog.findItem("bz-test-"+unit);testSources.add(coolplugin.gameplay.ColouringAssets.mountSources.get(test.id));testRecovery.add(test.subweaponRecoilTime);
+            var node=tech.findNode("shop-"+test.id);allGated&=node!=null&&!node.virtual&&node.contentType.equals("shop-item")&&!itemSystem.isItemResearched(p,test);
+        }
+        check(testSources.size>=6&&testRecovery.size>=4,"Eight test weapons provide distinct native weapon art and varied recoil recovery times");
+        check(allGated,"New Bazaar test items have real locked, faction-scoped shop-item research nodes");
+        var gated=demoCatalog.findItem("bz-test-quasar");
+        int gateResources=plugin.getBuildSystem().getAvailableAmount(p,Items.copper);
+        check(!itemSystem.craft(p,gated.id,StationTier.BAZAAR).success()&&gateResources==plugin.getBuildSystem().getAvailableAmount(p,Items.copper),
+            "Crafting unresearchable test equipment is rejected before consuming resources");
+        var gatedNode=tech.findNode("shop-"+gated.id);progress.unlockSingle(p.uuid(),p.plainName(),gatedNode,tech.getRoot());
+        check(itemSystem.isItemResearched(p,gated),"Unlocking a shop-item research node enables that catalog item");
+        p.team(Team.crux);check(!itemSystem.isItemResearched(p,gated),"Shop-item research remains independent for other factions");p.team(Team.sharded);
+        tech.reloadTree();check(tech.findNode("shop-"+gated.id)!=null&&tech.findNode("shop-"+gated.id).contentName.equals(gated.id),"Shop-item node type and catalog ID survive tree save/reload");
+
         check(reignTest!=null&&preceptTest!=null&&reignTest.tier==StationTier.BAZAAR&&preceptTest.tier==StationTier.BAZAAR
             &&reignTest.isSymmetricallyDuplicated(4f)&&!preceptTest.isSymmetricallyDuplicated(4f),
             "Bazaar migrates dual Reign and single Precept test mounts into existing catalogs");
@@ -816,6 +858,15 @@ public class VerifyColouringGeneration {
 
         check(otherFactionsIsolated,"Malis and Neoplasm also retain their own independent research profiles");
         p.team(Team.sharded);Vars.state.rules.researched.remove(mindustry.content.Blocks.graphitePress);
+        var admission=new WorldItemLogicManager();admission.start();
+        var allocate=WorldItemLogicManager.class.getDeclaredMethod("obtainSlot",String.class);allocate.setAccessible(true);
+        for(int i=0;i<250;i++)if(allocate.invoke(admission,"reserved-"+i)==null)throw new AssertionError("early pool exhaustion");
+        check(allocate.invoke(admission,"overflow")==null,"Processor pool refuses a 251st allocation");
+        ((CapturingCon)p.con).kickMessage="";
+        arc.Events.fire(new mindustry.game.EventType.PlayerConnectionConfirmed(p));
+        check(((CapturingCon)p.con).kickMessage.contains("250"),"New joiner receives an explicit capacity kick when processor pool is full");
+        admission.clearRig("reserved-0");check(allocate.invoke(admission,"replacement")!=null,"A released processor slot can be allocated again");
+        admission.clearAllRigs();
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 

@@ -151,6 +151,7 @@ public class TechTreeService {
     private synchronized void rebindDataPatchContentIfNeeded() {
         migrateCopperContainer();
         migrateColouringStations();
+        migrateShopItemResearch();
         if (TechTreeConfigIO.rebindContentRecursive(root)) {
             rebuildIndexes();
         }
@@ -198,6 +199,35 @@ public class TechTreeService {
         if(landing!=null&&launch!=null&&landing.parent!=launch){if(landing.parent!=null)landing.parent.children.remove(landing,true);launch.children.add(landing);landing.parent=launch;changed=true;}
         if(changed)rebuildIndexes();
         if (changed) TechTreeConfigIO.save(treeFile, root, whitelistOrder);
+    }
+
+    /** Shop item nodes use type: shop-item and content: <catalog item id>; they are not virtual. */
+    private void migrateShopItemResearch(){
+        if(root==null)return;
+        var catalog=coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson"));
+        TechNodeDef bazaar=findNode("dp-bazaar");boolean changed=false;int i=0;
+        for(String unit:coolplugin.gameplay.ShopConfigIO.TEST_WEAPON_UNITS){
+            String itemId="bz-test-"+unit,id="shop-"+itemId;
+            if(bazaar!=null&&findNode(id)==null){
+                TechNodeDef node=new TechNodeDef();node.id=id;node.contentType="shop-item";node.contentName=itemId;
+                node.direction=i%2==0?TechNodeDef.DIR_RIGHT:TechNodeDef.DIR_LEFT;node.parent=bazaar;
+                node.costs=ItemStack.with(mindustry.content.Items.copper,150+i*50,mindustry.content.Items.silicon,50+i*25);
+                bazaar.children.add(node);changed=true;
+            }i++;
+        }
+        if(changed)rebuildIndexes();
+        for(TechNodeDef node:nodesById.values())if("shop-item".equals(node.contentType)){
+            var item=catalog.findItem(node.contentName);
+            if(item!=null){if(node.displayName==null)node.displayName=item.name;if(node.description==null)node.description=item.description;if(node.icon==null)node.icon=item.uiDrawable();}
+        }
+        if(changed)TechTreeConfigIO.save(treeFile,root,whitelistOrder);
+    }
+    public boolean isShopItemResearched(Player player,String itemId){
+        boolean gated=false;
+        for(TechNodeDef node:nodesById.values())if("shop-item".equals(node.contentType)&&itemId.equals(node.contentName)){
+            gated=true;if(isUnlocked(player,node))return true;
+        }
+        return !gated;
     }
 
     private void applyServerHideBannedBlocksAndCaptureMapBans() {

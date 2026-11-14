@@ -464,7 +464,7 @@ public class ItemShopMenu {
 
         // Row D: Item Description / Cost / Craft panel (dsc), ONLY shown when an item is clicked!
         if (selectedItem != null) {
-            left.add(buildItemDescriptionPanel(selectedItem, s.station, cat, eq, mapRes).padTop(8f));
+            left.add(buildItemDescriptionPanel(player,selectedItem, s.station, cat, eq, mapRes).padTop(8f));
         }
 
         return left;
@@ -607,14 +607,14 @@ public class ItemShopMenu {
     }
 
     private TableBuilder buildItemDescriptionPanel(
-        ShopItemDef item,
+        Player player,ShopItemDef item,
         StationTier station,
         Catalog cat,
         EquipmentData eq,
         ObjectIntMap<Item> mapRes
     ) {
         boolean craftableHere = item.craftable && itemSystem.isStationAllowedToCraft(station, item);
-        boolean affordable = craftableHere && canAfford(item, eq, mapRes);
+        boolean affordable = craftableHere && itemSystem.isItemResearched(player,item) && canAfford(item, eq, mapRes);
 
         TableBuilder box = table().background("pane").margin(8f).width(LEFT_TOTAL_W);
 
@@ -636,6 +636,7 @@ public class ItemShopMenu {
                 .width(LEFT_TOTAL_W - 266f)
         ).row();
         textCol.add(label("[gray]Weight: "+String.format(java.util.Locale.ROOT,"%.1f",item.carryingWeight())+"[]")).row();
+        if(!itemSystem.isItemResearched(player,item))textCol.add(label("[scarlet]Requires item research[]")).row();
         if (item.description != null && !item.description.isEmpty()) {
             textCol.add(
                 label("[lightgray]" + item.description + "[]")

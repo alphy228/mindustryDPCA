@@ -202,10 +202,7 @@ public final class WorldItemLogicManager {
             clearRig(ownerKey);
             return;
         }
-        if (equippedIds == null || equippedIds.isEmpty()) {
-            clearRig(ownerKey);
-            return;
-        }
+        if(equippedIds==null)equippedIds=new Seq<>();
 
         ensureWorldProcessorsNonEditableByDefault();
 
@@ -643,6 +640,19 @@ public final class WorldItemLogicManager {
         }
     }
 
+    /** Shares the owner's existing processor budget; never allocates extra processors. */
+    public void correctTerrain(Unit unit,float x,float y){
+        for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
+            LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
+            String[] names={"terrainX","terrainY","terrainUntil"};
+            double[] values={x/tilesize,y/tilesize,state.tick+15d};
+            for(int i=0;i<names.length;i++){
+                var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
+                variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ MLOG Compiler
 
     public static String compileClearMlog(int baseMarkerId) {
@@ -810,7 +820,7 @@ public final class WorldItemLogicManager {
             tailTotal=tailEntryIndices.size;
         }
         if (outEntries.isEmpty()) {
-            return compileClearMlog(baseMarkerId);
+            return compileClearMlog(baseMarkerId).replace("stop\n","set u hostUnit\n"+FlyingTerrainGuard.mlog()+"wait 0\njump idleDone always 0 0\n");
         }
 
         int endSweepId = baseMarkerId + MARKERS_PER_SLOT;
@@ -905,6 +915,7 @@ public final class WorldItemLogicManager {
         sb.append("sensor uy u @y\n");
         sb.append("sensor urot u @rotation\n");
         sb.append("sensor flying u @flying\n");
+        sb.append(FlyingTerrainGuard.mlog());
         if (needsAimSensors) {
             sb.append("sensor sx u @shootX\n");
             sb.append("sensor sy u @shootY\n");

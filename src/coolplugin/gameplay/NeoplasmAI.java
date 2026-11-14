@@ -15,12 +15,22 @@ public final class NeoplasmAI extends AIController {
     @Override public boolean isLogicControllable(){return false;}
     @Override public Teamc findMainTarget(float x,float y,float range,boolean air,boolean ground){
         Teamc player=director.nearestPlayer(x,y,air,ground);
-        return player!=null?player:Units.closestTarget(unit.team,x,y,Float.MAX_VALUE,u->u.checkTarget(air,ground),b->ground);
+        if(player!=null&&!checkTarget(player,x,y,range))return player;
+        // Single-target native units use the main target for all weapons too.
+        if(ground){
+            var building=Units.findEnemyTile(unit.team,x,y,range,b->b.block.targetable);
+            if(building!=null)return building;
+        }
+        return player!=null?player:Units.closestTarget(unit.team,x,y,Float.MAX_VALUE,u->u.checkTarget(air,ground),b->ground&&b.block.targetable);
     }
     @Override public Teamc findTarget(float x,float y,float range,boolean air,boolean ground){
         Teamc player=director.nearestPlayer(x,y,air,ground);
         if(player!=null&&!checkTarget(player,x,y,range))return player;
-        return Units.closestTarget(unit.team,x,y,range,u->u.checkTarget(air,ground),b->ground);
+        if(ground){
+            var building=Units.findEnemyTile(unit.team,x,y,range,b->b.block.targetable);
+            if(building!=null)return building;
+        }
+        return Units.closestTarget(unit.team,x,y,range,u->u.checkTarget(air,ground),b->ground&&b.block.targetable);
     }
     @Override public void updateMovement(){
         Teamc chase=director.nearestPlayer(unit.x,unit.y,unit.type.targetAir,unit.type.targetGround);

@@ -53,7 +53,7 @@ import static mindustry.Vars.*;
  *   <li>Destroys all server-side cores on map load (recording their coordinates & teams as fallback spawn sites).</li>
  *   <li>Maintains a per-player client-only {@code core-shard} at {@code (2, 2)} synced to {@code player.team()}.</li>
  *   <li>Drives construction/deconstruction and {@code /t} Tech Tree spending from the unit's carried stack plus
- *       carried/nearby ({@code <= 15} tiles) containers and vaults.</li>
+ *       carried/nearby (general interaction range) containers and vaults.</li>
  * </ul>
  */
 public class BuildSystem {
@@ -476,6 +476,29 @@ public class BuildSystem {
         return Math.max(0, after - before);
     }
 
+    /** Lossless ground-drop deposit: unit first, then all connected reachable stores. */
+    public int depositDrop(Player player,Item item,int amount){
+        if(player==null||player.dead()||item==null||amount<=0)return 0;
+        Res res=gather(player);Unit unit=player.unit();int remaining=amount;
+        if(unit.stack.amount==0||unit.stack.item==item){
+            int accepted=Math.min(remaining,Math.max(0,unit.itemCapacity()-unit.stack.amount));
+            if(accepted>0){unit.stack.item=item;unit.stack.amount+=accepted;remaining-=accepted;}
+        }
+        for(Building store:res.stores){
+            int accepted=Math.min(remaining,Math.max(0,store.getMaximumAccepted(item)-store.items.get(item)));
+            if(accepted<=0)continue;
+            store.items.add(item,accepted);remaining-=accepted;
+            Call.setItem(store,item,store.items.get(item));
+            var from=new arc.math.geom.Vec2(unit.x,unit.y);
+            var to=new arc.math.geom.Vec2(store.x,store.y);
+            var map=world.tiles;
+            Time.run(12f,()->{if(world.tiles==map)Call.effect(Fx.itemTransfer,from.x,from.y,0f,item.color,to);});
+            if(remaining==0)break;
+        }
+        if(remaining!=amount)syncClientCoreNow(player);
+        return amount-remaining;
+    }
+
     /** Returns an immutable snapshot of all non-zero map reach resources available to {@code player}. */
     public ObjectIntMap<Item> getAvailableSnapshot(@Nullable Player player) {
         ObjectIntMap<Item> copy = new ObjectIntMap<>();
@@ -514,7 +537,7 @@ public class BuildSystem {
                 if (t > 0) {
                     b.items.remove(item, t);
                     amount -= t;
-                    markUsed(b);
+                    markUsed(b,unit,item,false);
                     Call.setItem(b, item, b.items.get(item));
                 }
             }
@@ -531,7 +554,7 @@ public class BuildSystem {
                 int t = Math.min(amount, space);
                 b.items.add(item, t);
                 amount -= t;
-                markUsed(b);
+                markUsed(b,unit,item,true);
                 Call.setItem(b, item, b.items.get(item));
             }
 
@@ -564,11 +587,12 @@ public class BuildSystem {
             }
         }
 
-        float range = REACH_TILES * tilesize;
+        float range = buildingRange;
+        int reach=(int)Math.ceil(range/tilesize);
         int tx = unit.tileX(), ty = unit.tileY();
         seen.clear();
-        for (int dy = -REACH_TILES; dy <= REACH_TILES; dy++) {
-            for (int dx = -REACH_TILES; dx <= REACH_TILES; dx++) {
+        for (int dy = -reach; dy <= reach; dy++) {
+            for (int dx = -reach; dx <= reach; dx++) {
                 Tile t = world.tile(tx + dx, ty + dy);
                 if (t == null || t.build == null) continue;
                 Building b = t.build;
@@ -762,11 +786,14 @@ public class BuildSystem {
             && oy <= CORE_Y + RESERVED_RAD && oy + s - 1 >= CORE_Y - RESERVED_RAD;
     }
 
-    private void markUsed(Building b) {
+    private void markUsed(Building b,Unit unit,Item item,boolean deposit) {
         long now = Time.millis();
         Long last = lastUsedFx.get(b.id);
         if (last != null && now - last < 250) return;
         lastUsedFx.put(b.id, now);
-        Call.effect(Fx.mineBig, b.x, b.y, 0f, USED_COLOR);
+        if(unit!=null){
+            if(deposit)Call.effect(Fx.itemTransfer,unit.x,unit.y,0f,item.color,new arc.math.geom.Vec2(b.x,b.y));
+            else Call.effect(Fx.itemTransfer,b.x,b.y,0f,item.color,new arc.math.geom.Vec2(unit.x,unit.y));
+        }
     }
 }

@@ -1,0 +1,9 @@
+{
+  "name": "Radiation sickness 3",
+  "description": "Late-game radiation: 1 HP per second per active stack.",
+  "show": true,
+  "damage": 0.016666666666666666,
+  "color": "ff5146",
+  "effect": "corrosionVapor",
+  "effectChance": 0.02
+}

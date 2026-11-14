@@ -700,7 +700,9 @@ public class PlayerItemSystem {
         ComputedStats stats
     ) {
         if (equippedIds == null || equippedIds.isEmpty()) {
-            destroyRig(rigKey);
+            ActiveServerRig removed=serverRigs.remove(rigKey);
+            if(removed!=null)clearWearerStatuses(removed);
+            worldLogicManager.syncRig(rigKey,ownerPlayerName,unit,new Seq<>(),getCatalog());
             return;
         }
 

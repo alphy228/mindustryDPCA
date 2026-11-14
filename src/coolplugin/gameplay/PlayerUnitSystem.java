@@ -108,6 +108,10 @@ public class PlayerUnitSystem {
     private final ObjectMap<String,Player> trackedPlayers=new ObjectMap<>();
     private final ObjectMap<String,UnitTree> chosenTrees=new ObjectMap<>();
     private float gameTicks;
+    public float permanentDeathSeconds=3000f;
+    private final ObjectSet<String> eliminated=new ObjectSet<>();
+    public boolean eliminated(String uuid){return eliminated.contains(uuid);}
+
     private final ObjectSet<String> choiceChangeRequests=new ObjectSet<>();
     private boolean choiceAllowed(Player player){return !chosenTrees.containsKey(player.uuid())||(choiceChangeRequests.contains(player.uuid())&&canChangeChoice());}
     public void cancelTreeSelection(Player player){choiceChangeRequests.remove(player.uuid());openFactionMenuIfNeeded(player);}
@@ -237,7 +241,7 @@ public class PlayerUnitSystem {
         }
 
         Events.on(WorldLoadEvent.class, e -> {
-            deployedPlayers.clear();chosenFactions.clear();chosenTrees.clear();choiceChangeRequests.clear();trackedPlayers.clear();treeMenu.clear();factionMenu.clearPending();gameTicks=0f;
+            eliminated.clear();deployedPlayers.clear();chosenFactions.clear();chosenTrees.clear();choiceChangeRequests.clear();trackedPlayers.clear();treeMenu.clear();factionMenu.clearPending();gameTicks=0f;
             owned.clear();
             holders.clear();
             assemblerHolders.clear();
@@ -567,6 +571,10 @@ public class PlayerUnitSystem {
 
         String uuid = player.uuid();
         Unit existing = owned.get(uuid);
+        if(eliminated.contains(uuid)||(gameSeconds()>=permanentDeathSeconds&&deployedPlayers.contains(uuid)&&(existing==null||existing.dead()))){
+            eliminated.add(uuid);respawnAt.remove(uuid);player.clearUnit();
+            player.sendMessage("[scarlet]You are permanently eliminated for this match.[]");return;
+        }
         if (existing != null
             && !existing.dead()
             && (existing.isValid() || holders.containsKey(uuid) || assemblerHolders.containsKey(uuid))) {
@@ -1008,6 +1016,12 @@ public class PlayerUnitSystem {
             persistUnitTypeForUuid(uuid, chosenFactions.get(uuid), resolveStarterUnitForUuid(uuid));
         }
 
+        if(gameSeconds()>=permanentDeathSeconds){
+            eliminated.add(uuid);respawnAt.remove(uuid);
+            Player player=playerByUuid(uuid);
+            if(player!=null){player.clearUnit();player.sendMessage("[scarlet]You died. Death is permanent after the barrier collapse.[]");}
+            return;
+        }
         respawnAt.put(uuid, (long)gameTicks + (long)(respawnUnlockSeconds*60f));
 
         Player player = playerByUuid(uuid);

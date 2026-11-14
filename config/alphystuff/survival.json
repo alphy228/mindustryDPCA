@@ -1,0 +1,18 @@
+{
+  "collapseSeconds": 3000,
+  "radiationSeconds": 3600,
+  "radiationSecondSeconds": 3900,
+  "radiationThirdSeconds": 4200,
+  "burningSeconds": 4500,
+  "nukeStartSeconds": 4800,
+  "radiationDpsPerStack": 1,
+  "fastFlyingMultiplier": 2,
+  "nukeWarningSeconds": 5,
+  "nukeInitialCooldownSeconds": 60,
+  "nukeCooldownDecreaseSeconds": 2,
+  "nukeMinimumCooldownSeconds": 10,
+  "nukeDirectChance": 0.2,
+  "nukeScatterTiles": 100,
+  "nukeRadiusTiles": 19,
+  "nukeDamage": 5000
+}

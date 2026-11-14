@@ -66,6 +66,8 @@ public class CoolPlugin extends Plugin {
         launchPadSystem.start();
         new coolplugin.gameplay.LandingPadSystem(playerDatabase,sessionManager).start();
         playerItemSystem.start();
+        new coolplugin.gameplay.NeoplasmDrops(buildSystem).start();
+        new coolplugin.gameplay.FlyingTerrainGuard(playerItemSystem.getWorldLogicManager()).start();
         itemShopSystem.start();
         colouringSystem.start();
     }

@@ -1,0 +1,5 @@
+Radiation status icons radiation-sickness{,-2,-3}.png are copied unchanged from
+XCore-mindustry/rvsb-plugin (AGPL-3.0), commit 27eae574329c4817cee929f12bdb72d24be0755c:
+config/assets/sprites/units/irradiated{,-orange,-red}.png
+https://github.com/XCore-mindustry/rvsb-plugin
+The repository's AGPL-3.0 license also accompanies this project as LICENSE.

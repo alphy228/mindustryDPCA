@@ -911,6 +911,7 @@ public class VerifyColouringGeneration {
         verifyTreeLoadouts(plugin,p,workConfig);
         verifyNeoplasmSurvival(plugin,workConfig);
         verifyMapProtection();
+        verifyEscalation(plugin,workConfig);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -958,14 +959,14 @@ public class VerifyColouringGeneration {
         check(Math.abs(director.healthReliefMultiplier()-2f)<.001f,"A newly dead player contributes half-weight as a zero-health player");
         check(Math.abs(director.deathWeight(300)-.25f)<.001f&&director.deathWeight(600)==0f&&director.deathWeight(900)==0f,"Dead-player contribution decays linearly to nothing after ten minutes");
         probe.live(hero,1,1f);director.reset();director.update(219.99f);check(director.waveNumber()==0,"The first organised wave does not start before 220 seconds");
-        director.update(.02f);check(director.waveNumber()==1&&Math.abs(director.nextWaveSeconds()-370f)<.001f,"Wave one starts at 220 seconds, scheduling wave two 150 seconds later");
+        director.update(.02f);check(director.waveNumber()==2&&Math.abs(director.nextWaveSeconds()-370f)<.001f,"The first schedule runs at 220 seconds and exposed HP advances difficulty by two");
         while(director.queuedSpawns()>0)director.update(0f);
         check(director.waveSpawned()==10,"Wave one contains one boss plus its one-player swarm");
         Unit boss=Groups.unit.find(unit->unit.team==Team.neoplastic&&unit.getDuration(mindustry.content.StatusEffects.boss)>0f);
         check(boss!=null&&boss.health==boss.maxHealth&&boss.healthMultiplier==1.5f,"Native boss health scaling starts full, without multiplying both raw HP and damage resistance");
         check(Math.abs(director.bossHealthScale(4,1)-2.95f)<.001f,"Boss effective HP increases with player count");
-        director.update(149.98f);check(director.waveNumber()==1,"The second wave waits for its complete 150-second interval");
-        director.update(.02f);check(director.waveNumber()==2,"Wave two runs at 370 seconds independently of remaining enemies");
+        director.update(149.98f);check(director.waveNumber()==2,"The second wave waits for its complete 150-second interval");
+        director.update(.02f);check(director.waveNumber()==4,"Wave two runs at 370 seconds independently of remaining enemies");
         probe.live(hero,4,1f);director.reset();director.update(220f);while(director.queuedSpawns()>0)director.update(0f);
         check(director.waveSpawned()==28,"Four players increase the swarm, while the wave still has only one boss");
         var settings=coolplugin.gameplay.NeoplasmWaveConfig.load(config.child("survival-probe-waves.json"));
@@ -979,10 +980,10 @@ public class VerifyColouringGeneration {
         director.update(39f);check(!Vars.state.gameOver,"The last logout does not immediately end the round or despawn the survivor");
         probe.live(hero,1,1f);director.update(0f);director.update(2f);check(!Vars.state.gameOver,"Rejoining during the empty-server grace cancels the pending game over");
         probe.samples.clear();probe.samples.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("last",hero,hero,false,true,1f));director.update(0f);director.update(39.99f);check(!Vars.state.gameOver,"A new last-logout grace lasts a full forty seconds");
-        director.update(.02f);check(Vars.state.gameOver,"An empty server ends the round after forty seconds");
+        director.update(.02f);check(!Vars.state.gameOver,"An empty server no longer triggers automatic gameover");
         Vars.state.gameOver=false;probe.live(hero,2,1f);director.reset();director.update(0f);
         probe.samples.set(0,new coolplugin.gameplay.PlayerUnitSystem.Survivor("probe-0",null,null,true,false,0f));director.update(0f);check(!Vars.state.gameOver,"One player's death does not end the game while another survivor remains");
-        probe.samples.set(1,new coolplugin.gameplay.PlayerUnitSystem.Survivor("probe-1",null,null,true,false,0f));director.update(0f);check(Vars.state.gameOver,"A complete party wipe ends the game immediately instead of waiting out respawn timers");
+        probe.samples.set(1,new coolplugin.gameplay.PlayerUnitSystem.Survivor("probe-1",null,null,true,false,0f));director.update(0f);check(!Vars.state.gameOver,"A complete party wipe no longer triggers automatic gameover");
         Vars.state.gameOver=false;
         var lifecycle=plugin.getPlayerUnitSystem();
         var ownedField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("owned");ownedField.setAccessible(true);var owned=(arc.struct.ObjectMap<String,Unit>)ownedField.get(lifecycle);
@@ -1078,6 +1079,133 @@ public class VerifyColouringGeneration {
         delayed.unit().remove();delayed.remove();
         Vars.world.tile(8,8).setFloor(cruxFloor.asFloor());
         check(units.findFactionSpawnTile(coolplugin.gameplay.FactionDef.CRUX,UnitTypes.dagger)==Vars.world.tile(8,8),"Crux players resolve their own shipped faction floor");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void verifyEscalation(CoolPlugin plugin,Fi config)throws Exception{
+        Vars.state.gameOver=false;
+        Vars.world.loadGenerator(80,80,tiles->{for(int y=0;y<80;y++)for(int x=0;x<80;x++)tiles.set(x,y,new Tile(x,y,Blocks.stone,Blocks.air,Blocks.air));});
+        Vars.state.set(GameState.State.playing);Vars.state.rules.unitCap=99999;
+        var tune=new coolplugin.gameplay.SurvivalSettings();
+        var hazards=new coolplugin.gameplay.SurvivalHazards(tune);
+        check(hazards.stacks(3599.99f)==0&&hazards.stacks(3600)==1&&hazards.stacks(3900)==2&&hazards.stacks(4200)==3,
+            "Radiation stacks start precisely at 60, 65 and 70 gameplay minutes");
+        check(hazards.cooldown(0)==60&&hazards.cooldown(1)==58&&hazards.cooldown(25)==10&&hazards.cooldown(100)==10,
+            "Personal nuke cooldown decreases by two per launch and has a ten-second floor");
+        var h=coolplugin.gameplay.SurvivalHazards.class;
+        check(coolplugin.gameplay.SurvivalHazards.waveIncrement(0,.99f)==0&&coolplugin.gameplay.SurvivalHazards.waveIncrement(.5f,0)==1&&
+              coolplugin.gameplay.SurvivalHazards.waveIncrement(.5f,.99f)==1&&coolplugin.gameplay.SurvivalHazards.waveIncrement(1,.99f)==2,
+            "Shelter progression guarantees +0 at zero exposure, +1 at half and +2 at full exposure");
+        int sum=0;for(int i=0;i<1000;i++)sum+=coolplugin.gameplay.SurvivalHazards.waveIncrement(.25f,(i+.5f)/1000f);
+        check(sum==500,"Quarter exposure rolls +0/+1 evenly instead of always advancing");
+        Unit hero=UnitTypes.dagger.spawn(Team.sharded,240,240);
+        var roster=new Seq<coolplugin.gameplay.PlayerUnitSystem.Survivor>();
+        roster.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("hazard-hero",hero,hero,true,true,1));
+        Vars.world.tile(30,30).setBlock(Blocks.largeShieldProjector,Team.sharded,0);
+        var shield=(mindustry.world.blocks.defense.BaseShield.BaseShieldBuild)Vars.world.tile(30,30).build;
+        shield.smoothRadius=200;shield.efficiency=1;
+        check(coolplugin.gameplay.SurvivalHazards.outsideHpFraction(roster)==0,"Living player HP under a friendly active large barrier does not advance waves");
+        Vars.world.tile(3,3).setOverlay(Blocks.spawn);
+        var probe=new SurvivalProbe(plugin.getBuildSystem());probe.live(hero,1,1);
+        var director=new coolplugin.gameplay.NeoplasmDirector(config.child("sheltered-waves.json"),probe);director.reset();director.update(220);
+        check(director.waveNumber()==0&&director.waveSpawned()>0,"All-sheltered parties freeze difficulty while scheduled enemies still spawn");
+        Unit shooter=UnitTypes.dagger.spawn(Team.neoplastic,80,80);
+        var targeting=new coolplugin.gameplay.NeoplasmAI(director);shooter.controller(targeting);
+        Vars.world.tile(12,10).setBlock(Blocks.copperWall,Team.sharded,0);Building targetWall=Vars.world.tile(12,10).build;
+        Vars.state.teams.updateTeamStats();
+        check(targeting.findTarget(80,80,50,false,true)==targetWall,"Neoplasm fires at in-range buildings when its player pursuit target is out of weapon range");
+        check(targeting.findMainTarget(80,80,50,false,true)==targetWall,"Single-target Neoplasm units also select in-range buildings over distant players");
+        shooter.remove();
+        hazards.update(2999,roster);check(shield.isValid(),"Barriers remain intact before fifty minutes");
+        hazards.update(3000,roster);check(Vars.world.tile(30,30).block()==Blocks.air,"Fifty-minute collapse removes invulnerable barriers without damage calls");
+        check(coolplugin.gameplay.SurvivalHazards.outsideHpFraction(roster)==1,"Destroyed barriers no longer shelter player HP");
+        hazards.update(3600,roster);var r1=Vars.content.statusEffect("dp-radiation-sickness");
+        check(r1!=null&&hero.getDuration(r1)>0&&Math.abs(r1.damage*60f-1f)<.001f,"Radiation uses the shipped status with one HP/sec damage, not upstream's heavy damage");
+        hazards.update(3900,roster);check(hero.getDuration(Vars.content.statusEffect("dp-radiation-sickness-2"))>0,"Second radiation stack is a distinct simultaneously active status");
+        hazards.update(4200,roster);check(hero.getDuration(Vars.content.statusEffect("dp-radiation-sickness-3"))>0,"Third radiation stack stacks additively with the first two");
+        hazards.update(4500,roster);check(hero.getDuration(mindustry.content.StatusEffects.burning)>0,"Burning is applied at seventy-five minutes");
+        hazards.update(4799.99f,roster);check(hazards.pendingNukes()==0,"No nukes are scheduled before eighty minutes");
+        hazards.update(4800,roster);check(hazards.pendingNukes()==1&&hazards.personalNukes("hazard-hero")==1,"Eighty-minute escalation schedules a warned personal nuke");
+        hazards.update(4804.99f,roster);check(hazards.pendingNukes()==1,"A nuke cannot detonate before its full five-second warning");
+        hazards.update(4805,roster);check(hazards.pendingNukes()==0,"Warned nuke detonates at its simulation-time deadline");
+        hazards.reset();check(hazards.personalNukes("hazard-hero")==0&&hazards.pendingNukes()==0,"Map reset clears personal nuke histories and warnings");
+        Unit patient=UnitTypes.dagger.create(Team.sharded);patient.set(400,400);
+        var payloadRoster=new Seq<coolplugin.gameplay.PlayerUnitSystem.Survivor>();
+        payloadRoster.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("payload-rads",patient,patient,true,true,1));
+        float patientHealth=patient.health;hazards.update(4200,1f,payloadRoster);
+        check(Math.abs((patientHealth-patient.health)*patient.healthMultiplier*Vars.state.rules.unitHealth(patient.team)-3f)<.01f,"Payload-held players also take three-stack radiation damage instead of bypassing status ticking");
+        hero.remove();
+        Unit mobileProbe=UnitTypes.dagger.spawn(Team.sharded,400,400);probe.live(mobileProbe,1,1);
+        director.reset();director.update(220);int normalCount=director.waveSpawned()+director.queuedSpawns();
+        director.reset();var elapsedField=coolplugin.gameplay.NeoplasmDirector.class.getDeclaredField("elapsed");elapsedField.setAccessible(true);elapsedField.setFloat(director,3000);
+        var nextField=coolplugin.gameplay.NeoplasmDirector.class.getDeclaredField("nextWave");nextField.setAccessible(true);nextField.setFloat(director,3000);
+        director.update(0);
+        check(director.waveSpawned()+director.queuedSpawns()>normalCount,"The same authored wave contains more mobile/flying enemies after fifty minutes");
+        mobileProbe.remove();
+        var personalTune=new coolplugin.gameplay.SurvivalSettings();personalTune.nukeDamage=1;personalTune.nukeDirectChance=1;
+        var personal=new coolplugin.gameplay.SurvivalHazards(personalTune);
+        Unit a=UnitTypes.dagger.spawn(Team.sharded,400,400),b=UnitTypes.dagger.spawn(Team.sharded,440,400);
+        var duo=new Seq<coolplugin.gameplay.PlayerUnitSystem.Survivor>();
+        duo.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("nuke-a",a,a,true,true,1));duo.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("nuke-b",b,b,true,true,1));
+        personal.update(4800,duo);check(personal.pendingNukes()==2&&personal.personalNukes("nuke-a")==1&&personal.personalNukes("nuke-b")==1,"Each living connected player gets an independent nuke and launch history");
+        personal.update(4805,duo);personal.update(4859.99f,duo);check(personal.pendingNukes()==0,"Personal nuke cooldowns do not fire early");
+        personal.update(4860,duo);check(personal.personalNukes("nuke-a")==2&&personal.personalNukes("nuke-b")==2,"Both personal nuke clocks independently reach the next sixty-second deadline");
+        personal.reset();a.remove();b.remove();
+
+        Player picker=Player.create();picker.name="Loot probe";picker.con=new CapturingCon("loot-probe");picker.team(Team.sharded);picker.add();
+        Unit unit=UnitTypes.dagger.spawn(Team.sharded,320,320);picker.unit(unit);unit.stack.item=Items.lead;unit.stack.amount=unit.itemCapacity();
+        var drops=new coolplugin.gameplay.NeoplasmDrops(plugin.getBuildSystem());
+        var drop=drops.create(320,320,Items.copper,100);drops.updatePickups();
+        check(drop.amount==100&&drops.groundDrops().size==1,"A full unit holding another item leaves loot on the ground");
+        Vars.world.tile(60,40).setBlock(Blocks.container,Team.sharded,0);Building container=Vars.world.tile(60,40).build;
+        check(unit.dst(container)>15*Vars.tilesize&&unit.dst(container)<Vars.buildingRange,"Loot test container is beyond the old range but within general interaction range");
+        drops.updatePickups();
+        check(drops.groundDrops().isEmpty()&&container.items.get(Items.copper)==100,"Loot deposits into connected containers when the unit holds another item");
+        container.items.set(Items.copper,container.block.itemCapacity);
+        drop=drops.create(320,320,Items.copper,100);drops.updatePickups();
+        check(drop.amount==100,"Full containers and an incompatible unit stack do not consume ground loot");
+        unit.stack.item=Items.copper;unit.stack.amount=unit.itemCapacity()-3;drops.updatePickups();
+        check(drop.amount==97&&unit.stack.amount==unit.itemCapacity(),"Partial pickup subtracts only the amount actually accepted");
+        container.items.remove(Items.copper,100);drops.updatePickups();check(drops.groundDrops().isEmpty(),"Remaining ground loot is collectible once storage space becomes available");
+        check(coolplugin.gameplay.NeoplasmDrops.tier(UnitTypes.stell)==3&&coolplugin.gameplay.NeoplasmDrops.tier(UnitTypes.reign)==7&&coolplugin.gameplay.NeoplasmDrops.tier(UnitTypes.risso)==1,
+            "Drop classification preserves separate Erekir tiers, shared high tiers, and the supplied naval overrides");
+        boolean noJunk=true;for(var e:drops.table())if(e.item()==Items.sand||e.item()==Items.scrap||e.item()==Items.coal)for(int i=5;i<8;i++)noJunk&=e.amounts()[i]==0;
+        check(noJunk,"Sand/scrap/coal are excluded from Erekir T3 and shared T4/T5 drops");
+        for(var e:drops.table())if(e.item()==Items.copper){
+            check(coolplugin.gameplay.NeoplasmDrops.amount(e,0,0)==40&&coolplugin.gameplay.NeoplasmDrops.amount(e,0,-1)==32&&coolplugin.gameplay.NeoplasmDrops.amount(e,0,1)==48,
+                "Drop quantities preserve global four-times multiplier and per-tier fluctuation bounds");
+        }
+        drops.reset();unit.remove();
+
+        Unit flyer=UnitTypes.flare.spawn(Team.sharded,160,160);picker.unit(flyer);
+        var terrain=new coolplugin.gameplay.FlyingTerrainGuard(plugin.getPlayerItemSystem().getWorldLogicManager());terrain.correct(picker);
+        Tile obstacle=Vars.world.tile(22,20);boolean previous=obstacle.floor().solid;
+        // Use a dedicated native solid floor rather than changing all stone tiles.
+        obstacle.setFloor(Blocks.empty.asFloor());
+        flyer.set(obstacle.worldx(),obstacle.worldy());
+        boolean forbidden=coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y);
+        boolean corrected=terrain.correct(picker);
+        check(forbidden&&corrected&&flyer.within(160,160,1),"Server rolls flying players back from terrain that native legs cannot step on");
+        var logic=plugin.getPlayerItemSystem().getWorldLogicManager();
+        logic.syncRig("terrain-probe",picker.name,flyer,new Seq<>(),plugin.getPlayerItemSystem().getCatalog());
+        var processors=logic.getProcessorsForOwner("terrain-probe");
+        check(!processors.isEmpty()&&processors.first().code.contains("setprop @x u terrainX")&&coolplugin.gameplay.WorldItemLogicManager.instructionCount(processors.first().code)<=500,
+            "Empty equipment still gets the shared-budget client world-logic terrain correction program");
+        logic.correctTerrain(flyer,160,160);
+        check(!processors.isEmpty()&&processors.first().executor.optionalVar("terrainUntil").num()>0,"Server binds correction coordinates/deadline into client world logic");
+        flyer.set(176,160);Vars.logicVars.update();
+        for(int i=0;i<120;i++)processors.first().executor.runOnce();
+        check(flyer.within(160,160,1),"Compiled world logic executes the coordinate rollback, not merely a marker animation");
+        logic.clearRig("terrain-probe");flyer.remove();picker.remove();
+
+        var lifecycle=plugin.getPlayerUnitSystem();
+        var ownedField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("owned");ownedField.setAccessible(true);var owned=(arc.struct.ObjectMap<String,Unit>)ownedField.get(lifecycle);
+        var deployedField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("deployedPlayers");deployedField.setAccessible(true);var deployed=(arc.struct.ObjectSet<String>)deployedField.get(lifecycle);
+        var ticks=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("gameTicks");ticks.setAccessible(true);ticks.setFloat(lifecycle,180000);
+        Player dead=Player.create();dead.name="Permanent";dead.con=new CapturingCon("permanent-probe");dead.add();
+        deployed.add(dead.uuid());lifecycle.spawnFor(dead,coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger);
+        check(lifecycle.eliminated(dead.uuid())&&!owned.containsKey(dead.uuid()),"Previously deployed dead players cannot respawn after fifty minutes");
+        dead.remove();ticks.setFloat(lifecycle,0);
     }
 
     private static void verifyTreeLoadouts(CoolPlugin plugin,Player player,Fi config)throws Exception{

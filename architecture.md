@@ -8,7 +8,7 @@ This is a Mindustry v160.7 server plugin. `CoolPlugin` wires the gameplay servic
 
 `PlayerUnitSystem` owns player units, faction/tree choices, payload ownership, death cooldowns, and reconnect recovery. `UnitTree` describes the eleven native unit lines. `UnitTreeMenu` and `FactionJoinMenu` present the horizontal picker; unavailable lines remain visible but disabled. Account/session/database services persist next-game tree preferences and equipment per base unit type, shared by its painted variants. In-game carried items are volatile and are cleared on transfers/gameover, rather than becoming persistent equipment.
 
-A disconnect retains the owned unit and equipment in the world. Survival records include connection state, living state, health fraction, and an effective position. Nested payload traversal resolves an embarked player's position to the outer holder instead of the stored unit coordinates. Choice corrections are restricted to the opening five minutes. Partial-party deaths unlock automatic deployment as the chosen tree's tier one after 40 seconds of simulation time. A total party wipe ends the round rather than waiting for respawn.
+A disconnect retains the owned unit and equipment in the world. Survival records include connection state, living state, health fraction, and an effective position. Nested payload traversal resolves an embarked player's position to the outer holder instead of the stored unit coordinates. Choice corrections are restricted to the opening five minutes. Before 50 minutes, deaths unlock automatic deployment as the chosen branch's tier one after 40 seconds of simulation time, including a total-party wipe. After the barrier-collapse threshold, death is permanent until the next map; previously deployed players cannot bypass elimination with `/respawn` or reconnect.
 
 ## Survival director
 
@@ -26,7 +26,7 @@ The first wave is at 220 seconds; later waves are 150 seconds apart. Each defini
 
 Spawn origins are selected randomly from vanilla `Blocks.spawn` overlays. Ground units use compatible terrain at the marker or within twelve tiles. Unsupported spawns are skipped with a warning, not relocated to arbitrary map positions. Maps without markers do not spawn enemies. Wave orders are drained at up to eight units per update.
 
-Once players have deployed, no living survivors means immediate gameover while players remain connected. When the final player disconnects, the director waits 40 simulation seconds before ending the round, even if retained units survive. Enemy spawning pauses during that empty-server grace window. A reconnect cancels the empty-server timer. The normal Mindustry gameover event is emitted for the server's map-rotation handling.
+Automatic survival gameover is removed: neither a party wipe nor an empty server ends the map. Enemy spawning pauses when no players are connected, while the gameplay clock follows the server's normal pause state. Administrative map changes remain available.
 
 ## Editable waves
 
@@ -42,11 +42,11 @@ Each wave contains:
 }
 ```
 
-The shipped configuration contains 25 progressively stronger definitions. Beyond the final definition, the last pool/boss roster repeats, with swarm counts and boss health increasing by the configured endless-growth factor. Boss counts remain capped by the definition. Timing, relief, player scaling, logout grace, and endless growth are editable in `settings`.
+The shipped configuration contains 25 progressively stronger definitions. Beyond the final definition, the last pool/boss roster repeats, with swarm counts and boss health increasing by the configured endless-growth factor. Boss counts remain capped by the definition. Timing, relief, player scaling, and endless growth are editable in `settings`. The legacy empty-server-grace setting remains readable for config compatibility but no longer ends the match.
 
 ## Enemy AI
 
-`NeoplasmAI` prioritizes the nearest targetable player or their payload holder. Nonplayer enemy units and buildings remain valid fallback targets. Ground pursuit uses native dynamic-goal control pathfinding and approaches passable tiles near solid holders. Ordinary units close to ram distance instead of maintaining a custom firing ring. Flying units with native circle-target behavior retain their native dive/turn movement. Native weapons retain their own targeting compatibility, aiming, firing, and projectile behavior. Missile controllers are not replaced.
+`NeoplasmAI` prioritizes the nearest targetable player or their payload holder. When no player is in a weapon's range, targetable enemy buildings in range take priority; nonplayer enemy units remain fallback targets. Ground pursuit uses native dynamic-goal control pathfinding and approaches passable tiles near solid holders. Ordinary units close to ram distance instead of maintaining a custom firing ring. Flying units with native circle-target behavior retain their native dive/turn movement. Native weapons retain their own targeting compatibility, aiming, firing, and projectile behavior. Missile controllers are not replaced.
 
 ## Items, research, and presentation
 
@@ -67,3 +67,33 @@ The combined delivery is a binary-capable git patch against master commit `41e17
 Large shield projectors use a native `BaseShieldBuild` subclass that rejects damage, bullet hits, and kill calls. Targeting/destruction flags and power-consumer removal are mirrored in `config/assets/patches/map-protection.hjson` for clients. Server action filtering, builder-plan filtering, and synchronous cancellation of native deconstruction protect them from dismantling. They retain their native shield update/repulsion behavior at full efficiency without a power network. Explicit administrative tile replacement remains possible; spawn-floor cleanup takes priority over barrier protection.
 
 Faction spawnpoints are dynamic: floor/overlay change events add and remove protected tiles throughout the match, including markers painted shortly after world load. Player deployment scans the current map on every attempt. During the opening ten simulation seconds, missing faction floors defer deployment and retry at the normal half-second scan cadence instead of immediately using a fallback. After that grace period, genuinely missing markers retain the existing core-site/centre fallback. Automatic deployment retries no longer use the old twenty-second wall-clock chat-reminder throttle.
+
+
+## Late-game escalation and shelter-weighted difficulty
+
+`SurvivalSettings` loads `config/alphystuff/survival.json` on world load. Its defaults are:
+
+| Gameplay time | Change |
+| --- | --- |
+| 50 minutes | Remove all small/large barrier projectors; permanently eliminate dead players; double fast/flying swarm groups and add a mobile air contingent. |
+| 60 minutes | Radiation sickness stack 1. |
+| 65 minutes | Stack 2. |
+| 70 minutes | Stack 3. |
+| 75 minutes | Burning on living player-owned units. |
+| 80 minutes | Personal warned nukes. |
+
+Each radiation stack is a separate native status with 1 damage/sec before native effective-health modifiers. Player-owned units inside payloads receive equivalent authoritative damage because payload units do not tick native statuses. Upstream radiation icons are copied unchanged, with attribution in `config/assets/RADIATION-CREDITS.txt`; none are embedded in the JAR.
+
+Nukes maintain independent UUID-keyed cooldowns. The first warning appears at the 80-minute threshold; subsequent warnings start after 60, 58, 56, … seconds, bounded at 10 seconds. A strike targets the player's position at warning time with 20% probability; otherwise it picks a point uniformly by area within 100 tiles, clamped to map bounds. Five-second red blast-radius/countdown markers precede the impact, with a falling thorium item marker, a native reactor explosion, and reactor-like damage/radius (5000 / 19 tiles). Warnings are fixed targets, not unavoidable homing strikes. Map changes clear pending impacts and histories.
+
+Wave scheduling remains every 150 seconds even when everyone is sheltered. Only the difficulty index changes. The exposed fraction `p` is living connected players' effective current HP outside active friendly large barriers divided by their total effective current HP. For `p < 0.5`, advance by 0 with probability `1 - 2p`, otherwise 1; above 0.5, advance by 2 with probability `2p - 1`, otherwise 1. Thus 0/50/100% exposed HP guarantees +0/+1/+2. At index zero, scheduled enemies use wave1. Barrier collapse makes surviving players fully exposed.
+
+## Ground resource drops and interaction effects
+
+`NeoplasmDrops` adapts the supplied CruxDrops table to Neoplasm deaths. Its eight tier columns, item probabilities, one-item weighted selection, four-times amount multiplier, and per-tier fluctuation bounds are retained; special unknown units do not drop resources. Unlike the supplied block implementation, drops stay at the death coordinates as an item texture plus a small outlined count with no text background. They place no blocks and have no terrain-search requirement. Uncollected drops last until pickup or world reset.
+
+Within `4 * tilesize + unit.hitSize` world units, a connected living player's unit takes what fits in its compatible resource stack, then connected carried/world containers accept the remainder. World containers connect within native `Vars.buildingRange` (220 world units), replacing the old 15-tile limit. Only actually deposited quantities are removed from the drop. Full/incompatible inventories leave it untouched, and partial pickups retain the exact remainder. Item-coloured native transfer particles travel to the player, then to containers. Construction withdrawals use directional container-to-unit particles rather than stationary mining particles.
+
+## Flying terrain correction
+
+`FlyingTerrainGuard` records each flying player's last safe position and checks both the current tile and the traversed segment against native `Tile.legSolid()`. This rejects deep/unsteppable terrain, not ordinary walls that native legs can step over. It rolls invalid movement back, zeroes velocity, and sends an authoritative position packet. The existing per-owner WorldProcessor also receives the safe coordinates and a short correction deadline, so standard clients apply local world-logic rollback. Server enforcement remains effective when clients disable logic. Empty-equipment rigs retain a small correction program; all processors still share the established 250-global/10-per-owner/500-instruction limits. No server-side attachment physics was added.

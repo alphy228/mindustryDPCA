@@ -31,9 +31,10 @@ public final class NeoplasmDirector {
     private final ObjectMap<String,Float> deaths=new ObjectMap<>();
     private final ObjectSet<String> warned=new ObjectSet<>();
     private Seq<PlayerUnitSystem.Survivor> roster=new Seq<>();
-    private float elapsed,nextWave,continuousProgress,emptySince=-1f,aiRefresh;
+    private float elapsed,nextWave,continuousProgress,aiRefresh;
     private int waveNumber,continuousSpawned,waveSpawned;
     private boolean started,armed;
+    private SurvivalHazards hazards;
 
     public NeoplasmDirector(Fi configFile,PlayerUnitSystem players){this.configFile=configFile;this.players=players;}
     public void start(){
@@ -49,12 +50,15 @@ public final class NeoplasmDirector {
         });
     }
     public void reset(){
+        if(hazards!=null)hazards.reset();
+        hazards=new SurvivalHazards(SurvivalSettings.load(configFile.sibling("survival.json")));
+        players.permanentDeathSeconds=hazards.settings.collapse;
         config=NeoplasmWaveConfig.load(configFile);
         try{config.validateUnits();}catch(RuntimeException failure){
             Log.err("[Neoplasm] Invalid wave unit list; using defaults for this world.",failure);
             config=NeoplasmWaveConfig.parse(NeoplasmWaveConfig.DEFAULT_JSON);config.validateUnits();
         }
-        elapsed=0f;nextWave=config.firstWave;continuousProgress=1f;emptySince=-1f;aiRefresh=0f;
+        elapsed=0f;nextWave=config.firstWave;continuousProgress=1f;aiRefresh=0f;
         waveNumber=continuousSpawned=waveSpawned=0;armed=false;queue.clear();deaths.clear();warned.clear();roster=new Seq<>();
         spawnPoints.clear();
         if(Vars.world!=null&&Vars.world.tiles!=null)for(Tile tile:Vars.world.tiles)if(tile.overlay()==Blocks.spawn)spawnPoints.add(tile);
@@ -74,30 +78,20 @@ public final class NeoplasmDirector {
         if(Vars.state.gameOver)return;
         float before=elapsed;elapsed+=seconds;
         roster=players.survivalPlayers();
-        int connected=0,alive=0;
+        int connected=0;
         for(var survivor:roster){
             if(survivor.connected())connected++;
-            if(survivor.alive()){alive++;armed=true;deaths.remove(survivor.uuid());}
+            if(survivor.alive()){armed=true;deaths.remove(survivor.uuid());}
             else if(!deaths.containsKey(survivor.uuid()))deaths.put(survivor.uuid(),elapsed);
         }
         armed|=players.hasDeployedPlayers();
-        if(armed){
-            if(connected==0){
-                if(emptySince<0f)emptySince=before;
-                if(elapsed-emptySince>=config.emptyGrace){endGame();return;}
-                // Retained units remain in the world, but do not spawn an endless
-                // unattended army during the last-logout grace window.
-                return;
-            }
-            emptySince=-1f;
-            if(alive==0){endGame();return;}
-        }
+        hazards.update(elapsed,seconds,roster);
         aiRefresh-=seconds;
         if(aiRefresh<=0f){installControllers();aiRefresh=.5f;}
         if(!armed||connected==0)return;
         if(elapsed>=nextWave){
-            waveNumber++;
-            enqueueWave(waveNumber,connected);
+            waveNumber+=SurvivalHazards.waveIncrement(SurvivalHazards.outsideHpFraction(roster),Mathf.random());
+            enqueueWave(Math.max(1,waveNumber),connected);
             nextWave+=config.waveInterval;
             Vars.state.wave=waveNumber;
             Events.fire(new WaveEvent());
@@ -144,7 +138,13 @@ public final class NeoplasmDirector {
         for(var group:definition.bosses())for(int i=0;i<group.base();i++)queue.addLast(new SpawnOrder(NeoplasmWaveConfig.resolve(group.unit()),true,count,number));
         for(var group:definition.swarm()){
             int amount=Mathf.ceil((group.base()+group.perExtraPlayer()*Math.max(0,count-1))*endlessScale(number));
+            if(elapsed>=hazards.settings.collapse&&isFast(NeoplasmWaveConfig.resolve(group.unit())))amount=Mathf.ceil(amount*hazards.settings.fastMultiplier);
             for(int i=0;i<amount;i++)queue.addLast(new SpawnOrder(NeoplasmWaveConfig.resolve(group.unit()),false,count,number));
+        }
+        if(elapsed>=hazards.settings.collapse){
+            UnitType mobile=NeoplasmWaveConfig.resolve(number<10?"horizon":"zenith");
+            int extras=Mathf.ceil(3*count*(hazards.settings.fastMultiplier-1f));
+            for(int i=0;i<extras;i++)queue.addLast(new SpawnOrder(mobile,false,count,number));
         }
     }
     private Unit spawn(UnitType type,boolean boss,int count,int number){
@@ -187,11 +187,8 @@ public final class NeoplasmDirector {
         }
         return nearest;
     }
-    private void endGame(){
-        if(Vars.state.gameOver)return;
-        Vars.state.gameOver=true;Vars.state.stats.wavesLasted=waveNumber;queue.clear();
-        Call.updateGameOver(enemyTeam);Events.fire(new GameOverEvent(enemyTeam));
-    }
+    private static boolean isFast(UnitType type){return type.flying||type.speed>=1.5f;}
+    public SurvivalHazards hazards(){return hazards;}
     public float elapsedSeconds(){return elapsed;}
     public float nextWaveSeconds(){return nextWave;}
     public int waveNumber(){return waveNumber;}

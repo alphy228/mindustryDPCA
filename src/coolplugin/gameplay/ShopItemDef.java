@@ -224,7 +224,9 @@ public final class ShopItemDef {
     public String description;
     public StationTier tier = StationTier.WORKBENCH;
     public ShopCategory category = ShopCategory.UTILITY;
-    public String sprite = "";
+    public String sprite = ""; // legacy shared sprite; retained for old configs
+    public String iconSprite = "", worldSprite = "";
+    public float weight = 10f;
     public String iconItem = "copper";
     public String colorHex = "ffd37f";
     public AttachMode attachMode = AttachMode.FOLLOW;
@@ -248,6 +250,8 @@ public final class ShopItemDef {
 
     // Subweapon server projectile parameters (fired via Call.createBullet when in active slots 1..4)
     public String subweaponPreset = "kinetic";
+    public float subweaponRecoil = 2.5f, subweaponRecoilTime = 12f;
+    public String subweaponShootEffect = "shootSmall", subweaponSmokeEffect = "shootSmallSmoke";
     public String subweaponShootSound = "none";
     public float subweaponSoundVolume = 0.6f, subweaponSoundPitch = 1f;
     public float subweaponReload = 16f;
@@ -338,20 +342,38 @@ public final class ShopItemDef {
         catch(ReflectiveOperationException ignored){return null;}
     }
 
+    public @Nullable Effect resolveWeaponEffect(String name){
+        if(name==null||name.isBlank()||"none".equalsIgnoreCase(name))return null;
+        try{Object value=Fx.class.getField(name).get(null);return value instanceof Effect effect?effect:null;}
+        catch(ReflectiveOperationException ignored){return null;}
+    }
+    public String vanillaTurretSprite(){
+        return switch(subweaponPreset.toLowerCase(Locale.ROOT)){
+            case "mortar","artillery","blast"->"hail";
+            case "pierce","lance","phase"->"lancer";
+            case "incendiary","pyratite","gatling"->"spectre";
+            case "blaster","homing","plastanium"->"cyclone";
+            default->"duo";
+        };
+    }
+
     public String effectiveSprite() {
         if (sprite != null && !sprite.isBlank()) return sprite.trim();
         return "shop-" + id;
     }
 
     public String uiDrawable() {
-        String sp = effectiveSprite();
+        String sp = iconSprite!=null&&!iconSprite.isBlank()?iconSprite.trim():effectiveSprite();
         if (UiSpriteSync.hasSprite(sp)) {
             return UiSpriteSync.resolveMenuDrawable(sp);
         }
+        if(iconSprite!=null&&!iconSprite.isBlank())return sp;
         return "item-" + iconItem + "-ui";
     }
 
     public String worldTextureName() {
+        if(worldSprite!=null&&!worldSprite.isBlank())return worldSprite.trim();
+        if(attachMode==AttachMode.SUBWEAPON)return vanillaTurretSprite();
         String sp = effectiveSprite();
         if (sp.startsWith("dp-") || sp.startsWith("item-") || sp.startsWith("block-") || sp.startsWith("unit-")) {
             return sp;

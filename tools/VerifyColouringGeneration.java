@@ -382,20 +382,102 @@ public class VerifyColouringGeneration {
         check(cannon.resolveShootSound()!=null,"Configured subweapon sound resolves to a real Sounds field");
         cannon.subweaponShootSound="invalid-nonexistent";
         check(cannon.resolveShootSound()==null,"Invalid shoot sounds are safely silent");cannon.subweaponShootSound="shoot";
-        var oldNet=Vars.net;var sounds=new Seq<mindustry.gen.SoundAtCallPacket>();
+        var oldNet=Vars.net;var sounds=new Seq<mindustry.gen.SoundAtCallPacket>();var muzzlePackets=new Seq<mindustry.gen.EffectCallPacket>();
         Vars.net=new Net(null){@Override public boolean server(){return true;}@Override public boolean active(){return true;}
-            @Override public void send(Object packet,boolean reliable){if(packet instanceof mindustry.gen.SoundAtCallPacket sound)sounds.add(sound);}};
+            @Override public void send(Object packet,boolean reliable){if(packet instanceof mindustry.gen.SoundAtCallPacket sound)sounds.add(sound);if(packet instanceof mindustry.gen.EffectCallPacket fxPacket)muzzlePackets.add(fxPacket);}};
         cannon.subweaponSoundVolume=0.37f;cannon.subweaponSoundPitch=1.23f;
         wearer.isShooting=true;wearer.aimX=wearer.x+80;wearer.aimY=wearer.y;
         equipped=arc.struct.Seq.with(cannon.id);
         itemSystem.updateVisualRigForUnit("sound-check",wearer,equipped,itemSystem.computeStats(equipped));
         check(!sounds.isEmpty()&&Math.abs(sounds.first().volume-0.37f)<0.001f&&Math.abs(sounds.first().pitch-1.23f)<0.001f,
             "Firing a subweapon emits native positional sound packets with configured volume and pitch");
-        Vars.net=oldNet;itemSystem.destroyRig("sound-check");wearer.isShooting=false;
+        check(muzzlePackets.size>=2,"Real subweapon shots emit both muzzle-flash and smoke effect packets");
+        Vars.net=oldNet;
+        var recoilManager=itemSystem.getWorldLogicManager();var recoilProc=recoilManager.getProcessorForOwner("sound-check");
+        var recoilEntry=recoilManager.getCompiledEntries("sound-check").first();
+        check(recoilProc.executor.optionalVar("shot"+recoilEntry.primaryMarkerId()).numval==Vars.state.tick+1d,
+            "Authoritative shot timestamp is bound to its exact barrel marker");
+        Time.delta=1f;Vars.logicVars.update();recoilProc.executor.optionalVar("hostUnit").setobj(wearer);for(int instruction=0;instruction<2000;instruction++)recoilProc.executor.runOnce();
+        var kicked=(mindustry.game.MapObjectives.TextureMarker)Vars.state.markers.get(recoilEntry.primaryMarkerId());
+        float kickedX=kicked.pos.x,kickedY=kicked.pos.y;
+        double savedTick=Vars.state.tick;Vars.state.tick+=40;Time.delta=1f;Vars.logicVars.update();recoilProc.executor.optionalVar("hostUnit").setobj(wearer);for(int instruction=0;instruction<2000;instruction++)recoilProc.executor.runOnce();
+        var recovered=(mindustry.game.MapObjectives.TextureMarker)Vars.state.markers.get(recoilEntry.primaryMarkerId());
+        check(arc.math.Mathf.dst(kickedX,kickedY,recovered.pos.x,recovered.pos.y)>1f,
+            "Native WorldProcessor marker visibly recoils then recovers after the server shot");
+        Vars.state.tick=savedTick;Vars.logicVars.update();
+        itemSystem.destroyRig("sound-check");wearer.isShooting=false;
         Fi saved=workConfig.child("effect-catalog-roundtrip.hjson");coolplugin.gameplay.ShopConfigIO.save(saved,catalog);
         var roundtrip=coolplugin.gameplay.ShopConfigIO.load(saved);
         check(roundtrip.findItem(injector.id).wearerStatuses.contains("overclock")&&"burning".equals(roundtrip.findItem(ember.id).vfxStatus)
             &&"shoot".equals(roundtrip.findItem("wb-06").subweaponShootSound),"Status, cosmetic VFX and sound configuration survive save/load");
+        check(catalog.items.allMatch(item->item.weight>0),"Every shipped/generated item has positive carrying weight");
+        var load=Seq.with("wb-01","wb-02","wb-03","wb-04","wb-05");
+        Unit carrier=UnitTypes.oct.create(Team.sharded);
+        var lightStats=itemSystem.computeStats(load,wearer);var heavyStats=itemSystem.computeStats(load,carrier);
+        check(lightStats.totalWeight==50f&&heavyStats.totalWeight==50f,"Weight sums all slots, including slot 5");
+        check(lightStats.weightSpeedFactor<heavyStats.weightSpeedFactor&&lightStats.speedMult<heavyStats.speedMult,
+            "Same item load penalizes low-base-health units more than high-health units");
+        wearer.health=1f;
+        check(itemSystem.computeStats(load,wearer).weightSpeedFactor==lightStats.weightSpeedFactor,"Injuries do not change weight carrying capacity");
+        float savedHealthBonus=catalog.findItem("wb-01").healthMultBonus;
+        catalog.findItem("wb-01").healthMultBonus=100f;
+        check(itemSystem.computeStats(load,wearer).weightSpeedFactor==lightStats.weightSpeedFactor,"Item HP buffs cannot inflate weight carrying capacity");
+        catalog.findItem("wb-01").healthMultBonus=savedHealthBonus;
+        check(itemSystem.weightFactor(0,150)==1f&&itemSystem.weightFactor(100000,150)==catalog.minimumWeightSpeedFactor,
+            "Zero load has no weight penalty and extreme load respects the configured floor");
+        check(roundtrip.findItem("wb-06").weight==cannon.weight&&"duo".equals(roundtrip.findItem("wb-06").worldTextureName()),
+            "Weight and vanilla mounted sprite survive configuration roundtrip");
+        String savedIcon=cannon.iconSprite,savedWorld=cannon.worldSprite;
+        cannon.iconSprite="item-copper-ui";cannon.worldSprite="lancer";
+        check("item-copper-ui".equals(cannon.uiDrawable())&&"lancer".equals(cannon.worldTextureName()),"Item icon and world sprite are independently selectable");
+        cannon.iconSprite=savedIcon;cannon.worldSprite=savedWorld;
+        var visualEntries=new Seq<coolplugin.gameplay.WorldItemLogicManager.CompiledVisualEntry>();
+        var haloItem=catalog.items.find(item->item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.HALO);
+        String haloCode=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,wearer,Seq.with(haloItem.id),catalog,visualEntries);
+        check(!visualEntries.isEmpty()&&visualEntries.allMatch(entry->entry.connectionLineMarkerId()>=0)
+            &&haloCode.contains("innerRot"),"Each halo anchor has an outer polygon plus counter-rotating inner element");
+        itemSystem.updateVisualRigForUnit("halo-check",wearer,Seq.with(haloItem.id),itemSystem.computeStats(Seq.with(haloItem.id),wearer));
+        var haloProc=itemSystem.getWorldLogicManager().getProcessorForOwner("halo-check");haloProc.update();
+        var haloEntry=itemSystem.getWorldLogicManager().getCompiledEntries("halo-check").first();
+        check(Vars.state.markers.get(haloEntry.primaryMarkerId()) instanceof mindustry.game.MapObjectives.ShapeMarker
+            &&Vars.state.markers.get(haloEntry.connectionLineMarkerId()) instanceof mindustry.game.MapObjectives.ShapeMarker,
+            "Real WorldProcessor executes both halo shape elements");
+        itemSystem.destroyRig("halo-check");
+        check(catalog.items.select(item->item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.SUBWEAPON)
+            .allMatch(item->!item.worldTextureName().startsWith("dp-")),"Every shipped turret-mount item uses a vanilla mounted sprite");
+        check(coolplugin.gameplay.WorldItemLogicManager.mountLayerOffset(-10)>coolplugin.gameplay.WorldItemLogicManager.mountLayerOffset(10),
+            "Rear-mounted item depth is above front-mounted item depth, independent of slot order");
+        itemSystem.applyStatsToUnit(wearer,lightStats);
+        check(Math.abs(wearer.applyDynamicStatus().speedMultiplier-lightStats.speedMult)<0.0001f,
+            "Runtime applies the health-based weight penalty exactly once");
+        itemSystem.applyStatsToUnit(wearer,itemSystem.computeStats(load));
+        check(Math.abs(wearer.applyDynamicStatus().speedMultiplier-lightStats.speedMult)<0.0001f,
+            "Legacy unbound stats acquire the correct weight penalty when applied to a unit");
+        var depthIds=Seq.with("wb-07","bz-13");
+        itemSystem.updateVisualRigForUnit("depth-check",wearer,depthIds,itemSystem.computeStats(depthIds,wearer));
+        var depthProc=itemSystem.getWorldLogicManager().getProcessorForOwner("depth-check");
+        depthProc.executor.optionalVar("hostUnit").setobj(wearer);for(int instruction=0;instruction<2000;instruction++)depthProc.executor.runOnce();
+        var depthEntries=itemSystem.getWorldLogicManager().getCompiledEntries("depth-check");
+        var front=depthEntries.max(entry->entry.localForwardWorld());var rear=depthEntries.min(entry->entry.localForwardWorld());
+        var layerField=mindustry.game.MapObjectives.ObjectiveMarker.class.getDeclaredField("drawLayer");layerField.setAccessible(true);
+        check(front.localForwardWorld()>rear.localForwardWorld()&&layerField.getFloat(Vars.state.markers.get(front.primaryMarkerId()))<layerField.getFloat(Vars.state.markers.get(rear.primaryMarkerId())),
+            "Executed native marker draw layers put rear mounts above front mounts");
+        itemSystem.destroyRig("depth-check");
+        int clippedHalos=0,maxHaloLines=0;
+        var savedAnchor=haloItem.haloAnchor;
+        for(UnitType unitType:Vars.content.units())if(unitType.playerControllable&&!unitType.hidden){
+            Unit sample=unitType.create(Team.sharded);
+            for(var anchor:coolplugin.gameplay.ShopItemDef.HaloAnchor.values()){
+                haloItem.haloAnchor=anchor;
+                var points=new Seq<arc.math.geom.Vec2>();coolplugin.gameplay.PlayerItemSystem.collectHaloAnchors(sample,anchor,points);
+                String allHaloCode=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,sample,Seq.with(haloItem.id,haloItem.id,haloItem.id,haloItem.id),catalog,visualEntries);
+                maxHaloLines=Math.max(maxHaloLines,allHaloCode.split("\n").length);
+                if(visualEntries.size!=4*points.size){clippedHalos++;System.out.println("HALO CLIP "+unitType.name+" "+anchor+" points="+points.size+" got="+visualEntries.size);}
+            }
+        }
+        haloItem.haloAnchor=savedAnchor;
+        check(maxHaloLines<1000,"Shared halo subroutine stays within the native parser limit on every controllable base unit");
+        check(clippedHalos==0,"Two-element halos fit all four active slots on every controllable base unit without marker clipping");
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 

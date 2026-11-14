@@ -635,6 +635,7 @@ public class ItemShopMenu {
                 .labelAlign("left")
                 .width(LEFT_TOTAL_W - 266f)
         ).row();
+        textCol.add(label("[gray]Weight: "+String.format(java.util.Locale.ROOT,"%.1f",item.weight)+"[]")).row();
         if (item.description != null && !item.description.isEmpty()) {
             textCol.add(
                 label("[lightgray]" + item.description + "[]")

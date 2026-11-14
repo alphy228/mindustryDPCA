@@ -60,7 +60,7 @@ import static mindustry.Vars.*;
 public final class WorldItemLogicManager {
 
     public static final int MARKER_BASE_ID = 10_000;
-    public static final int MARKERS_PER_SLOT = 64;
+    public static final int MARKERS_PER_SLOT = 128;
     public static final int MAX_PROCESSOR_SLOTS = 64;
     /** Dedicated non-derelict system team so WorldProcessors have enabled=true & efficiency=1.0 on clients. */
     public static final Team PROCESSOR_TEAM = Team.get(254);
@@ -72,7 +72,8 @@ public final class WorldItemLogicManager {
         TAIL_FOLLOW
     }
 
-    /** Metadata describing one client-drawn visual element compiled into a player's WorldProcessor. */
+    /** Metadata for a client-drawn element. connectionLineMarkerId is the secondary
+     * shape ID for HALO entries and the rope ID for tails. */
     public record CompiledVisualEntry(
         ShopItemDef def,
         int inventorySlot,
@@ -277,6 +278,22 @@ public final class WorldItemLogicManager {
             copy.addAll(slot.entries);
         }
         return copy;
+    }
+
+    /** Native logic-variable sync drives recoil from real server shots, including auto-fire. */
+    public void kickSubweapon(String ownerKey,ShopItemDef def,float forward,float side){
+        ProcessorSlot slot=slotsByOwner.get(ownerKey);if(slot==null)return;
+        LogicBuild processor=getExistingProcessor(slot);if(processor==null||processor.executor==null)return;
+        for(CompiledVisualEntry entry:slot.entries){
+            if(entry.kind!=RenderedKind.SUBWEAPON||entry.def!=def||Math.abs(entry.localForwardWorld-forward)>0.01f||Math.abs(entry.localSideWorld-side)>0.01f)continue;
+            LVar shot=processor.executor.optionalVar("shot"+entry.primaryMarkerId);
+            if(shot!=null){shot.setnum(state.tick+1d);if(net!=null&&net.server())Call.syncVariable(processor,shot.id,Double.valueOf(state.tick+1d));}
+        }
+    }
+
+    /** Local-forward depth, independent of inventory order or world-facing direction. */
+    public static float mountLayerOffset(float localForward){
+        return -localForward/(1f+Math.abs(localForward))*0.1f;
     }
 
     public @Nullable LogicBuild getProcessorForOwner(String ownerKey) {
@@ -621,11 +638,12 @@ public final class WorldItemLogicManager {
                 case HALO -> {
                     Seq<Point2f> anchors = computeUnitLocalHaloOffsets(unit, def.haloAnchor);
                     for (int a = 0; a < anchors.size; a++) {
-                        if (nextMarkerOffset + 1 > MARKERS_PER_SLOT) break;
+                        if (nextMarkerOffset + 2 > MARKERS_PER_SLOT) break;
                         Point2f pt = anchors.get(a);
                         int haloId = baseMarkerId + (nextMarkerOffset++);
+                        int innerId = baseMarkerId + (nextMarkerOffset++);
                         outEntries.add(new CompiledVisualEntry(
-                            def, i, RenderedKind.HALO, false, haloId, -1, pt.fwd, pt.side, a * 30f
+                            def, i, RenderedKind.HALO, false, haloId, innerId, pt.fwd, pt.side, a * 30f
                         ));
                     }
                 }
@@ -665,20 +683,7 @@ public final class WorldItemLogicManager {
                     sb.append("setmarker minimap ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                     sb.append("setmarker world ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                 }
-                case HALO -> {
-                    Color hc = ce.def.resolveHaloColor();
-                    sb.append("makemarker shape ").append(ce.primaryMarkerId).append(" 0 0 true\n");
-                    sb.append("setmarker shape ").append(ce.primaryMarkerId).append(" ")
-                        .append(Math.max(3, ce.def.haloSides)).append(" 0 0\n");
-                    sb.append("setmarker radius ").append(ce.primaryMarkerId).append(" ")
-                        .append(f(ce.def.haloRadius)).append(" 0 0\n");
-                    sb.append("setmarker stroke ").append(ce.primaryMarkerId).append(" 0.85 0 0\n");
-                    sb.append("packcolor hcol ").append(f(hc.r)).append(" ").append(f(hc.g)).append(" ")
-                        .append(f(hc.b)).append(" 0.90\n");
-                    sb.append("setmarker color ").append(ce.primaryMarkerId).append(" hcol 0 0\n");
-                    sb.append("setmarker minimap ").append(ce.primaryMarkerId).append(" 0 0 0\n");
-                    sb.append("setmarker world ").append(ce.primaryMarkerId).append(" 0 0 0\n");
-                }
+                case HALO -> { /* Created and styled by the shared haloDraw subroutine. */ }
                 case TAIL_FOLLOW -> {
                     Color lineCol = ce.overloaded
                         ? Color.valueOf("ff6b6b")
@@ -797,14 +802,16 @@ public final class WorldItemLogicManager {
 
             switch (ce.kind) {
                 case MOUNT -> {
+                    sb.append("op add mountLayer baseLayer ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     float rotDelta = ce.angleOffsetDeg - 90f;
                     sb.append("op add mrot urot ").append(f(rotDelta)).append("\n");
                     sb.append("setmarker pos ").append(ce.primaryMarkerId).append(" mx my 0\n");
                     sb.append("setmarker rotation ").append(ce.primaryMarkerId).append(" mrot 0 0\n");
-                    sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" baseLayer 0 0\n");
+                    sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" mountLayer 0 0\n");
                 }
                 case SUBWEAPON -> {
+                    sb.append("op add mountLayer baseLayer ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     sb.append("op sub adx sx mx\n");
                     sb.append("op sub ady sy my\n");
@@ -814,19 +821,38 @@ public final class WorldItemLogicManager {
                     sb.append("op angle arot adx ady\n");
                     sb.append("op sub mrot arot 90\n");
                     sb.append("swAimDone").append(e).append(":\n");
+                    // Reset the client-local recoil clock when a real server shot arrives;
+                    // do not lose the animation just because network delay exceeded recovery time.
+                    sb.append("jump recoilReady").append(e).append(" equal shot").append(ce.primaryMarkerId).append(" seenShot").append(e).append("\n");
+                    sb.append("set seenShot").append(e).append(" shot").append(ce.primaryMarkerId).append("\n");
+                    sb.append("set recoilStart").append(e).append(" @tick\n");
+                    sb.append("recoilReady").append(e).append(":\n");
+                    sb.append("op sub shotAge @tick recoilStart").append(e).append("\n");
+                    sb.append("op greaterThan hasShot shot").append(ce.primaryMarkerId).append(" 0\n");
+                    sb.append("op div kick shotAge ").append(f(ce.def.subweaponRecoilTime)).append("\n");
+                    sb.append("op sub kick 1 kick\nop max kick kick 0\nop min kick kick 1\n");
+                    sb.append("op mul kick kick hasShot\n");
+                    sb.append("op mul kick kick ").append(f(ce.def.subweaponRecoil/tilesize)).append("\n");
+                    sb.append("op add barrelAngle mrot 90\nop cos rx barrelAngle 0\nop sin ry barrelAngle 0\n");
+                    sb.append("op mul rx rx kick\nop mul ry ry kick\nop sub mx mx rx\nop sub my my ry\n");
                     sb.append("setmarker pos ").append(ce.primaryMarkerId).append(" mx my 0\n");
                     sb.append("setmarker rotation ").append(ce.primaryMarkerId).append(" mrot 0 0\n");
-                    sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" baseLayer 0 0\n");
+                    sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" mountLayer 0 0\n");
                 }
                 case HALO -> {
-                    emitRigidTransform(sb, fwdT, sideT, "mx", "my");
-                    float spinSpeed = (e % 2 == 0) ? 0.055f : -0.055f;
-                    sb.append("op mul hrot @time ").append(f(spinSpeed)).append("\n");
-                    sb.append("op add hrot hrot ").append(f(ce.angleOffsetDeg)).append("\n");
-                    sb.append("op add hLayer baseLayer 0.30\n");
-                    sb.append("setmarker pos ").append(ce.primaryMarkerId).append(" mx my 0\n");
-                    sb.append("setmarker rotation ").append(ce.primaryMarkerId).append(" hrot 0 0\n");
-                    sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" hLayer 0 0\n");
+                    // One compact call per anchor avoids the native 1000-instruction parser
+                    // limit for multi-weapon units such as Dissociate.
+                    if(e==0 || outEntries.get(e-1).inventorySlot!=ce.inventorySlot){
+                        Color hc=ce.def.resolveHaloColor();
+                        sb.append("set hRadius ").append(f(ce.def.haloRadius)).append("\n");
+                        sb.append("set hSides ").append(Math.max(3,ce.def.haloSides)).append("\n");
+                        sb.append("packcolor hColor ").append(f(hc.r)).append(" ").append(f(hc.g)).append(" ").append(f(hc.b)).append(" 0.90\n");
+                        sb.append("packcolor hInnerColor ").append(f(Math.min(1f,hc.r+0.18f))).append(" ").append(f(Math.min(1f,hc.g+0.18f))).append(" ").append(f(Math.min(1f,hc.b+0.18f))).append(" 0.75\n");
+                    }
+                    sb.append("set hId ").append(ce.primaryMarkerId).append("\n");
+                    sb.append("set hFwd ").append(f(fwdT)).append("\nset hSide ").append(f(sideT)).append("\n");
+                    sb.append("set hPhase ").append(f(ce.angleOffsetDeg)).append("\n");
+                    sb.append("op add hReturn @counter 1\njump haloDraw always 0 0\n");
                 }
                 case TAIL_FOLLOW -> {
                     float ropeLenT = tailRopeLengthsTiles.get(tailCursor);
@@ -1020,7 +1046,7 @@ public final class WorldItemLogicManager {
             }
         }
 
-        sb.append("jump waitTick always 0 0\n");
+        sb.append("set halosReady 1\njump waitTick always 0 0\n");
 
         // Hide markers cleanly whenever hostUnit is temporarily null/dead/in payload
         sb.append("hideAll:\n");
@@ -1034,6 +1060,22 @@ public final class WorldItemLogicManager {
         }
         sb.append("set vis 0\n");
 
+        sb.append("jump waitTick always 0 0\n");
+        if(outEntries.contains(entry->entry.kind==RenderedKind.HALO)){
+            sb.append("haloDraw:\nop add hInner hId 1\n");
+            sb.append("jump haloStyleReady equal halosReady 1\n");
+            sb.append("makemarker shape hId 0 0 true\nsetmarker shape hId hSides 0 0\nsetmarker radius hId hRadius 0 0\n");
+            sb.append("setmarker stroke hId 0.85 0 0\nsetmarker color hId hColor 0 0\nsetmarker minimap hId 0 0 0\nsetmarker world hId 1 0 0\n");
+            sb.append("makemarker shape hInner 0 0 true\nop sub hInnerSides hSides 2\nop max hInnerSides hInnerSides 3\n");
+            sb.append("op mul hInnerRadius hRadius 0.62\nsetmarker shape hInner hInnerSides 0 0\nsetmarker radius hInner hInnerRadius 0 0\n");
+            sb.append("setmarker stroke hInner 0.65 0 0\nsetmarker color hInner hInnerColor 0 0\nsetmarker minimap hInner 0 0 0\nsetmarker world hInner 1 0 0\n");
+            sb.append("haloStyleReady:\nop mul hfx hFwd ucos\nop mul hfy hFwd usin\nop mul hsx hSide usin\nop mul hsy hSide ucos\n");
+            sb.append("op add mx ux hfx\nop sub mx mx hsx\nop add my uy hfy\nop add my my hsy\n");
+            sb.append("op mul hrot @time 0.055\nop add hrot hrot hPhase\nop add hLayer baseLayer 0.30\n");
+            sb.append("setmarker pos hId mx my 0\nsetmarker rotation hId hrot 0 0\nsetmarker drawLayer hId hLayer 0 0\n");
+            sb.append("op mul innerRot hrot -1\nop add innerRot innerRot 30\nsetmarker pos hInner mx my 0\nsetmarker rotation hInner innerRot 0 0\nsetmarker drawLayer hInner hLayer 0 0\n");
+            sb.append("set @counter hReturn\n");
+        }
         sb.append("waitTick:\n");
         sb.append("wait 0\n");
         sb.append("jump mainLoop always 0 0\n");

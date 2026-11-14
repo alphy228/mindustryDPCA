@@ -81,7 +81,8 @@ public class PlayerInventoryDrawer {
         boolean allowDecraft
     ) {
         EquipmentData eq = itemSystem.getEquipment(player);
-        ComputedStats stats = itemSystem.computeStats(eq.equipped);
+        var wearer=PlayerUnitSystem.ownedUnit(player);if(wearer==null)wearer=player.unit();
+        ComputedStats stats = itemSystem.computeStats(eq.equipped,wearer);
 
         TableBuilder col = table().align("top").width(WIDTH);
         col.add(buildHexInventory(eq, selectedSlot, theme, allowDecraft).padBottom(8f)).row();
@@ -277,6 +278,9 @@ public class PlayerInventoryDrawer {
             );
         }
 
+        grid.row();
+        grid.add(label("[gray]Weight[] "+String.format(Locale.ROOT,"%.1f",st.totalWeight)+"  [gray]SPD[] ×"+String.format(Locale.ROOT,"%.2f",st.weightSpeedFactor))
+            .colspan(2).padTop(5f));
         box.add(grid.growX());
         return box;
     }

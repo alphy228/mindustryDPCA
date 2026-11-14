@@ -1,0 +1,87 @@
+Item visuals and carrying weight — Mindustry v160.7
+=================================================
+
+Configuration: config/alphystuff/shop.hjson. No README changes and no plugin-JAR
+assets. The catalog keeps its existing items, recipes and temporary effect examples.
+No compacted-resource construction mechanic or construction description was added.
+
+Weight
+------
+Every shipped item now has explicit positive weight. Old/custom definitions without
+weight default to 10 at Workbench, 25 at Bazaar and 50 at Cursed Altar. Generated
+paint cans and retired salvage cans default to 10. All carried slots contribute,
+including slots 5-10 and VFX-only items. Set an individual weight to 0 if desired.
+
+Global fields:
+  weightScale: 1
+  minimumWeightSpeedFactor: 0.20
+
+weightFactor = max(minimumWeightSpeedFactor,
+                   1 / (1 + weightScale * totalWeight / baseUnitHealth))
+
+baseUnitHealth means unit.type.health, never injured HP or status/item-modified HP.
+The factor multiplies the existing item speed bonuses and slot-5-10 overload factor.
+The existing overall speed floor of 0.10 remains. Increasing weightScale makes
+weight more punishing; 0 disables the new weight penalty. The inventory stat panel
+shows total weight and its speed factor; item details show the individual weight.
+
+computeStats(ids, unit) reports complete weighted stats. The legacy no-unit overload
+reports slot bonuses plus total weight because it has no carrying unit to evaluate;
+applyStatsToUnit resolves that weight against the actual unit, exactly once.
+
+Independent icons and in-world sprites
+-------------------------------------
+  iconSprite: "shop-wb-06"
+  worldSprite: "duo"
+
+iconSprite selects the shop/inventory icon. Local custom PNG stems use the existing
+reconnect-safe UI streaming path. Vanilla atlas regions such as item-copper-ui may
+also be used. Blank iconSprite preserves the old sprite/iconItem fallback.
+
+worldSprite selects the in-world texture independently, with the exact atlas name:
+vanilla duo/lancer/etc. or dp-<custom-stem>. Blank preserves the legacy item texture,
+except SUBWEAPON defaults to an appropriate vanilla turret region. Shipped subweapon
+items explicitly use duo, hail, lancer, cyclone or spectre according to their preset.
+No vanilla sprite files are duplicated into the JAR or asset patch.
+
+Mounted turret firing visuals
+-----------------------------
+  subweaponRecoil: 2.5
+  subweaponRecoilTime: 12
+  subweaponShootEffect: "shootSmall"
+  subweaponSmokeEffect: "shootSmallSmoke"
+
+Recoil distance uses world units; recovery time uses ticks (60 ticks/second).
+Effect names are mindustry.content.Fx fields. none/invalid names disable that effect.
+Real server bullet events trigger recoil for the matching barrel, plus native muzzle
+flash and smoke at the firing position. Existing shoot sounds remain supported.
+The server syncs a shot token into the unit's existing WorldProcessor. Each client
+starts its own recovery clock on token arrival, so network delay does not swallow
+the animation. This also works for server auto-target firing, not just player input.
+Carried/towed weapons in slots 5-10 still do not fire or recoil.
+
+Halos and depth
+---------------
+Each HALO anchor now has two persistent geometric elements: an outer polygon and a
+smaller, brighter counter-rotating inner polygon. Center/weapon/engine anchors and
+existing halo colour/radius/side settings are preserved. No pulsing waves or item
+unit entities are introduced. VFX-only items remain particle-only, without geometry.
+
+A shared MLOG subroutine keeps large multi-weapon halo rigs below Mindustry's native
+1000-instruction parser limit. Each processor reserves 128 marker IDs, enough for
+four two-element WEAPONS halos on Dissociate's fourteen mounts. Marker cleanup,
+hiding, reconnect and payload behavior retain the existing local-visual mechanism.
+
+Mount draw depth is a bounded monotonic function of the unit-local forward offset.
+Rear mounts draw above forward mounts, independent of inventory slot and facing
+angle. Mirrored left/right mounts at the same forward position retain equal depth.
+Halo and tow-rope layers retain their separate behavior.
+
+Validation
+----------
+86 feature checks passed, including actual WorldProcessor recoil/recovery, executed
+rear/front marker depth, native muzzle/smoke packets, weighted runtime speed, injury
+and HP-buff independence, config roundtrip, and all-base-unit four-halo capacity.
+67 gameplay regression checks passed. Native SDL/OpenGL unit/marker previews were
+rendered for idle mounts and recoil/firing effects. Patch atlas packing remains
+192 MiB in five tested orders (not total process RAM).

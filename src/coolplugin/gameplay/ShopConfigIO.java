@@ -33,6 +33,7 @@ import coolplugin.gameplay.ShopItemDef.StationTier;
 public final class ShopConfigIO {
 
     public static final class Catalog {
+        public float weightScale=1f, minimumWeightSpeedFactor=0.20f;
         public final Seq<ShopItemDef> items = new Seq<>();
         public final ObjectMap<String, ShopItemDef> itemsById = new ObjectMap<>();
         public final Seq<OrbitalTradeDef> trades = new Seq<>();
@@ -90,6 +91,8 @@ public final class ShopConfigIO {
         JsonValue root = new JsonReader().parse(jsonText);
 
         Catalog cat = new Catalog();
+        cat.weightScale=Math.max(0f,root.getFloat("weightScale",1f));
+        cat.minimumWeightSpeedFactor=Math.max(0.01f,Math.min(1f,root.getFloat("minimumWeightSpeedFactor",0.20f)));
         JsonValue itemsArr = root.get("items");
         if (itemsArr != null) {
             for (JsonValue v = itemsArr.child; v != null; v = v.next) {
@@ -102,6 +105,8 @@ public final class ShopConfigIO {
                 item.tier = tier != null ? tier : StationTier.WORKBENCH;
                 item.category = ShopCategory.parse(v.getString("category", inferCategory(item).id));
                 item.sprite = v.getString("sprite", "shop-" + item.id);
+                item.iconSprite=v.getString("iconSprite","");item.worldSprite=v.getString("worldSprite","");
+                item.weight=Math.max(0f,v.getFloat("weight",item.tier==StationTier.CURSED_ALTAR?50f:item.tier==StationTier.BAZAAR?25f:10f));
                 item.iconItem = v.getString("iconItem", "copper");
                 item.colorHex = v.getString("colorHex", item.tier.accentHex);
                 item.attachMode = AttachMode.parse(v.getString("attachMode", "FOLLOW"));
@@ -122,6 +127,10 @@ public final class ShopConfigIO {
                 item.haloSides = Math.max(3, Math.min(24, v.getInt("haloSides", 6)));
 
                 item.subweaponPreset = v.getString("subweaponPreset", "kinetic");
+                item.subweaponRecoil=Math.max(0f,v.getFloat("subweaponRecoil",2.5f));
+                item.subweaponRecoilTime=Math.max(1f,v.getFloat("subweaponRecoilTime",12f));
+                item.subweaponShootEffect=v.getString("subweaponShootEffect","shootSmall");
+                item.subweaponSmokeEffect=v.getString("subweaponSmokeEffect","shootSmallSmoke");
                 item.subweaponShootSound=v.getString("subweaponShootSound","none");
                 item.subweaponSoundVolume=Math.max(0f,Math.min(2f,v.getFloat("subweaponSoundVolume",0.6f)));
                 item.subweaponSoundPitch=Math.max(0.25f,Math.min(3f,v.getFloat("subweaponSoundPitch",1f)));
@@ -207,6 +216,8 @@ public final class ShopConfigIO {
         sb.append("# haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)\n");
         sb.append("# Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.\n\n");
 
+        sb.append("weightScale: ").append(fmt(cat.weightScale)).append("\n");
+        sb.append("minimumWeightSpeedFactor: ").append(fmt(cat.minimumWeightSpeedFactor)).append("\n\n");
         sb.append("items: [\n");
         for (ShopItemDef it : cat.items) {
             sb.append("  {\n");
@@ -216,6 +227,9 @@ public final class ShopConfigIO {
             sb.append("    tier: ").append(it.tier.id).append("\n");
             sb.append("    category: ").append(it.category.id).append("\n");
             sb.append("    sprite: ").append(quote(it.effectiveSprite())).append("\n");
+            sb.append("    iconSprite: ").append(quote(it.iconSprite)).append("\n");
+            sb.append("    worldSprite: ").append(quote(it.worldSprite)).append("\n");
+            sb.append("    weight: ").append(fmt(it.weight)).append("\n");
             sb.append("    iconItem: ").append(it.iconItem).append("\n");
             sb.append("    colorHex: ").append(quote(it.colorHex)).append("\n");
             sb.append("    attachMode: ").append(it.attachMode.name()).append("\n");
@@ -245,6 +259,10 @@ public final class ShopConfigIO {
             }
 
             if(it.attachMode==AttachMode.SUBWEAPON){
+                sb.append("    subweaponRecoil: ").append(fmt(it.subweaponRecoil)).append("\n");
+                sb.append("    subweaponRecoilTime: ").append(fmt(it.subweaponRecoilTime)).append("\n");
+                sb.append("    subweaponShootEffect: ").append(quote(it.subweaponShootEffect)).append("\n");
+                sb.append("    subweaponSmokeEffect: ").append(quote(it.subweaponSmokeEffect)).append("\n");
                 sb.append("    subweaponShootSound: ").append(quote(it.subweaponShootSound)).append("\n");
                 sb.append("    subweaponSoundVolume: ").append(fmt(it.subweaponSoundVolume)).append("\n");
                 sb.append("    subweaponSoundPitch: ").append(fmt(it.subweaponSoundPitch)).append("\n");
@@ -651,6 +669,7 @@ public final class ShopConfigIO {
         d.name = name;
         d.description = desc;
         d.tier = tier;
+        d.weight=tier==StationTier.CURSED_ALTAR?50f:tier==StationTier.BAZAAR?25f:10f;
         d.category = category;
         d.sprite = "shop-" + id;
         d.iconItem = iconItem;

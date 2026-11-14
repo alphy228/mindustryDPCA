@@ -5,9 +5,15 @@
 # haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)
 # Active passive bonuses apply to inventory positions 1..4; positions 5..10 grant no buffs and give -10% speed each.
 
+weightScale: 1
+minimumWeightSpeedFactor: 0.20
+
 items: [
   {
     id: "wb-01"
+    weight: 10
+    iconSprite: "shop-wb-01"
+    worldSprite: ""
     name: "Copper Chunk"
     description: "300 copper compacted into a dense transport crate."
     tier: workbench
@@ -23,6 +29,9 @@ items: [
   }
   {
     id: "wb-02"
+    weight: 10
+    iconSprite: "shop-wb-02"
+    worldSprite: ""
     name: "Lead Bundle"
     description: "300 lead bars strapped together for field hauling."
     tier: workbench
@@ -38,6 +47,9 @@ items: [
   }
   {
     id: "wb-03"
+    weight: 10
+    iconSprite: "shop-wb-03"
+    worldSprite: ""
     name: "Graphite Brick"
     description: "200 pressed carbon plates locked in a heavy frame."
     tier: workbench
@@ -53,6 +65,9 @@ items: [
   }
   {
     id: "wb-04"
+    weight: 10
+    iconSprite: "shop-wb-04"
+    worldSprite: ""
     name: "Scrap Relic Core"
     description: "Recovered core husk; cannot be crafted, only decrafted for resources."
     tier: workbench
@@ -69,6 +84,9 @@ items: [
   }
   {
     id: "wb-05"
+    weight: 10
+    iconSprite: "shop-wb-05"
+    worldSprite: ""
     name: "Copper Fang"
     description: "Sharpened copper wing blades boosting weapon damage."
     tier: workbench
@@ -85,6 +103,9 @@ items: [
   }
   {
     id: "wb-06"
+    weight: 10
+    iconSprite: "shop-wb-06"
+    worldSprite: "duo"
     name: "Graphite Striker"
     description: "Twin hull-mounted autocannon pods firing kinetic bolts."
     tier: workbench
@@ -95,6 +116,10 @@ items: [
     subweaponShootSound: "shoot"
     subweaponSoundVolume: 0.6
     subweaponSoundPitch: 1
+    subweaponRecoil: 2.5
+    subweaponRecoilTime: 12
+    subweaponShootEffect: "shootSmall"
+    subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
     subweaponPreset: "kinetic"
@@ -108,6 +133,9 @@ items: [
   }
   {
     id: "wb-07"
+    weight: 10
+    iconSprite: "shop-wb-07"
+    worldSprite: ""
     name: "Silicon Sight"
     description: "Prow-mounted optical rangefinder improving damage and fire rate."
     tier: workbench
@@ -125,6 +153,9 @@ items: [
   }
   {
     id: "wb-08"
+    weight: 10
+    iconSprite: "shop-wb-08"
+    worldSprite: ""
     name: "Twin Fang Array"
     description: "Dual linked Copper Fangs forged into symmetrical wing blades."
     tier: workbench
@@ -143,6 +174,9 @@ items: [
   }
   {
     id: "wb-09"
+    weight: 10
+    iconSprite: "shop-wb-09"
+    worldSprite: ""
     name: "Lead Buckler"
     description: "Riveted flank shields bolstering hull health and armor."
     tier: workbench
@@ -160,6 +194,9 @@ items: [
   }
   {
     id: "wb-10"
+    weight: 10
+    iconSprite: "shop-wb-10"
+    worldSprite: ""
     name: "Ceramic Plate"
     description: "Kiln-fired metaglass cheek armor plating."
     tier: workbench
@@ -177,6 +214,9 @@ items: [
   }
   {
     id: "wb-11"
+    weight: 10
+    iconSprite: "shop-wb-11"
+    worldSprite: ""
     name: "Mending Vial"
     description: "Pressurized repair gel projecting a restorative core halo."
     tier: workbench
@@ -198,6 +238,9 @@ items: [
   }
   {
     id: "wb-12"
+    weight: 10
+    iconSprite: "shop-wb-12"
+    worldSprite: ""
     name: "Bastion Carapace"
     description: "Reinforced Lead Bucklers layered with dense graphite ribs."
     tier: workbench
@@ -216,6 +259,9 @@ items: [
   }
   {
     id: "wb-13"
+    weight: 10
+    iconSprite: "shop-wb-13"
+    worldSprite: ""
     name: "Glass Thruster"
     description: "Centerline metaglass jet nozzle boosting movement speed."
     tier: workbench
@@ -232,6 +278,9 @@ items: [
   }
   {
     id: "wb-14"
+    weight: 10
+    iconSprite: "shop-wb-14"
+    worldSprite: ""
     name: "Builder's Servo"
     description: "Symmetrical shoulder construction claws accelerating build speed."
     tier: workbench
@@ -248,6 +297,9 @@ items: [
   }
   {
     id: "wb-15"
+    weight: 10
+    iconSprite: "shop-wb-15"
+    worldSprite: ""
     name: "Scout Gyro"
     description: "Floating telemetry gyroscope enhancing speed and construction."
     tier: workbench
@@ -265,6 +317,9 @@ items: [
   }
   {
     id: "bz-01"
+    weight: 25
+    iconSprite: "shop-bz-01"
+    worldSprite: ""
     name: "Titanium Crate"
     description: "400 titanium rods locked inside a floating cargo pod."
     tier: bazaar
@@ -280,6 +335,9 @@ items: [
   }
   {
     id: "bz-02"
+    weight: 25
+    iconSprite: "shop-bz-02"
+    worldSprite: ""
     name: "Silicon Wafer Pack"
     description: "350 high-purity silicon wafers sealed for transit."
     tier: bazaar
@@ -295,6 +353,9 @@ items: [
   }
   {
     id: "bz-03"
+    weight: 25
+    iconSprite: "shop-bz-03"
+    worldSprite: ""
     name: "Thorium Cell"
     description: "300 thorium rods encased in a shielded floating canister."
     tier: bazaar
@@ -310,6 +371,9 @@ items: [
   }
   {
     id: "bz-04"
+    weight: 25
+    iconSprite: "shop-bz-04"
+    worldSprite: ""
     name: "Orbital Blackbox"
     description: "Orbital ship salvage; non-craftable, decrafts into advanced alloys."
     tier: bazaar
@@ -327,6 +391,9 @@ items: [
   }
   {
     id: "bz-05"
+    weight: 25
+    iconSprite: "shop-bz-05"
+    worldSprite: "cyclone"
     name: "Plastanium Repeater"
     description: "Twin rotary subweapon pods unloading rapid plastanium flechettes."
     tier: bazaar
@@ -337,6 +404,10 @@ items: [
     subweaponShootSound: "shoot"
     subweaponSoundVolume: 0.6
     subweaponSoundPitch: 1
+    subweaponRecoil: 2.5
+    subweaponRecoilTime: 12
+    subweaponShootEffect: "shootSmall"
+    subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
     subweaponPreset: "blaster"
@@ -351,6 +422,9 @@ items: [
   }
   {
     id: "bz-06"
+    weight: 25
+    iconSprite: "shop-bz-06"
+    worldSprite: ""
     name: "Surge Sabre"
     description: "Twin Fang Array reforged with high-voltage surge wing blades."
     tier: bazaar
@@ -369,6 +443,9 @@ items: [
   }
   {
     id: "bz-07"
+    weight: 25
+    iconSprite: "shop-bz-07"
+    worldSprite: "hail"
     name: "Blast Cannon Pod"
     description: "Dorsal artillery subweapon firing high-explosive blast shells."
     tier: bazaar
@@ -379,6 +456,10 @@ items: [
     subweaponShootSound: "shoot"
     subweaponSoundVolume: 0.6
     subweaponSoundPitch: 1
+    subweaponRecoil: 2.5
+    subweaponRecoilTime: 12
+    subweaponShootEffect: "shootSmall"
+    subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: DORSAL_TURRET
     subweaponPreset: "mortar"
@@ -393,6 +474,9 @@ items: [
   }
   {
     id: "bz-08"
+    weight: 25
+    iconSprite: "shop-bz-08"
+    worldSprite: "lancer"
     name: "Phase Lance"
     description: "Wing-mounted phase lance subweapons firing armor-piercing bolts."
     tier: bazaar
@@ -403,6 +487,10 @@ items: [
     subweaponShootSound: "shoot"
     subweaponSoundVolume: 0.6
     subweaponSoundPitch: 1
+    subweaponRecoil: 2.5
+    subweaponRecoilTime: 12
+    subweaponShootEffect: "shootSmall"
+    subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: WING_POD
     subweaponPreset: "pierce"
@@ -417,6 +505,9 @@ items: [
   }
   {
     id: "bz-09"
+    weight: 25
+    iconSprite: "shop-bz-09"
+    worldSprite: ""
     name: "Titanium Aegis"
     description: "Bastion Carapace reinforced with heavy titanium flank kite plates."
     tier: bazaar
@@ -435,6 +526,9 @@ items: [
   }
   {
     id: "bz-10"
+    weight: 25
+    iconSprite: "shop-bz-10"
+    worldSprite: ""
     name: "Thorium Reactor Core"
     description: "Miniature thorium core radiating a hexagonal reactor halo."
     tier: bazaar
@@ -457,6 +551,9 @@ items: [
   }
   {
     id: "bz-11"
+    weight: 25
+    iconSprite: "shop-bz-11"
+    worldSprite: ""
     name: "Plastanium Mesh"
     description: "Impact-absorbing honeycomb shoulder armor shells."
     tier: bazaar
@@ -474,6 +571,9 @@ items: [
   }
   {
     id: "bz-12"
+    weight: 25
+    iconSprite: "shop-bz-12"
+    worldSprite: ""
     name: "Regen Halo"
     description: "Projector ring bathing the unit center in a steady repair halo."
     tier: bazaar
@@ -495,6 +595,9 @@ items: [
   }
   {
     id: "bz-13"
+    weight: 25
+    iconSprite: "shop-bz-13"
+    worldSprite: ""
     name: "Phase Blink Drive"
     description: "Glass Thruster upgraded into twin phase-folded rear nacelles."
     tier: bazaar
@@ -512,6 +615,9 @@ items: [
   }
   {
     id: "bz-14"
+    weight: 25
+    iconSprite: "shop-bz-14"
+    worldSprite: ""
     name: "Nano Fabricator"
     description: "Autonomous nanobot halos energizing every weapon mount."
     tier: bazaar
@@ -533,6 +639,9 @@ items: [
   }
   {
     id: "bz-15"
+    weight: 25
+    iconSprite: "shop-bz-15"
+    worldSprite: ""
     name: "Astral Compass"
     description: "Engine-core overdrive halos boosting flight speed and building."
     tier: bazaar
@@ -554,6 +663,9 @@ items: [
   }
   {
     id: "ca-01"
+    weight: 50
+    iconSprite: "shop-ca-01"
+    worldSprite: ""
     name: "Philosopher's Husk"
     description: "Condensed forbidden matter radiating a crimson core halo."
     tier: cursed-altar
@@ -575,6 +687,9 @@ items: [
   }
   {
     id: "ca-02"
+    weight: 50
+    iconSprite: "shop-ca-02"
+    worldSprite: ""
     name: "Void Reliquary"
     description: "Abyssal coffer floating silently at fixed standoff behind its bearer."
     tier: cursed-altar
@@ -593,6 +708,9 @@ items: [
   }
   {
     id: "ca-03"
+    weight: 50
+    iconSprite: "shop-ca-03"
+    worldSprite: ""
     name: "Blood Ingot"
     description: "Floating scarlet alloy bar empowering weapons at hull cost."
     tier: cursed-altar
@@ -610,6 +728,9 @@ items: [
   }
   {
     id: "ca-04"
+    weight: 50
+    iconSprite: "shop-ca-04"
+    worldSprite: ""
     name: "Bloodthirst Scythe"
     description: "Twin reaper wing blades granting massive damage at health cost."
     tier: cursed-altar
@@ -628,6 +749,9 @@ items: [
   }
   {
     id: "ca-05"
+    weight: 50
+    iconSprite: "shop-ca-05"
+    worldSprite: "spectre"
     name: "Abyssal Gatling"
     description: "Twin demonic rotary subweapons unleashing incendiary barrages."
     tier: cursed-altar
@@ -638,6 +762,10 @@ items: [
     subweaponShootSound: "shoot"
     subweaponSoundVolume: 0.6
     subweaponSoundPitch: 1
+    subweaponRecoil: 2.5
+    subweaponRecoilTime: 12
+    subweaponShootEffect: "shootSmall"
+    subweaponSmokeEffect: "shootSmallSmoke"
     attachMode: SUBWEAPON
     mountSubtype: SIDE_POD
     subweaponPreset: "incendiary"
@@ -653,6 +781,9 @@ items: [
   }
   {
     id: "ca-06"
+    weight: 50
+    iconSprite: "shop-ca-06"
+    worldSprite: ""
     name: "Ruinblade"
     description: "Corrupted Surge Sabres mounted symmetrically across the hull."
     tier: cursed-altar
@@ -672,6 +803,9 @@ items: [
   }
   {
     id: "ca-07"
+    weight: 50
+    iconSprite: "shop-ca-07"
+    worldSprite: ""
     name: "Eye of Malice"
     description: "Crimson sigil halos wreathed around every weapon mount."
     tier: cursed-altar
@@ -694,6 +828,9 @@ items: [
   }
   {
     id: "ca-08"
+    weight: 50
+    iconSprite: "shop-ca-08"
+    worldSprite: ""
     name: "Leviathan Husk"
     description: "Colossal obsidian flank carapaces doubling hull health and armor."
     tier: cursed-altar
@@ -712,6 +849,9 @@ items: [
   }
   {
     id: "ca-09"
+    weight: 50
+    iconSprite: "shop-ca-09"
+    worldSprite: ""
     name: "Undying Heart"
     description: "Crimson core halo regenerating tremendous health."
     tier: cursed-altar
@@ -734,6 +874,9 @@ items: [
   }
   {
     id: "ca-10"
+    weight: 50
+    iconSprite: "shop-ca-10"
+    worldSprite: ""
     name: "Dread Bulwark"
     description: "Titanium Aegis fused with cursed spikes for extreme flank armor."
     tier: cursed-altar
@@ -753,6 +896,9 @@ items: [
   }
   {
     id: "ca-11"
+    weight: 50
+    iconSprite: "shop-ca-11"
+    worldSprite: ""
     name: "Martyr's Crown"
     description: "Iron-ember halo crown sustaining the bearer through heavy fire."
     tier: cursed-altar
@@ -775,6 +921,9 @@ items: [
   }
   {
     id: "ca-12"
+    weight: 50
+    iconSprite: "shop-ca-12"
+    worldSprite: ""
     name: "Wraith Stride"
     description: "Phase Blink Drive twisted into spectral crimson tail wings."
     tier: cursed-altar
@@ -793,6 +942,9 @@ items: [
   }
   {
     id: "ca-13"
+    weight: 50
+    iconSprite: "shop-ca-13"
+    worldSprite: ""
     name: "Architect's Curse"
     description: "Forbidden golden shoulder claws erecting structures at blinding speed."
     tier: cursed-altar
@@ -810,6 +962,9 @@ items: [
   }
   {
     id: "ca-14"
+    weight: 50
+    iconSprite: "shop-ca-14"
+    worldSprite: ""
     name: "Chrono Hourglass"
     description: "Floating crimson sandglass bending movement and reload time."
     tier: cursed-altar
@@ -828,6 +983,9 @@ items: [
   }
   {
     id: "ca-15"
+    weight: 50
+    iconSprite: "shop-ca-15"
+    worldSprite: ""
     name: "Apotheosis Halo"
     description: "Ultimate grand crown halo converging offense, bastion, and flight."
     tier: cursed-altar
@@ -855,6 +1013,9 @@ items: [
   }
   {
     id: "temp-ember-vfx"
+    weight: 10
+    iconSprite: ""
+    worldSprite: ""
     name: "Ember Projector"
     description: "Temporary cosmetic burning particles; does not burn the wearer."
     tier: workbench
@@ -872,6 +1033,9 @@ items: [
 
   {
     id: "temp-overclock"
+    weight: 10
+    iconSprite: ""
+    worldSprite: ""
     name: "Overclock Injector"
     description: "Temporary overclock status while equipped in active slots 1-4."
     tier: workbench
@@ -890,6 +1054,9 @@ items: [
 
   {
     id: "temp-mending-vfx"
+    weight: 10
+    iconSprite: ""
+    worldSprite: ""
     name: "Mending Spark"
     description: "Temporary cosmetic healing particles; does not heal the wearer."
     tier: workbench

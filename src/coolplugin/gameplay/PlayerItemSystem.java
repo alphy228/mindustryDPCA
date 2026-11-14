@@ -73,6 +73,7 @@ public class PlayerItemSystem {
     public record ActionOutcome(boolean success, String message) {}
 
     public static final class ComputedStats {
+        public float totalWeight=0f, weightSpeedFactor=1f, weightReferenceHealth=0f;
         public int totalEquipped;
         public int activeSlotsUsed;
         public int overloadCount;
@@ -280,7 +281,10 @@ public class PlayerItemSystem {
         return count;
     }
 
-    public ComputedStats computeStats(Seq<String> equippedIds) {
+    public ComputedStats computeStats(Seq<String> equippedIds) {return computeStats(equippedIds,null);}
+
+    /** Base type health only: injuries and temporary HP bonuses never alter carrying capacity. */
+    public ComputedStats computeStats(Seq<String> equippedIds,@Nullable Unit unit) {
         ComputedStats st = new ComputedStats();
         if (equippedIds == null || equippedIds.isEmpty()) return st;
 
@@ -290,6 +294,8 @@ public class PlayerItemSystem {
         st.activeSlotsUsed = Math.min(ACTIVE_PASSIVE_SLOTS, n);
         st.overloadCount = Math.max(0, n - ACTIVE_PASSIVE_SLOTS);
 
+        for(int i=0;i<n;i++){ShopItemDef def=cat.findItem(equippedIds.get(i));if(def!=null)st.totalWeight+=Math.max(0f,def.weight);}
+        if(unit!=null&&unit.type!=null){st.weightReferenceHealth=Math.max(1f,unit.type.health);st.weightSpeedFactor=weightFactor(st.totalWeight,st.weightReferenceHealth);}
         float hpBonus = 0f;
         float dmgBonus = 0f;
         float spdBonus = 0f;
@@ -312,10 +318,15 @@ public class PlayerItemSystem {
 
         st.healthMult = Math.max(0.25f, 1f + hpBonus);
         st.damageMult = Math.max(0.10f, 1f + dmgBonus);
-        st.speedMult = Math.max(0.10f, (1f + spdBonus) * overloadSpeedFactor);
+        st.speedMult = Math.max(0.10f, (1f + spdBonus) * overloadSpeedFactor * st.weightSpeedFactor);
         st.reloadMult = Math.max(0.10f, 1f + rldBonus);
         st.buildSpeedMult = Math.max(0.10f, 1f + bldBonus);
         return st;
+    }
+
+    public float weightFactor(float weight,float baseHealth){
+        Catalog cat=getCatalog();
+        return Math.max(cat.minimumWeightSpeedFactor,1f/(1f+cat.weightScale*Math.max(0f,weight)/Math.max(1f,baseHealth)));
     }
 
     public ActionOutcome promoteSlotToActive(Player player, int slotIndex) {
@@ -562,7 +573,7 @@ public class PlayerItemSystem {
             }
 
             EquipmentData eq = getEquipment(player);
-            ComputedStats stats = computeStats(eq.equipped);
+            ComputedStats stats = computeStats(eq.equipped,unit);
             applyStatsToUnit(unit, stats);
             updateVisualRig(player.uuid(), player.name, unit, eq.equipped, stats);
         }
@@ -580,7 +591,7 @@ public class PlayerItemSystem {
 
         StatusEntry dyn = unit.applyDynamicStatus();
         dyn.time = Float.POSITIVE_INFINITY;
-        dyn.speedMultiplier = stats.speedMult;
+        dyn.speedMultiplier = Math.max(0.1f,stats.speedMult*(stats.weightReferenceHealth>0f?1f:weightFactor(stats.totalWeight,unit.type.health)));
         dyn.damageMultiplier = stats.damageMult;
         dyn.healthMultiplier = stats.healthMult;
         dyn.reloadMultiplier = stats.reloadMult;
@@ -623,7 +634,7 @@ public class PlayerItemSystem {
         }
 
         updateWearerStatuses(unit,rig);
-        updateServerSubweapons(unit, rig, stats);
+        updateServerSubweapons(rigKey,unit, rig, stats);
         updateOptionalHaloFx(unit, rig);
     }
 
@@ -673,7 +684,7 @@ public class PlayerItemSystem {
         return rig;
     }
 
-    private void updateServerSubweapons(Unit unit, ActiveServerRig rig, ComputedStats stats) {
+    private void updateServerSubweapons(String rigKey,Unit unit, ActiveServerRig rig, ComputedStats stats) {
         if (rig.subweapons.isEmpty()) return;
 
         float dt = Math.max(0.01f, Time.delta);
@@ -734,6 +745,11 @@ public class PlayerItemSystem {
                     float bSpeed = Math.max(1.5f, bulletType.speed);
                     float lifeScl = Mathf.clamp(barrel.def.subweaponRange / (bSpeed * Math.max(8f, bulletType.lifetime)), 0.45f, 1.85f);
                     Call.createBullet(bulletType, unit.team, spawnX, spawnY, aimAngle, dmg, 1f, lifeScl);
+                    worldLogicManager.kickSubweapon(rigKey,barrel.def,barrel.localForward,barrel.localSide);
+                    var muzzle=barrel.def.resolveWeaponEffect(barrel.def.subweaponShootEffect);
+                    var smoke=barrel.def.resolveWeaponEffect(barrel.def.subweaponSmokeEffect);
+                    if(muzzle!=null)Call.effect(muzzle,spawnX,spawnY,aimAngle,bulletType.hitColor);
+                    if(smoke!=null)Call.effect(smoke,spawnX,spawnY,aimAngle,bulletType.hitColor);
                     var sound=barrel.def.resolveShootSound();
                     if(sound!=null&&barrel.def.subweaponSoundVolume>0f)Call.soundAt(sound,spawnX,spawnY,barrel.def.subweaponSoundVolume,barrel.def.subweaponSoundPitch);
                 }

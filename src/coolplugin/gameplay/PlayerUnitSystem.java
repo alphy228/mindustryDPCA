@@ -82,6 +82,10 @@ public class PlayerUnitSystem {
     /** uuid -> currently owned single unit. */
     private final ObjectMap<String, Unit> owned = new ObjectMap<>();
 
+    /** One-shot reconnect locations, scoped to this loaded world and original faction. */
+    private record RejoinPosition(int x, int y, FactionDef faction) {}
+    private final ObjectMap<String, RejoinPosition> rejoinPositions = new ObjectMap<>();
+
     /** uuid -> current payload holder (Reconstructor, PayloadConveyor, carrier unit, etc.). */
     private final ObjectMap<String, Posc> holders = new ObjectMap<>();
 
@@ -176,6 +180,7 @@ public class PlayerUnitSystem {
         }
 
         Events.on(WorldLoadEvent.class, e -> {
+            rejoinPositions.clear();
             owned.clear();
             holders.clear();
             assemblerHolders.clear();
@@ -198,6 +203,7 @@ public class PlayerUnitSystem {
             if (e.player == null) return;
             String uuid = e.player.uuid();
             activeJoinMenus.remove(uuid);
+            rememberRejoinPosition(uuid);
             // Faction can be changed on rejoin; live unit despawns cleanly WITHOUT wiping saved unitType in SQLite!
             chosenFactions.remove(uuid);
             respawnAt.remove(uuid);
@@ -342,6 +348,7 @@ public class PlayerUnitSystem {
     public void onPlayerDataWiped(@Nullable Player player) {
         if (player == null) return;
         String uuid = player.uuid();
+        rejoinPositions.remove(uuid);
         cleanupOwnedUnit(uuid);
         chosenFactions.remove(uuid);
         respawnAt.remove(uuid);
@@ -425,6 +432,7 @@ public class PlayerUnitSystem {
         if (!valid(player)) return;
         String uuid = player.uuid();
 
+        rejoinPositions.remove(uuid);
         if (newAccount.isGuest()) {
             // /logout: despawn active unit cleanly without altering the registered account's saved unitType, resync tech rules, then reopen faction menu
             cleanupOwnedUnit(uuid);
@@ -595,7 +603,9 @@ public class PlayerUnitSystem {
 
         player.team(faction.team());
 
-        Tile spawnTile = findFactionSpawnTile(faction, type);
+        Tile spawnTile = rejoinTile(uuid, faction);
+        boolean returning = spawnTile != null;
+        if (spawnTile == null) spawnTile = findFactionSpawnTile(faction, type);
         if (spawnTile == null) {
             logMapperPoem(faction);
             spawnTile = buildSystem.pickFallbackCoreTile(faction.team());
@@ -610,11 +620,12 @@ public class PlayerUnitSystem {
             return;
         }
 
-        float wx = spawnTile.worldx() + Mathf.range(2f);
-        float wy = spawnTile.worldy() + Mathf.range(2f);
+        float wx = spawnTile.worldx() + (returning ? 0f : Mathf.range(2f));
+        float wy = spawnTile.worldy() + (returning ? 0f : Mathf.range(2f));
         Unit unit = type.spawn(faction.team(), wx, wy);
         Units.notifyUnitSpawn(unit);
 
+        rejoinPositions.remove(uuid);
         owned.put(uuid, unit);
         holders.remove(uuid);
         assemblerHolders.remove(uuid);
@@ -628,6 +639,28 @@ public class PlayerUnitSystem {
 
         player.unit(unit);
         snapCamera(player, unit);
+    }
+
+    private void rememberRejoinPosition(String uuid) {
+        Unit unit = owned.get(uuid);
+        FactionDef faction = chosenFactions.get(uuid);
+        // Never turn a death, missing unit, or menu-only disconnect into a return point.
+        if (unit == null || unit.dead() || unit.health <= 0f || faction == null || respawnAt.containsKey(uuid)) return;
+        Posc position = holders.get(uuid);
+        if (position == null) position = assemblerHolders.get(uuid);
+        if (position == null) position = unit;
+        Tile tile = world.tileWorld(position.x(), position.y());
+        if (tile != null) rejoinPositions.put(uuid, new RejoinPosition(tile.x, tile.y, faction));
+    }
+
+    private @Nullable Tile rejoinTile(String uuid, FactionDef faction) {
+        RejoinPosition saved = rejoinPositions.get(uuid);
+        if (saved == null) return null;
+        if (saved.faction != faction) {
+            rejoinPositions.remove(uuid); // Switching factions must not teleport to the old faction's location.
+            return null;
+        }
+        return world.tile(saved.x, saved.y);
     }
 
     public @Nullable Tile findFactionSpawnTile(FactionDef faction, UnitType type) {
@@ -996,6 +1029,7 @@ public class PlayerUnitSystem {
     // ------------------------------------------------------------------ death & periodic upkeep
 
     private void handleOwnedUnitLost(String uuid) {
+        rejoinPositions.remove(uuid);
         owned.remove(uuid);
         holders.remove(uuid);
         assemblerHolders.remove(uuid);

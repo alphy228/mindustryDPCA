@@ -917,6 +917,7 @@ public class VerifyColouringGeneration {
         admission.clearAllRigs();
         verifyInventoryBudgets(plugin,p,workConfig);
         verifyMountAimAndInventory(plugin,p,workConfig);
+        verifyRejoinPosition(plugin);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -936,6 +937,48 @@ public class VerifyColouringGeneration {
             if (containsNodeId(child, id)) return true;
         }
         return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void verifyRejoinPosition(CoolPlugin plugin)throws Exception{
+        var system=plugin.getPlayerUnitSystem();
+        system.start();
+        var klass=coolplugin.gameplay.PlayerUnitSystem.class;
+        var ownerField=klass.getDeclaredField("owned");ownerField.setAccessible(true);
+        var owners=(arc.struct.ObjectMap<String,Unit>)ownerField.get(system);
+        var factionField=klass.getDeclaredField("chosenFactions");factionField.setAccessible(true);
+        var factions=(arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)factionField.get(system);
+        var positionsField=klass.getDeclaredField("rejoinPositions");positionsField.setAccessible(true);
+        var positions=(arc.struct.ObjectMap<String,?>)positionsField.get(system);
+        var remember=klass.getDeclaredMethod("rememberRejoinPosition",String.class);remember.setAccessible(true);
+        var tileMethod=klass.getDeclaredMethod("rejoinTile",String.class,coolplugin.gameplay.FactionDef.class);tileMethod.setAccessible(true);
+        var lost=klass.getDeclaredMethod("handleOwnedUnitLost",String.class);lost.setAccessible(true);
+        var faction=coolplugin.gameplay.FactionDef.SHARDED;
+        Player player=Player.create();player.con=new CapturingCon("rejoin-test");player.name="Rejoin test";
+        String uuid=player.uuid();
+        Unit original=UnitTypes.dagger.create(Team.sharded);original.set(Vars.world.tile(4,5).worldx()+1f,Vars.world.tile(4,5).worldy()+2f);original.add();
+        owners.put(uuid,original);factions.put(uuid,faction);player.unit(original);
+        arc.Events.fire(new mindustry.game.EventType.PlayerLeave(player));
+        check(!owners.containsKey(uuid)&&tileMethod.invoke(system,uuid,faction)==Vars.world.tile(4,5),"Disconnect captures the live unit's exact tile");
+        owners.remove(uuid);original.remove();player.clearUnit();factions.put(uuid,faction);
+        system.spawnFor(player,faction,UnitTypes.dagger);
+        Unit returned=owners.get(uuid);
+        check(returned!=null&&returned.tileX()==4&&returned.tileY()==5&&!positions.containsKey(uuid),
+            "Reconnect spawn returns to the saved tile and consumes the location once");
+        remember.invoke(system,uuid);lost.invoke(system,uuid);returned.remove();player.clearUnit();
+        check(!positions.containsKey(uuid)&&tileMethod.invoke(system,uuid,faction)==null,"Death clears any reconnect location, retaining normal spawn selection");
+        system.spawnFor(player,faction,UnitTypes.dagger);
+        Unit afterDeath=owners.get(uuid);
+        check(afterDeath!=null&&(afterDeath.tileX()!=4||afterDeath.tileY()!=5),"Post-death deployment uses normal spawns, not the last disconnect tile");
+        remember.invoke(system,uuid);
+        check(tileMethod.invoke(system,uuid,coolplugin.gameplay.FactionDef.CRUX)==null&&!positions.containsKey(uuid),
+            "Changing faction discards the old faction's reconnect location");
+        afterDeath.health=0f;remember.invoke(system,uuid);
+        check(!positions.containsKey(uuid),"Disconnecting with a dead unit cannot save a return location");
+        afterDeath.health=100f;remember.invoke(system,uuid);
+        arc.Events.fire(new mindustry.game.EventType.WorldLoadEvent());
+        check(positions.isEmpty(),"Loading another world clears all saved reconnect locations");
+        owners.remove(uuid);factions.remove(uuid);afterDeath.remove();
     }
 
     private static void verifyInventoryBudgets(CoolPlugin plugin,Player p,Fi config)throws Exception{

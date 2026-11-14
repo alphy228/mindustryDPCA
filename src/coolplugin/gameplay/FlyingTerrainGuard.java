@@ -52,18 +52,38 @@ public final class FlyingTerrainGuard {
         if(!dirty&&tiles==Vars.world.tiles)return;
         width=Vars.world.width();height=Vars.world.height();tiles=Vars.world.tiles;dirty=false;routes.clear();
         nearest=new int[width*height];java.util.Arrays.fill(nearest,-1);
-        int[] queue=new int[nearest.length];int head=0,tail=0;
-        for(int y=0;y<height;y++)for(int x=0;x<width;x++)if(!forbidden(x*Vars.tilesize,y*Vars.tilesize)){
-            int p=x+y*width;nearest[p]=p;queue[tail++]=p;
-        }
-        // Multi-source distance field: linear work once per terrain change, not per unit.
-        while(head<tail){int p=queue[head++],x=p%width,y=p/width;
-            for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
-                int nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=width||ny>=height)continue;
-                int n=nx+ny*width;if(nearest[n]<0){nearest[n]=nearest[p];queue[tail++]=n;}
+        // Exact squared-Euclidean nearest-open transform. A plain eight-neighbour flood fill
+        // chooses diagonal exits on flat walls, weakening resistance and making idle units slide.
+        for(int y=0;y<height;y++){
+            int left=-1;
+            for(int x=0;x<width;x++){
+                if(!forbidden(x*Vars.tilesize,y*Vars.tilesize))left=x;
+                if(left>=0)nearest[x+y*width]=left+y*width;
+            }
+            int right=-1;
+            for(int x=width-1;x>=0;x--){
+                if(!forbidden(x*Vars.tilesize,y*Vars.tilesize))right=x;
+                int p=x+y*width,old=nearest[p];
+                if(right>=0&&(old<0||right-x<x-old%width))nearest[p]=right+y*width;
             }
         }
+        int[] source=new int[height],v=new int[height];
+        float[] f=new float[height],z=new float[height+1];
+        for(int x=0;x<width;x++){
+            int k=-1;
+            for(int y=0;y<height;y++){
+                source[y]=nearest[x+y*width];
+                if(source[y]<0)continue;
+                float dx=source[y]%width-x;f[y]=dx*dx;
+                float cross=Float.NEGATIVE_INFINITY;
+                while(k>=0){int q=v[k];cross=((f[y]+(float)y*y)-(f[q]+(float)q*q))/(2f*(y-q));if(cross>z[k])break;k--;}
+                v[++k]=y;z[k]=k==0?Float.NEGATIVE_INFINITY:cross;z[k+1]=Float.POSITIVE_INFINITY;
+            }
+            if(k<0)continue;
+            int at=0;for(int y=0;y<height;y++){while(at<k&&z[at+1]<y)at++;nearest[x+y*width]=source[v[at]];}
+        }
     }
+
     private static Vec2 open(float x,float y){
         field();if(width==0||height==0)return null;
         int tx=Mathf.clamp(Math.round(x/Vars.tilesize),0,width-1),ty=Mathf.clamp(Math.round(y/Vars.tilesize),0,height-1);
@@ -71,12 +91,24 @@ public final class FlyingTerrainGuard {
     }
     /** Gentle outward speed target scales with effective unit speed, not an accumulating impulse. */
     public static float pushStrength(float speed,float depth){
-        float t=Mathf.clamp(depth/(4f*Vars.tilesize));
-        return Math.max(.1f,speed)*(.08f+.52f*t*t*(3f-2f*t));
+        float t=Mathf.clamp(depth/(2f*Vars.tilesize));
+        return Math.max(.1f,speed)*(.18f+.17f*t*t*(3f-2f*t));
     }
     /** Bounded relaxation toward a small outward speed: repeated frames cannot accumulate a launch. */
     public static float pushDelta(float outwardSpeed,float target,float delta){
-        return Math.max(0f,(target-outwardSpeed)*(1f-(float)Math.exp(-.16f*Math.min(delta,3f))));
+        return pushDelta(outwardSpeed,target,delta,.25f);
+    }
+    public static float pushDelta(float outwardSpeed,float target,float delta,float resistance){
+        float blend=1f-(float)Math.pow(1f-Mathf.clamp(resistance),Mathf.clamp(delta,0f,3f));
+        return Math.max(0f,(target-outwardSpeed)*blend);
+    }
+    /** Cancel sustained inward input by two tiles, without increasing the outward drift speed. */
+    public static float resistance(float depth){
+        float t=Mathf.clamp(depth/(2f*Vars.tilesize));
+        return .25f+.75f*t*t*(3f-2f*t);
+    }
+    public static float correctionSpeed(float outward,float speed,float depth){
+        return Math.max(0f,-outward)*resistance(depth)+pushStrength(speed,depth);
     }
     public boolean correct(Player player){return player!=null&&correct(player.unit());}
     public boolean correct(Unit unit){
@@ -88,9 +120,19 @@ public final class FlyingTerrainGuard {
         float depth=Math.max(0f,toward.len()-Vars.tilesize/2f);
         float strength=pushStrength(unit.speed(),depth);
         Vec2 normal=toward.cpy().nor();
-        float change=pushDelta(unit.vel.dot(normal),strength,Time.delta);
-        unit.velAddNet(normal.x*change,normal.y*change);
-        if(visuals!=null&&unit.isPlayer())visuals.pushTerrain(unit,normal.x*strength,normal.y*strength);
+        float outward=unit.vel.dot(normal),dt=Mathf.clamp(Time.delta,0f,3f);
+        float change=pushDelta(outward,strength,dt,resistance(depth));
+        unit.vel.add(normal.x*change,normal.y*change);
+        if(unit.isPlayer()&&!unit.isLocal()){
+            // Remote player positions come from client snapshots, not server velocity integration.
+            // Move the CURRENT position incrementally and synchronize it on every push, including
+            // idle input. Do not restore a safe point or repeatedly add an unbounded impulse.
+            float displacement=correctionSpeed(outward,unit.speed(),depth)*dt;
+            unit.set(unit.x+normal.x*displacement,unit.y+normal.y*displacement);
+            Player player=unit.getPlayer();player.set(unit.x,unit.y);
+            if(player.con!=null)Call.setPosition(player.con,unit.x,unit.y);
+        }
+        if(visuals!=null&&unit.isPlayer())visuals.pushTerrain(unit,normal.x*strength,normal.y*strength,resistance(depth));
         // Emergency only: normal acceleration already overpowers inward thrust well before this.
         // Preserve velocity; never stop the unit or roll it back to a previous frame.
         if(depth>=hardDepth){
@@ -158,8 +200,8 @@ op mul terrainDotY terrainVy terrainNy
 op add terrainOutward terrainDotX terrainDotY
 op sub terrainChange terrainTarget terrainOutward
 op max terrainChange terrainChange 0
-op mul terrainBlend terrainDt -0.16
-op pow terrainBlend 2.718281828 terrainBlend
+op sub terrainBlend 1 terrainResistance
+op pow terrainBlend terrainBlend terrainDt
 op sub terrainBlend 1 terrainBlend
 op mul terrainChange terrainChange terrainBlend
 op mul terrainDx terrainNx terrainChange

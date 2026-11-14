@@ -1197,13 +1197,13 @@ public class VerifyColouringGeneration {
         obstacle.data=4;coolplugin.gameplay.FlyingTerrainGuard.invalidate();
         Unit aiFlyer=UnitTypes.flare.spawn(Team.crux,beforeX,beforeY);aiFlyer.vel.set(1,0);
         check(terrain.correct(aiFlyer)&&aiFlyer.vel.len2()>0,"Non-player flyers receive the same darkness pushback");aiFlyer.remove();
-        float slow=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,16),fast=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5,16);
+        float slow=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,8),fast=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5,8);
         check(Math.abs(fast/slow-5)<.001f&&coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,32)>slow,
             "Pushback scales linearly with effective speed and strengthens smoothly with penetration");
         float repeatedOut=0f;
         float targetOut=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5f,32f);
         for(int frame=0;frame<600;frame++)repeatedOut+=coolplugin.gameplay.FlyingTerrainGuard.pushDelta(repeatedOut,targetOut,1f);
-        check(repeatedOut<=targetOut+.001f&&targetOut<=5f*.61f,
+        check(repeatedOut<=targetOut+.001f&&targetOut<=5f*.351f,
             "Repeated pushback converges to a gentle bounded speed instead of accumulating a wall-launch impulse");
         check(coolplugin.gameplay.FlyingTerrainGuard.pushDelta(10f,targetOut,1f)==0f,
             "Already-outward movement is not accelerated further by the wall");
@@ -1220,6 +1220,30 @@ public class VerifyColouringGeneration {
             Tile cell=Vars.world.tile(xx,yy);oldBlocks.add(cell.block());oldData.add(cell.data);cell.setBlock(Blocks.stoneWall);cell.data=4;
         }
         coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        var serverOnly=new coolplugin.gameplay.FlyingTerrainGuard(null);
+        float oldTerrainDelta=Time.delta;Time.delta=1;
+        boolean heldBack=true;
+        for(float inputSpeed:new float[]{1f,4f,12f}){
+            flyer.set(25*8f,34*8f);float deepest=0;
+            for(int frame=0;frame<180;frame++){
+                flyer.set(flyer.x+inputSpeed,34*8f);flyer.vel.set(inputSpeed,0);
+                serverOnly.correct(flyer);deepest=Math.max(deepest,flyer.x-(25*8f+4));
+            }
+            heldBack&=deepest<coolplugin.gameplay.FlyingTerrainGuard.hardDepth-8;
+        }
+        check(heldBack,"Server-only correction resists sustained inward client movement before the six-tile backstop at slow and fast speeds");
+        flyer.set(27*8f,34*8f);
+        for(int frame=0;frame<180&&coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y);frame++){
+            flyer.vel.setZero();serverOnly.correct(flyer);
+        }
+        check(!coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y),
+            "Idle remote player drifts completely out with no input and no client world logic");
+        Unit idleAI=UnitTypes.flare.spawn(Team.crux,27*8f,34*8f);idleAI.vel.setZero();
+        for(int frame=0;frame<240&&coolplugin.gameplay.FlyingTerrainGuard.forbidden(idleAI.x,idleAI.y);frame++){
+            serverOnly.correct(idleAI);idleAI.set(idleAI.x+idleAI.vel.x,idleAI.y+idleAI.vel.y);idleAI.vel.scl(.9f);
+        }
+        check(!coolplugin.gameplay.FlyingTerrainGuard.forbidden(idleAI.x,idleAI.y),"Idle non-player flyer is pushed out without requiring AI movement orders");
+        idleAI.remove();Time.delta=oldTerrainDelta;
         flyer.set(34*8f,34*8f);flyer.vel.set(2,1);terrain.correct(flyer);
         check(!flyer.within(34*8f,34*8f,8)&&flyer.vel.len2()>0,
             "Six-tile emergency backstop ejects an externally embedded flyer without zeroing momentum");

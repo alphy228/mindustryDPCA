@@ -641,11 +641,12 @@ public final class WorldItemLogicManager {
     }
 
     /** Bounded client-local outward speed target, never an accumulating impulse. */
-    public void pushTerrain(Unit unit,float x,float y){
+    public void pushTerrain(Unit unit,float x,float y){pushTerrain(unit,x,y,1f);}
+    public void pushTerrain(Unit unit,float x,float y,float resistance){
         for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
             LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
-            String[] names={"terrainPushX","terrainPushY","terrainPushUntil","terrainLastTick"};
-            double[] values={x*60d/tilesize,y*60d/tilesize,state.tick+4d,state.tick};
+            String[] names={"terrainPushX","terrainPushY","terrainPushUntil","terrainLastTick","terrainResistance"};
+            double[] values={x*60d/tilesize,y*60d/tilesize,state.tick+4d,state.tick,resistance};
             for(int i=0;i<names.length;i++){
                 var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
                 variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);

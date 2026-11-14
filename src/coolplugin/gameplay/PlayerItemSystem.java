@@ -175,12 +175,9 @@ public class PlayerItemSystem {
         if (started) return;
         started = true;
 
-        Events.on(WorldLoadEvent.class, e -> clearAllRigs());
-        Events.on(PlayerLeave.class, e -> {
-            if (e.player != null) {
-                destroyRig(e.player.uuid());
-            }
-        });
+        Events.on(WorldLoadEvent.class, e -> {clearAllRigs();clearCarriedItems();});
+        Events.on(mindustry.game.EventType.GameOverEvent.class,e->clearCarriedItems());
+        // Offline owned units keep both authoritative item effects and client-local visuals.
 
         Events.run(Trigger.update, this::updateUnitsAndVisuals);
     }
@@ -210,10 +207,28 @@ public class PlayerItemSystem {
 
     // ------------------------------------------------------------------ inventory & stat computation
 
+    private final ObjectMap<String,EquipmentData> carriedByAccount=new ObjectMap<>();
+    private String unitKey(Player player){
+        Unit unit=PlayerUnitSystem.ownedUnit(player);if(unit==null)unit=player.unit();
+        return UnitTree.canonical(unit==null?null:unit.type);
+    }
+    private void rememberCarry(long account,EquipmentData data){
+        EquipmentData carry=new EquipmentData();
+        for(int i=30;i<data.equipped.size;i++){
+            while(carry.equipped.size<=i)carry.equipped.add("");carry.equipped.set(i,data.equipped.get(i));
+        }
+        carry.stash.putAll(data.stash);carriedByAccount.put(Long.toString(account),carry);
+    }
+    public void clearCarriedItems(){carriedByAccount.clear();}
+
     public EquipmentData getEquipment(Player player) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
-        String factionId = sessionManager.getActiveFactionId(player.uuid());
-        EquipmentData data = database.getEquipmentData(acc.id, factionId);
+        EquipmentData data = database.getUnitLoadout(acc.id,unitKey(player));
+        EquipmentData carry=carriedByAccount.get(Long.toString(acc.id));
+        if(carry!=null){
+            for(int i=30;i<carry.equipped.size;i++){while(data.equipped.size<=i)data.equipped.add("");data.equipped.set(i,carry.equipped.get(i));}
+            data.stash.putAll(carry.stash);
+        }
 
         boolean dirty = false;
         for(int i=0;i<data.equipped.size;i++){
@@ -227,7 +242,7 @@ public class PlayerItemSystem {
         dirty |= normalizeEquipment(data);
         if(!data.stash.isEmpty())for(String id:data.stash.keys().toSeq()){
             int count=data.stash.get(id,0);ShopItemDef item=getCatalog().findItem(id);
-            while(count>0&&item!=null&&grantCraftedOrTradedItem(data,item)){count--;dirty=true;}
+            while(count>0&&item!=null&&usedCapacity(data,false)+item.size<=data.carryCapacity&&putInRange(data,item.id,ACTIVE_PASSIVE_SLOTS,MAX_EQUIPPED_SLOTS)){count--;dirty=true;}
             if(count==0)data.stash.remove(id,0);else data.stash.put(id,count);
         }
         // Keep retired v17 cans salvageable without bringing back their palettes/textures.
@@ -241,23 +256,25 @@ public class PlayerItemSystem {
         }
 
         if (dirty) {
-            database.saveEquipmentData(acc.id, factionId, data);
+            database.saveUnitLoadout(acc.id,unitKey(player),data);
         }
+        rememberCarry(acc.id,data);
         return data;
     }
 
     public String inventoryContext(Player player){
-        return sessionManager.getOrInitSession(player).id+"/"+sessionManager.getActiveFactionId(player.uuid());
+        return sessionManager.getOrInitSession(player).id+"/"+sessionManager.getActiveFactionId(player.uuid())+"/"+unitKey(player);
     }
     public void saveEquipment(Player player, EquipmentData data) {
         AccountRecord acc = sessionManager.getOrInitSession(player);
-        String factionId = sessionManager.getActiveFactionId(player.uuid());
         configureInventory(data,player);normalizeEquipment(data);
-        database.saveEquipmentData(acc.id, factionId, data);
+        database.saveUnitLoadout(acc.id,unitKey(player),data);
+        rememberCarry(acc.id,data);
     }
 
     public void onPlayerDataWiped(@Nullable Player player) {
         if (player == null) return;
+        carriedByAccount.remove(Long.toString(sessionManager.getOrInitSession(player).id));
         destroyRig(player.uuid());
         Unit unit = PlayerUnitSystem.ownedUnit(player);
         if (unit == null) unit = player.unit();
@@ -622,11 +639,13 @@ public class PlayerItemSystem {
     // ------------------------------------------------------------------ live unit stats, WorldProcessor sync & server subweapons
 
     public void updateUnitsAndVisuals() {
-        if (state == null || !state.isGame() || state.isPaused()) return;
+        if (state == null || !state.isGame() || state.isPaused() || state.gameOver) return;
         if (Groups.player == null) return;
 
-        for (Player player : Groups.player) {
-            if (player == null || player.con == null || !player.con.isConnected()) continue;
+        var itemPlayers=new Seq<Player>();itemPlayers.addAll(Groups.player);
+        for(Player offline:PlayerUnitSystem.playersWithUnits())if(!itemPlayers.contains(p->p.uuid().equals(offline.uuid())))itemPlayers.add(offline);
+        for (Player player : itemPlayers) {
+            if (player == null) continue;
 
             Unit unit = PlayerUnitSystem.ownedUnit(player);
             if (unit == null) unit = player.unit();

@@ -178,10 +178,20 @@ public class PlayerDatabase implements AutoCloseable {
                     )
                     """);
 
+                st.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS account_unit_loadouts (
+                        account_id INTEGER NOT NULL,
+                        unit_name TEXT NOT NULL,
+                        equipped_json TEXT NOT NULL DEFAULT '[]',
+                        PRIMARY KEY(account_id, unit_name),
+                        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+                    )
+                    """);
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_accounts_uuid ON accounts(uuid)");
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_accounts_login_lower ON accounts(login_lower)");
             }
 
+            migrateUnitTreeSaves();
             Stats stats = getStats();
             Log.info("[CoolPlugin] SQLite PlayerDatabase ready (@ accounts: @ registered, @ guests, @ tech rows, file=@)",
                 stats.totalAccounts(), stats.registeredAccounts(), stats.guestAccounts(),
@@ -189,6 +199,50 @@ public class PlayerDatabase implements AutoCloseable {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize SQLite PlayerDatabase at " + dbFile.path(), e);
         }
+    }
+
+    /** One-time migration. Old per-faction equipped gear belongs to that save's old
+     * exact unit, while only the tree ID survives in the progression save. */
+    private void migrateUnitTreeSaves() throws SQLException {
+        try(Statement st=connection.createStatement()){
+            st.executeUpdate("CREATE TABLE IF NOT EXISTS plugin_migrations(id TEXT PRIMARY KEY)");
+            try(ResultSet rs=st.executeQuery("SELECT id FROM plugin_migrations WHERE id='unit-tree-loadouts-v1'")){if(rs.next())return;}
+        }
+        boolean auto=connection.getAutoCommit();connection.setAutoCommit(false);
+        try{
+            try(Statement st=connection.createStatement();ResultSet rs=st.executeQuery("SELECT e.account_id,e.equipped_json,f.unit_type FROM account_equipped_items e LEFT JOIN account_factions f ON e.account_id=f.account_id AND e.faction_id=f.faction_id ORDER BY e.updated_at DESC")){
+                while(rs.next()){
+                    String old=rs.getString(3);String canonical=old==null?"dagger":old;
+                    var tree=coolplugin.gameplay.UnitTree.fromSave(canonical);
+                    if(canonical.startsWith("tree:"))canonical=tree.units[0];
+                    else for(var candidate:coolplugin.gameplay.UnitTree.values())for(String unit:candidate.units)
+                        if(canonical.equals(unit)||canonical.endsWith("-"+unit))canonical=unit;
+                    EquipmentData oldData=new EquipmentData();
+                    JsonValue layout=new JsonReader().parse(rs.getString(2));
+                    boolean legacy=!layout.isObject()||layout.getInt("version",1)<2;
+                    parseStringSeqJson(layout.isObject()?layout.get("items").toJson(arc.util.serialization.JsonWriter.OutputType.json):rs.getString(2),oldData.equipped);
+                    var gear=new Seq<String>();for(int i=0;i<Math.min(legacy?4:30,oldData.equipped.size);i++)gear.add(oldData.equipped.get(i));
+                    try(PreparedStatement insert=connection.prepareStatement("INSERT OR IGNORE INTO account_unit_loadouts(account_id,unit_name,equipped_json) VALUES(?,?,?)")){
+                        insert.setLong(1,rs.getLong(1));insert.setString(2,canonical);insert.setString(3,toStringSeqJson(gear));insert.executeUpdate();
+                    }
+                }
+            }
+            try(Statement st=connection.createStatement();ResultSet rs=st.executeQuery("SELECT account_id,faction_id,unit_type FROM account_factions")){
+                while(rs.next()){
+                    String old=rs.getString(3);if(old==null)continue;
+                    var tree=coolplugin.gameplay.UnitTree.fromSave(old);
+                    try(PreparedStatement update=connection.prepareStatement("UPDATE account_factions SET unit_type=? WHERE account_id=? AND faction_id=?")){
+                        update.setString(1,tree.savedId());update.setLong(2,rs.getLong(1));update.setString(3,rs.getString(2));update.executeUpdate();
+                    }
+                }
+            }
+            try(Statement st=connection.createStatement()){
+                st.executeUpdate("UPDATE account_equipped_items SET equipped_json='[]',stash_json='{}'");
+                st.executeUpdate("INSERT INTO plugin_migrations(id) VALUES('unit-tree-loadouts-v1')");
+            }
+            connection.commit();
+        }catch(Exception failure){connection.rollback();throw new SQLException("Unit loadout migration failed",failure);}
+        finally{connection.setAutoCommit(auto);}
     }
 
     /**
@@ -548,6 +602,9 @@ public class PlayerDatabase implements AutoCloseable {
     public synchronized void setFactionUnitType(long accountId, String factionId, String unitTypeName) {
         ensureOpen();
         if (factionId == null || unitTypeName == null || unitTypeName.isEmpty()) return;
+        var selectedTree=coolplugin.gameplay.UnitTree.byId(unitTypeName);
+        if(selectedTree==null)selectedTree=coolplugin.gameplay.UnitTree.forUnit(unitTypeName);
+        if(selectedTree!=null)unitTypeName=selectedTree.savedId();
         String normalizedFaction = factionId.toLowerCase(Locale.ROOT);
         long now = System.currentTimeMillis();
         try (PreparedStatement ps = connection.prepareStatement("""
@@ -847,6 +904,23 @@ public class PlayerDatabase implements AutoCloseable {
 
     // ------------------------------------------------------------------ per-faction equipped items & bag
 
+    /** Only equipped slots are persisted. Paint variants share their canonical unit key. */
+    public synchronized EquipmentData getUnitLoadout(long accountId,String unitName){
+        ensureOpen();EquipmentData data=new EquipmentData();
+        try(PreparedStatement ps=connection.prepareStatement("SELECT equipped_json FROM account_unit_loadouts WHERE account_id=? AND unit_name=?")){
+            ps.setLong(1,accountId);ps.setString(2,unitName);
+            try(ResultSet rs=ps.executeQuery()){if(rs.next())parseStringSeqJson(rs.getString(1),data.equipped);}
+        }catch(SQLException e){throw new RuntimeException("Unable to load unit equipment",e);}
+        return data;
+    }
+    public synchronized void saveUnitLoadout(long accountId,String unitName,EquipmentData data){
+        ensureOpen();var equipped=new Seq<String>();
+        for(int i=0;i<Math.min(30,data.equipped.size);i++)equipped.add(data.equipped.get(i));
+        try(PreparedStatement ps=connection.prepareStatement("INSERT INTO account_unit_loadouts(account_id,unit_name,equipped_json) VALUES(?,?,?) ON CONFLICT(account_id,unit_name) DO UPDATE SET equipped_json=excluded.equipped_json")){
+            ps.setLong(1,accountId);ps.setString(2,unitName);ps.setString(3,toStringSeqJson(equipped));ps.executeUpdate();
+        }catch(SQLException e){throw new RuntimeException("Unable to save unit equipment",e);}
+    }
+
     public synchronized EquipmentData getEquipmentData(long accountId, String factionId) {
         ensureOpen();
         String normalizedFaction = normalizeFaction(factionId);
@@ -1086,7 +1160,8 @@ public class PlayerDatabase implements AutoCloseable {
                     "account_factions",
                     "account_tech_progress",
                     "account_orbital_storage",
-                    "account_equipped_items"
+                    "account_equipped_items",
+                    "account_unit_loadouts"
                 }) {
                     try (PreparedStatement del = connection.prepareStatement(
                         "DELETE FROM " + table + " WHERE account_id = ?"

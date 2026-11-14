@@ -1,0 +1,793 @@
+{
+  "settings": {
+    "continuousStartSeconds": 60,
+    "firstWaveSeconds": 220,
+    "waveIntervalSeconds": 150,
+    "continuousBaseSeconds": 7,
+    "playerExponent": 0.8,
+    "maxHealthReliefMultiplier": 4,
+    "deadPlayerInitialWeight": 0.5,
+    "deadPlayerDecaySeconds": 600,
+    "emptyServerGraceSeconds": 40,
+    "bossHealthPerExtraPlayer": 0.65,
+    "endlessGrowthPerWave": 0.08
+  },
+  "wave1": {
+    "bosses": [
+      {
+        "unit": "mace",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "dagger",
+        "base": 3,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "crawler",
+        "base": 3,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "flare",
+        "base": 3,
+        "perExtraPlayer": 2
+      }
+    ],
+    "continuous": [
+      "dagger",
+      "crawler"
+    ]
+  },
+  "wave2": {
+    "bosses": [
+      {
+        "unit": "mace",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "dagger",
+        "base": 3,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "crawler",
+        "base": 3,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "flare",
+        "base": 3,
+        "perExtraPlayer": 2
+      }
+    ],
+    "continuous": [
+      "dagger",
+      "crawler"
+    ]
+  },
+  "wave3": {
+    "bosses": [
+      {
+        "unit": "mace",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "dagger",
+        "base": 4,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "crawler",
+        "base": 4,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "flare",
+        "base": 4,
+        "perExtraPlayer": 2
+      }
+    ],
+    "continuous": [
+      "dagger",
+      "mace",
+      "flare"
+    ]
+  },
+  "wave4": {
+    "bosses": [
+      {
+        "unit": "mace",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "dagger",
+        "base": 4,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "crawler",
+        "base": 4,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "flare",
+        "base": 4,
+        "perExtraPlayer": 2
+      }
+    ],
+    "continuous": [
+      "dagger",
+      "mace",
+      "flare"
+    ]
+  },
+  "wave5": {
+    "bosses": [
+      {
+        "unit": "fortress",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 4,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "pulsar",
+        "base": 4,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "horizon",
+        "base": 4,
+        "perExtraPlayer": 2
+      }
+    ],
+    "continuous": [
+      "dagger",
+      "mace",
+      "flare"
+    ]
+  },
+  "wave6": {
+    "bosses": [
+      {
+        "unit": "fortress",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 5,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "pulsar",
+        "base": 5,
+        "perExtraPlayer": 2
+      },
+      {
+        "unit": "horizon",
+        "base": 5,
+        "perExtraPlayer": 2
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave7": {
+    "bosses": [
+      {
+        "unit": "fortress",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 5,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "pulsar",
+        "base": 5,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "horizon",
+        "base": 5,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave8": {
+    "bosses": [
+      {
+        "unit": "fortress",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 5,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "pulsar",
+        "base": 5,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "horizon",
+        "base": 5,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave9": {
+    "bosses": [
+      {
+        "unit": "spiroct",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 6,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "pulsar",
+        "base": 6,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "horizon",
+        "base": 6,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave10": {
+    "bosses": [
+      {
+        "unit": "spiroct",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 6,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "pulsar",
+        "base": 6,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "horizon",
+        "base": 6,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave11": {
+    "bosses": [
+      {
+        "unit": "spiroct",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 6,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "pulsar",
+        "base": 6,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "horizon",
+        "base": 6,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave12": {
+    "bosses": [
+      {
+        "unit": "spiroct",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "mace",
+        "base": 7,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "pulsar",
+        "base": 7,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "horizon",
+        "base": 7,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "mace",
+      "pulsar",
+      "horizon"
+    ]
+  },
+  "wave13": {
+    "bosses": [
+      {
+        "unit": "scepter",
+        "count": 1
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 7,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "quasar",
+        "base": 7,
+        "perExtraPlayer": 3
+      },
+      {
+        "unit": "zenith",
+        "base": 7,
+        "perExtraPlayer": 3
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave14": {
+    "bosses": [
+      {
+        "unit": "scepter",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 7,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 7,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 7,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave15": {
+    "bosses": [
+      {
+        "unit": "scepter",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 8,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 8,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 8,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave16": {
+    "bosses": [
+      {
+        "unit": "scepter",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 8,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 8,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 8,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave17": {
+    "bosses": [
+      {
+        "unit": "arkyid",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 8,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 8,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 8,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave18": {
+    "bosses": [
+      {
+        "unit": "arkyid",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 9,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 9,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 9,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave19": {
+    "bosses": [
+      {
+        "unit": "arkyid",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 9,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 9,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 9,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave20": {
+    "bosses": [
+      {
+        "unit": "arkyid",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 9,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "quasar",
+        "base": 9,
+        "perExtraPlayer": 4
+      },
+      {
+        "unit": "zenith",
+        "base": 9,
+        "perExtraPlayer": 4
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "quasar",
+      "zenith"
+    ]
+  },
+  "wave21": {
+    "bosses": [
+      {
+        "unit": "reign",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "quasar",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "zenith",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "spiroct",
+        "base": 10,
+        "perExtraPlayer": 5
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "spiroct",
+      "zenith",
+      "scepter"
+    ]
+  },
+  "wave22": {
+    "bosses": [
+      {
+        "unit": "reign",
+        "count": 2
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "quasar",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "zenith",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "spiroct",
+        "base": 10,
+        "perExtraPlayer": 5
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "spiroct",
+      "zenith",
+      "scepter"
+    ]
+  },
+  "wave23": {
+    "bosses": [
+      {
+        "unit": "reign",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "quasar",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "zenith",
+        "base": 10,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "spiroct",
+        "base": 10,
+        "perExtraPlayer": 5
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "spiroct",
+      "zenith",
+      "scepter"
+    ]
+  },
+  "wave24": {
+    "bosses": [
+      {
+        "unit": "reign",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 11,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "quasar",
+        "base": 11,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "zenith",
+        "base": 11,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "spiroct",
+        "base": 11,
+        "perExtraPlayer": 5
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "spiroct",
+      "zenith",
+      "scepter"
+    ]
+  },
+  "wave25": {
+    "bosses": [
+      {
+        "unit": "reign",
+        "count": 3
+      }
+    ],
+    "swarm": [
+      {
+        "unit": "fortress",
+        "base": 11,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "quasar",
+        "base": 11,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "zenith",
+        "base": 11,
+        "perExtraPlayer": 5
+      },
+      {
+        "unit": "spiroct",
+        "base": 11,
+        "perExtraPlayer": 5
+      }
+    ],
+    "continuous": [
+      "fortress",
+      "spiroct",
+      "zenith",
+      "scepter"
+    ]
+  }
+}

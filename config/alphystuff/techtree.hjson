@@ -1,7 +1,7 @@
 # Server Tech Tree (config/alphystuff/techtree.hjson)
 # Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: "...", description: "..." }]
 # Custom plugin-unlocked database nodes: { id: "titanium", type: "item", content: "titanium", pluginUnlocked: true }
-# Buildings listed in `whitelist` are buildable by all players without researching them.
+# Buildings are available without research; map bans still apply.
 
 whitelist: []
 
@@ -12,505 +12,124 @@ root: {
   costs: {}
   children: [
     {
-      id: duo
-      direction: up
-      costs: { copper: 50 }
-      children: [
-        {
-          id: copper-wall
-          costs: { copper: 20 }
-          children: [
-            {
-              id: copper-wall-large
-              costs: { copper: 700 }
-              children: [
-                {
-                  id: scrap-wall
-                  costs: { scrap: 200 }
-                  children: [
-                    {
-                      id: scrap-wall-large
-                      costs: { scrap: 700 }
-                      children: [
-                        {
-                          id: scrap-wall-huge
-                          costs: { scrap: 1700 }
-                          children: [
-                            { id: "scrap-wall-gigantic", costs: { scrap: 3200 } }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: titanium-wall
-                  costs: { titanium: 200 }
-                  children: [
-                    { id: "titanium-wall-large", costs: { titanium: 700 } }
-                    {
-                      id: door
-                      costs: { titanium: 200, silicon: 100 }
-                      children: [
-                        { id: "door-large", costs: { titanium: 700, silicon: 400 } }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: scatter
-          costs: { copper: 100, lead: 70 }
-          children: [
-            {
-              id: hail
-              costs: { copper: 1200, graphite: 500 }
-              children: [
-                {
-                  id: salvo
-                  costs: { copper: 3300, graphite: 2600, titanium: 1500 }
-                  children: [
-                    { id: "ripple", costs: { copper: 5200, graphite: 4600, titanium: 1900 } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: arc
-          costs: { copper: 500, lead: 500 }
-          children: [
-            {
-              id: scorch
-              costs: { copper: 700, graphite: 600 }
-              children: [
-                {
-                  id: wave
-                  costs: { copper: 700, lead: 2400, metaglass: 1400 }
-                  children: [
-                    { id: "parallax", costs: { graphite: 1500, titanium: 3700, silicon: 5600 } }
-                  ]
-                }
-                {
-                  id: lancer
-                  costs: { copper: 1900, lead: 2200, titanium: 900, silicon: 1900 }
-                  children: [
-                    { id: "shock-mine", costs: { lead: 700, silicon: 300 } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-    {
-      id: mechanical-drill
-      direction: up
-      costs: { copper: 10 }
-      children: [
-        {
-          id: mechanical-pump
-          costs: { copper: 400, metaglass: 300 }
-          children: [
-            {
-              id: conduit
-              costs: { metaglass: 80 }
-              children: [
-                {
-                  id: liquid-junction
-                  costs: { metaglass: 200, graphite: 100 }
-                  children: [
-                    {
-                      id: liquid-router
-                      costs: { metaglass: 100, graphite: 100 }
-                      children: [
-                        {
-                          id: liquid-container
-                          costs: { metaglass: 400, titanium: 300 }
-                          children: [
-                            { id: "liquid-tank", costs: { metaglass: 1200, titanium: 900 } }
-                          ]
-                        }
-                        { id: "bridge-conduit", costs: { metaglass: 200, graphite: 100 } }
-                        {
-                          id: pulse-conduit
-                          costs: { metaglass: 80, titanium: 100 }
-                          children: [
-                            { id: "rotary-pump", costs: { copper: 2200, metaglass: 1500, titanium: 1000, silicon: 600 } }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: graphite-press
-          costs: { copper: 2400, lead: 900 }
-          children: [
-            {
-              id: pneumatic-drill
-              costs: { copper: 500, graphite: 300 }
-              children: [
-                { id: "cultivator", costs: { copper: 700, lead: 700, silicon: 300 } }
-                {
-                  id: laser-drill
-                  costs: { copper: 1000, graphite: 900, titanium: 600, silicon: 900 }
-                  children: [
-                    { id: "water-extractor", costs: { copper: 900, lead: 900, metaglass: 900, graphite: 900 } }
-                  ]
-                }
-              ]
-            }
-            {
-              id: pyratite-mixer
-              costs: { copper: 1500, lead: 700 }
-              children: [
-                { id: "blast-mixer", costs: { lead: 900, titanium: 600 } }
-              ]
-            }
-            {
-              id: silicon-smelter
-              costs: { copper: 900, lead: 700 }
-              children: [
-                {
-                  id: spore-press
-                  costs: { lead: 1000, silicon: 900 }
-                  children: [
-                    {
-                      id: coal-centrifuge
-                      costs: { lead: 900, graphite: 1200, titanium: 600 }
-                      children: [
-                        { id: "multi-press", costs: { lead: 3300, graphite: 1500, titanium: 3300, silicon: 700 } }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: kiln
-                  costs: { copper: 1900, lead: 900, graphite: 900 }
-                  children: [
-                    {
-                      id: pulverizer
-                      costs: { copper: 900, lead: 700 }
-                      children: [
-                        {
-                          id: incinerator
-                          costs: { lead: 400, graphite: 100 }
-                          children: [
-                            {
-                              id: melter
-                              costs: { copper: 900, lead: 1000, graphite: 1400 }
-                              children: [
-                                { id: "separator", costs: { copper: 900, titanium: 700 } }
-                                { id: "cryofluid-mixer", costs: { lead: 2100, titanium: 1900, silicon: 1200 } }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: micro-processor
-                  costs: { copper: 3000, lead: 1500, silicon: 1500 }
-                  children: [
-                    {
-                      id: switch
-                      costs: { copper: 100, graphite: 100 }
-                      children: [
-                        {
-                          id: message
-                          costs: { copper: 100, graphite: 100 }
-                          children: [
-                            { id: "logic-display", costs: { lead: 3300, metaglass: 1500, silicon: 1500 } }
-                            { id: "memory-cell", costs: { copper: 900, graphite: 900, silicon: 900 } }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-                { id: "illuminator", costs: { lead: 200, graphite: 300, silicon: 200 } }
-              ]
-            }
-          ]
-        }
-        {
-          id: combustion-generator
-          costs: { copper: 700, lead: 400 }
-          children: [
-            {
-              id: power-node
-              costs: { copper: 100, lead: 200 }
-              children: [
-                { id: "power-node-large", costs: { lead: 300, titanium: 100, silicon: 100 } }
-                {
-                  id: battery
-                  costs: { copper: 100, lead: 600 }
-                  children: [
-                    { id: "battery-large", costs: { lead: 1500, titanium: 600, silicon: 900 } }
-                  ]
-                }
-                {
-                  id: mender
-                  costs: { copper: 700, lead: 900 }
-                  children: [
-                    {
-                      id: mend-projector
-                      costs: { copper: 1500, lead: 3300, titanium: 700, silicon: 1200 }
-                      children: [
-                        { id: "force-projector", costs: { lead: 3300, titanium: 2400, silicon: 4300 } }
-                        { id: "repair-point", costs: { copper: 900, lead: 900, silicon: 600 } }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: steam-generator
-                  costs: { copper: 1000, lead: 1200, graphite: 700, silicon: 900 }
-                  children: [
-                    {
-                      id: thermal-generator
-                      costs: { copper: 1200, lead: 1500, metaglass: 1200, graphite: 1000, silicon: 1000 }
-                      children: [
-                        { id: "differential-generator", costs: { copper: 2200, lead: 3300, metaglass: 1500, titanium: 1500, silicon: 2100 } }
-                      ]
-                    }
-                  ]
-                }
-                { id: "solar-panel", costs: { lead: 300, silicon: 200 } }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-    {
-      id: core-foundation
-      direction: up
-      costs: { copper: 10000, lead: 10000, silicon: 6400 }
-    }
-    {
-      id: conveyor
-      direction: up
-      costs: { copper: 5 }
-      children: [
-        {
-          id: junction
-          costs: { copper: 100 }
-          children: [
-            {
-              id: router
-              costs: { copper: 100 }
-              children: [
-                { id: "dp-copper-container", costs: { copper: 35 } }
-                { id: "launch-pad", costs: { copper: 4000, lead: 2500, titanium: 1800, silicon: 1500 } }
-                { id: "distributor", costs: { copper: 100, lead: 100 } }
-                {
-                  id: sorter
-                  costs: { copper: 100, lead: 100 }
-                  children: [
-                    { id: "inverted-sorter", costs: { copper: 100, lead: 100 } }
-                    {
-                      id: overflow-gate
-                      costs: { copper: 100, lead: 100 }
-                      children: [
-                        { id: "underflow-gate", costs: { copper: 100, lead: 100 } }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: container
-                  costs: { titanium: 3300 }
-                  children: [
-                    { id: "unloader", costs: { titanium: 700, silicon: 900 } }
-                    {
-                      id: dp-workbench
-                      costs: { copper: 200, lead: 120, graphite: 30 }
-                      children: [
-                        {
-                          id: dp-bazaar
-                          costs: { copper: 120, lead: 1200, graphite: 250, titanium: 70, silicon: 320 }
-                          children: [
-                            {
-                              id: dp-cursed-altar
-                              costs: {
-                                copper: 9999999
-                                lead: 9999999
-                                metaglass: 9999999
-                                graphite: 9999999
-                                sand: 9999999
-                                coal: 9999999
-                                titanium: 9999999
-                                thorium: 9999999
-                                scrap: 9999999
-                                silicon: 9999999
-                                plastanium: 9999999
-                                phase-fabric: 9999999
-                                surge-alloy: 9999999
-                                spore-pod: 9999999
-                                blast-compound: 9999999
-                                pyratite: 9999999
-                                beryllium: 9999999
-                                tungsten: 9999999
-                                oxide: 9999999
-                                carbide: 9999999
-                              }
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: bridge-conveyor
-                  costs: { copper: 200, lead: 200 }
-                  children: [
-                    {
-                      id: titanium-conveyor
-                      costs: { copper: 80, lead: 80, titanium: 80 }
-                      children: [
-                        {
-                          id: payload-conveyor
-                          costs: { copper: 300, graphite: 300 }
-                          children: [
-                            { id: "payload-router", costs: { copper: 300, graphite: 400 } }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-    {
       id: flare
       type: unit
       direction: left
       costs: { silicon: 7 }
-      children: [
-        { id: "air-factory", costs: { copper: 900, lead: 1100, silicon: 900 } }
-        {
-          id: horizon
-          type: unit
-          costs: { silicon: 2000, graphite: 2000 }
-          children: [
-            { id: "zenith", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-          ]
-        }
-      ]
     }
     {
       id: mono
       type: unit
       direction: left
       costs: { silicon: 1500, lead: 700 }
-      children: [
-        {
-          id: poly
-          type: unit
-          costs: { silicon: 2000, graphite: 2000 }
-          children: [
-            { id: "mega", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-          ]
-        }
-      ]
     }
     {
       id: risso
       type: unit
       direction: left
       costs: { silicon: 1000, metaglass: 1700 }
-      children: [
-        { id: "naval-factory", costs: { copper: 5200, lead: 4500, metaglass: 4100 } }
-        {
-          id: minke
-          type: unit
-          costs: { silicon: 2000, graphite: 2000 }
-          children: [
-            { id: "bryde", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-          ]
-        }
-      ]
-    }
-    {
-      id: mace
-      type: unit
-      costs: { silicon: 2000, graphite: 2000 }
-      children: [
-        { id: "fortress", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-      ]
-    }
-    {
-      id: ground-factory
-      costs: { copper: 700, lead: 2000, silicon: 1300 }
-      children: [
-        { id: "additive-reconstructor", costs: { copper: 7200, lead: 4100, silicon: 3000 } }
-      ]
     }
     {
       id: crawler
       type: unit
       direction: right
       costs: { silicon: 400, graphite: 400 }
-      children: [
-        {
-          id: atrax
-          type: unit
-          costs: { silicon: 2000, graphite: 2000 }
-          children: [
-            { id: "spiroct", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-          ]
-        }
-      ]
     }
     {
       id: nova
       type: unit
       direction: right
       costs: { silicon: 1500, lead: 1000, titanium: 1000 }
-      children: [
-        {
-          id: pulsar
-          type: unit
-          costs: { silicon: 2000, graphite: 2000 }
-          children: [
-            { id: "quasar", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-          ]
-        }
-      ]
     }
     {
       id: retusa
       type: unit
       direction: right
       costs: { silicon: 700, titanium: 1000 }
-      children: [
-        {
-          id: oxynoe
-          type: unit
-          costs: { silicon: 2000, graphite: 2000 }
-          children: [
-            { id: "cyerce", type: "unit", costs: { silicon: 6500, titanium: 4000, metaglass: 2000 } }
-          ]
-        }
-      ]
+    }
+    { id: "dp-oxidise-unit", type: "unit", costs: { copper: 200, lead: 150 } }
+    { id: "stell", type: "unit", costs: { copper: 200, lead: 150 } }
+    { id: "merui", type: "unit", costs: { copper: 200, lead: 150 } }
+    { id: "elude", type: "unit", costs: { copper: 200, lead: 150 } }
+    {
+      id: shop-bz-test-reign
+      type: shop-item
+      content: bz-test-reign
+      direction: right
+      displayName: "Test: Dual Reign weapon"
+      description: "Researchable test mount using the native reign weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-reign-ui
+      costs: { copper: 150, silicon: 50 }
+    }
+    {
+      id: shop-bz-test-precept
+      type: shop-item
+      content: bz-test-precept
+      direction: left
+      displayName: "Test: Precept weapon"
+      description: "Researchable test mount using the native precept weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-precept-ui
+      costs: { copper: 200, silicon: 75 }
+    }
+    {
+      id: shop-bz-test-quasar
+      type: shop-item
+      content: bz-test-quasar
+      direction: right
+      displayName: "Test: Quasar weapon"
+      description: "Researchable test mount using the native quasar weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-quasar-ui
+      costs: { copper: 250, silicon: 100 }
+    }
+    {
+      id: shop-bz-test-scepter
+      type: shop-item
+      content: bz-test-scepter
+      direction: left
+      displayName: "Test: Scepter weapon"
+      description: "Researchable test mount using the native scepter weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-scepter-ui
+      costs: { copper: 300, silicon: 125 }
+    }
+    {
+      id: shop-bz-test-locus
+      type: shop-item
+      content: bz-test-locus
+      direction: right
+      displayName: "Test: Locus weapon"
+      description: "Researchable test mount using the native locus weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-locus-ui
+      costs: { copper: 350, silicon: 150 }
+    }
+    {
+      id: shop-bz-test-vanquish
+      type: shop-item
+      content: bz-test-vanquish
+      direction: left
+      displayName: "Test: Vanquish weapon"
+      description: "Researchable test mount using the native vanquish weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-vanquish-ui
+      costs: { copper: 400, silicon: 175 }
+    }
+    {
+      id: shop-bz-test-spiroct
+      type: shop-item
+      content: bz-test-spiroct
+      direction: right
+      displayName: "Test: Spiroct weapon"
+      description: "Researchable test mount using the native spiroct weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-spiroct-ui
+      costs: { copper: 450, silicon: 200 }
+    }
+    {
+      id: shop-bz-test-anthicus
+      type: shop-item
+      content: bz-test-anthicus
+      direction: left
+      displayName: "Test: Anthicus weapon"
+      description: "Researchable test mount using the native anthicus weapon. Native-sized weapon with an explicit inventory size."
+      icon: unit-anthicus-ui
+      costs: { copper: 500, silicon: 225 }
     }
   ]
 }

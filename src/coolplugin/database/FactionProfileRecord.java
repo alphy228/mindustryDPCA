@@ -2,7 +2,7 @@ package coolplugin.database;
 
 /**
  * Per-faction persistent data for an account (`account_factions` table).
- * Currently persists {@code unitTypeName} separately for each faction, plus an
+ * Persists a stable {@code tree:<id>} in the legacy {@code unitTypeName} field for each faction, plus an
  * extensible {@code extraJson} payload column ready for future faction progression/state.
  */
 public final class FactionProfileRecord {

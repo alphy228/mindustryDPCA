@@ -226,7 +226,7 @@ public final class TechTreeConfigIO {
         sb.append("# Server Tech Tree (config/alphystuff/techtree.hjson)\n");
         sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n");
         sb.append("# Custom plugin-unlocked database nodes: { id: \"titanium\", type: \"item\", content: \"titanium\", pluginUnlocked: true }\n");
-        sb.append("# Buildings listed in `whitelist` are buildable by all players without researching them.\n\n");
+        sb.append("# Buildings are available without research; map bans still apply.\n\n");
 
         sb.append("whitelist: [");
         if (whitelist != null && !whitelist.isEmpty()) {

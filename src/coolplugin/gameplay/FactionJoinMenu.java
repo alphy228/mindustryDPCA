@@ -51,6 +51,7 @@ public class FactionJoinMenu {
     private final Func2<Player, FactionDef, UnitType> unitResolver;
     private final AtomicLong tokenSeq = new AtomicLong(1000L);
     private int menuId = -1;
+    private final arc.struct.ObjectMap<String,Long> pending=new arc.struct.ObjectMap<>();
 
     public FactionJoinMenu(
         Cons2<Player, FactionDef> onChosen,
@@ -69,6 +70,8 @@ public class FactionJoinMenu {
         this.unitResolver = unitResolver;
     }
 
+    public void clearPending(){pending.clear();}
+
     public void register() {
         if (menuId != -1) return;
         menuId = Menus.registerMenuBuilder(this::handleResult);
@@ -79,6 +82,7 @@ public class FactionJoinMenu {
         register();
         UiSpriteSync.ensureSent(player);
         long token = tokenSeq.incrementAndGet();
+        pending.put(player.uuid(),token);
         Call.menuBuilder(player.con, menuId, token, null, true, true, false, buildRoot(player));
     }
 
@@ -89,6 +93,9 @@ public class FactionJoinMenu {
     private void handleResult(Player player, MenuResult result) {
         if (player == null || player.con == null || !player.con.isConnected()) return;
 
+        Long expected=pending.get(player.uuid());
+        if(expected==null||result==null||result.token!=expected)return;
+        pending.remove(player.uuid());
         String btn = (result == null || result.wasCancelled()) ? null : result.result;
         if (btn != null && btn.startsWith("faction:")) {
             FactionDef chosen = FactionDef.byId(btn.substring("faction:".length()));

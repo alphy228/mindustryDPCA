@@ -53,13 +53,9 @@ public class PlayerSessionManager {
             }
         });
 
-        Events.on(PlayerLeave.class, e -> {
-            if (e.player != null) {
-                String uuid = e.player.uuid();
-                sessionsByUuid.remove(uuid);
-                activeFactionByUuid.remove(uuid);
-            }
-        });
+        // A disconnected player's session and owned unit remain bound to their UUID.
+        // This also keeps the correct account/loadout available to the offline unit.
+
     }
 
     public synchronized AccountRecord getOrInitSession(Player player) {
@@ -276,25 +272,27 @@ public class PlayerSessionManager {
         if (savedName == null || savedName.isEmpty()) {
             return null;
         }
-        return lookupUnitTypeOrDefault(savedName);
+        return coolplugin.gameplay.UnitTree.fromSave(savedName).starter();
     }
 
     public synchronized UnitType resolveSavedUnitType(Player player, FactionDef faction) {
         AccountRecord acc = getOrInitSession(player);
         String savedName = database.getFactionUnitType(acc.id, faction.id, UnitTypes.dagger.name);
-        return lookupUnitTypeOrDefault(savedName);
+        return coolplugin.gameplay.UnitTree.fromSave(savedName).starter();
     }
 
     public synchronized void saveUnitType(Player player, @Nullable FactionDef faction, @Nullable UnitType unitType) {
         if (player == null || faction == null || unitType == null) return;
         AccountRecord acc = getOrInitSession(player);
-        database.setFactionUnitType(acc.id, faction.id, unitType.name);
+        var tree=coolplugin.gameplay.UnitTree.forUnit(unitType.name);
+        if(tree!=null)database.setFactionUnitType(acc.id, faction.id, tree.savedId());
     }
 
     public synchronized void saveUnitTypeByUuid(String playerUuid, @Nullable FactionDef faction, @Nullable UnitType unitType) {
         if (playerUuid == null || faction == null || unitType == null) return;
         AccountRecord acc = resolveOrCreateAccountByUuid(playerUuid, null);
-        database.setFactionUnitType(acc.id, faction.id, unitType.name);
+        var tree=coolplugin.gameplay.UnitTree.forUnit(unitType.name);
+        if(tree!=null)database.setFactionUnitType(acc.id, faction.id, tree.savedId());
     }
 
     public synchronized @Nullable AccountRecord resolveTargetAccount(String query) {

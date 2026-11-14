@@ -50,16 +50,16 @@ import static mindustry.Vars.*;
  * Single-unit player lifecycle & faction spawn manager backed by {@link PlayerSessionManager} (`players.db`):
  * <ul>
  *   <li>On join (or via {@code /menu}), presents {@link FactionJoinMenu} (Sharded, Crux, grayed-out Neoplasm & Malis).</li>
- *   <li>Each faction persists its own current {@link UnitType} per account (Guest UUID or secured {@code login + password}).</li>
- *   <li>Spawns the player's saved faction unit at random {@code dp-<teamname>-spawnpoint} floor tile, or falls back to
+ *   <li>Each faction persists its selected unit tree per account (Guest UUID or secured {@code login + password}).</li>
+ *   <li>Spawns the selected tree's tier-one unit at random {@code dp-<teamname>-spawnpoint} floor tile, or falls back to
  *       a core destruction site while logging a long poem about the mapper forgetting spawnpoints.</li>
  *   <li>Upgrading/swapping via {@link ReconstructorBuild}, {@link UnitFactoryBuild}, or {@link UnitAssemblerBuild}
- *       automatically updates that faction's saved {@link UnitType} in SQLite.</li>
+ *       keeps that faction's saved tree ID rather than the current tier or colour.</li>
  * </ul>
  */
 public class PlayerUnitSystem {
 
-    public float respawnUnlockSeconds = 20f;
+    public float respawnUnlockSeconds = 40f;
     public float respawnOfferSeconds = 20f;
     public float exitReminderSeconds = 20f;
     public float cameraSnapSeconds = 0.5f;
@@ -82,10 +82,6 @@ public class PlayerUnitSystem {
     /** uuid -> currently owned single unit. */
     private final ObjectMap<String, Unit> owned = new ObjectMap<>();
 
-    /** One-shot reconnect locations, scoped to this loaded world and original faction. */
-    private record RejoinPosition(int x, int y, FactionDef faction) {}
-    private final ObjectMap<String, RejoinPosition> rejoinPositions = new ObjectMap<>();
-
     /** uuid -> current payload holder (Reconstructor, PayloadConveyor, carrier unit, etc.). */
     private final ObjectMap<String, Posc> holders = new ObjectMap<>();
 
@@ -98,7 +94,7 @@ public class PlayerUnitSystem {
     /** Players who currently have the initial join faction picker open. */
     private final ObjectSet<String> activeJoinMenus = new ObjectSet<>();
 
-    /** uuid -> epoch millis when /respawn unlocks after unit death. */
+    /** uuid -> simulation tick when the forty-second respawn delay ends. */
     private final ObjectMap<String, Long> respawnAt = new ObjectMap<>();
     private final ObjectMap<String, Long> lastRespawnOffer = new ObjectMap<>();
     private final ObjectMap<String, Long> lastExitOffer = new ObjectMap<>();
@@ -108,6 +104,66 @@ public class PlayerUnitSystem {
     private final Seq<String> lostBuffer = new Seq<>();
     private final Interval timer = new Interval(1);
     private boolean started = false;
+    private final UnitTreeMenu treeMenu=new UnitTreeMenu(this);
+    private final ObjectMap<String,Player> trackedPlayers=new ObjectMap<>();
+    private final ObjectMap<String,UnitTree> chosenTrees=new ObjectMap<>();
+    private float gameTicks;
+    private final ObjectSet<String> choiceChangeRequests=new ObjectSet<>();
+    private boolean choiceAllowed(Player player){return !chosenTrees.containsKey(player.uuid())||(choiceChangeRequests.contains(player.uuid())&&canChangeChoice());}
+    public void cancelTreeSelection(Player player){choiceChangeRequests.remove(player.uuid());openFactionMenuIfNeeded(player);}
+    public arc.struct.Seq<Player> trackedPlayers(){return trackedPlayers.values().toSeq();}
+    public static arc.struct.Seq<Player> playersWithUnits(){return instance==null?new arc.struct.Seq<>():instance.trackedPlayers();}
+    public boolean canChangeChoice(){return gameTicks < 5f*60f*60f;}
+    public boolean canSelectTree(Player player,UnitTree tree){return tree.available&&tree.starter()!=null&&(techTree==null||techTree.isUnitUnlockedForPlayer(player,tree.starter()));}
+    public boolean canSelectTree(Player player,FactionDef faction,UnitTree tree){
+        // Research is faction-scoped. Preview the selected faction's save without
+        // changing the live world's faction or unit before the tree is confirmed.
+        mindustry.game.Team previous=player.team();
+        String active=sessionManager==null?null:sessionManager.getActiveFactionId(player.uuid());
+        try{player.team(faction.team());if(sessionManager!=null)sessionManager.setActiveFaction(player.uuid(),faction);return canSelectTree(player,tree);}
+        finally{player.team(previous);if(sessionManager!=null)sessionManager.setActiveFactionId(player.uuid(),active);}
+    }
+    public record Survivor(String uuid,Unit unit,Posc position,boolean connected,boolean alive,float healthFraction){}
+    private final ObjectSet<String> deployedPlayers=new ObjectSet<>();
+    public boolean hasDeployedPlayers(){return !deployedPlayers.isEmpty();}
+    public Seq<Survivor> survivalPlayers(){
+        Seq<Survivor> result=new Seq<>();
+        for(String uuid:chosenFactions.keys()){
+            Player player=playerByUuid(uuid);if(player==null)player=trackedPlayers.get(uuid);
+            Unit unit=owned.get(uuid);Posc position=null;
+            boolean alive=unit!=null&&!unit.dead()&&unit.health>0f;
+            if(alive){
+                position=unit.isValid()?unit:holders.get(uuid);
+                if(position==null)position=assemblerHolders.get(uuid);
+                if(position==null)position=findHolder(unit);
+                // Resolve nested payload carriers to their actual world location.
+                for(int depth=0;depth<16&&position instanceof Unit carrier&&!carrier.isValid();depth++){
+                    Posc next=findHolder(carrier);if(next==null||next==position)break;position=next;
+                }
+                alive=position instanceof mindustry.gen.Healthc health&&health.isValid();
+            }
+            boolean connected=player!=null&&player.con!=null&&player.con.isConnected()&&player.isAdded();
+            result.add(new Survivor(uuid,unit,position,connected,alive,alive?Mathf.clamp(unit.healthf()):0f));
+        }
+        return result;
+    }
+    public float gameSeconds(){return gameTicks/60f;}
+    public float respawnSecondsRemaining(String uuid){Long at=respawnAt.get(uuid);return at==null?0f:Math.max(0f,(at-gameTicks)/60f);}
+    public UnitTreeMenu getTreeMenu(){return treeMenu;}
+    public void onTreeChosen(Player player,FactionDef faction,UnitTree tree){
+        if(!valid(player)||state.gameOver||faction==null||!faction.available||!canSelectTree(player,faction,tree))return;
+        if(!choiceAllowed(player))return;
+        String uuid=player.uuid();
+        choiceChangeRequests.remove(uuid);
+        cleanupOwnedUnit(uuid);
+        chosenTrees.put(uuid,tree);chosenFactions.put(uuid,faction);trackedPlayers.put(uuid,player);
+        if(sessionManager!=null){sessionManager.setActiveFaction(uuid,faction);sessionManager.saveUnitType(player,faction,tree.starter());}
+        player.team(faction.team());buildSystem.onPlayerWorldSynced(player);
+        if(techTree!=null)techTree.syncPlayerRulesLive(player,null);
+        respawnAt.remove(uuid);
+        spawnFor(player,faction,tree.starter());
+    }
+
 
     public PlayerUnitSystem(BuildSystem buildSystem, @Nullable TechTreeService techTree) {
         this(buildSystem, techTree, null);
@@ -135,6 +191,7 @@ public class PlayerUnitSystem {
     private void onFactionMenuDismissed(@Nullable Player player) {
         if (player == null) return;
         activeJoinMenus.remove(player.uuid());
+        choiceChangeRequests.remove(player.uuid());
         // Only force-reopen if the player has no faction yet (if they opened /menu mid-game and hit Esc, keep current faction)
         if (!hasChosenFaction(player)) {
             Time.run(15f, () -> {
@@ -180,7 +237,7 @@ public class PlayerUnitSystem {
         }
 
         Events.on(WorldLoadEvent.class, e -> {
-            rejoinPositions.clear();
+            deployedPlayers.clear();chosenFactions.clear();chosenTrees.clear();choiceChangeRequests.clear();trackedPlayers.clear();treeMenu.clear();factionMenu.clearPending();gameTicks=0f;
             owned.clear();
             holders.clear();
             assemblerHolders.clear();
@@ -200,19 +257,15 @@ public class PlayerUnitSystem {
         });
 
         Events.on(PlayerLeave.class, e -> {
-            if (e.player == null) return;
-            String uuid = e.player.uuid();
-            activeJoinMenus.remove(uuid);
-            rememberRejoinPosition(uuid);
-            // Faction can be changed on rejoin; live unit despawns cleanly WITHOUT wiping saved unitType in SQLite!
-            chosenFactions.remove(uuid);
-            respawnAt.remove(uuid);
-            lastRespawnOffer.remove(uuid);
-            lastExitOffer.remove(uuid);
-            lastReconLockNotice.remove(uuid);
-            lostScans.remove(uuid);
-            cleanupOwnedUnit(uuid);
+            if(e.player==null)return;
+            activeJoinMenus.remove(e.player.uuid());
+            trackedPlayers.put(e.player.uuid(),e.player);
+            Unit live=owned.get(e.player.uuid());if(live!=null)live.spawnedByCore=false;
+            // Keep ownership, faction, death cooldown and payload tracking. The unit
+            // stays vulnerable in the world, including while its controller is offline.
         });
+        Events.on(mindustry.game.EventType.GameOverEvent.class,e->treeMenu.clear());
+
 
         Events.on(UnitDestroyEvent.class, e -> {
             if (e.unit != null) {
@@ -266,7 +319,8 @@ public class PlayerUnitSystem {
         });
 
         Events.run(Trigger.update, () -> {
-            if (state == null || !state.isGame() || state.isPaused()) return;
+            if(state!=null&&state.isGame()&&!state.isPaused()&&!state.gameOver)gameTicks+=Time.delta;
+            if (state == null || !state.isGame() || state.isPaused() || state.gameOver) return;
 
             enforceControlAndTrackPayloads();
 
@@ -287,7 +341,7 @@ public class PlayerUnitSystem {
 
         handler.<Player>register(
             "respawn",
-            "Respawn at your faction spawnpoint (unlocks 20 seconds after death).",
+            "Respawn at your faction spawnpoint (unlocks 40 seconds after death).",
             (args, player) -> {
                 FactionDef faction = chosenFactions.get(player.uuid());
                 if (faction == null) {
@@ -309,8 +363,8 @@ public class PlayerUnitSystem {
                     return;
                 }
 
-                if (Time.millis() < at) {
-                    int left = (int) Math.ceil((at - Time.millis()) / 1000.0);
+                if (gameTicks < at) {
+                    int left = (int) Math.ceil((at - gameTicks) / 60.0);
                     player.sendMessage(
                         "[scarlet]/respawn unlocks in " + left + " second" + (left == 1 ? "" : "s") + ".[]"
                     );
@@ -333,6 +387,10 @@ public class PlayerUnitSystem {
 
     public void requestOpenFactionMenu(Player player) {
         if (!valid(player)) return;
+        if(!canChangeChoice()&&chosenTrees.containsKey(player.uuid())){
+            player.sendMessage("[scarlet]Faction and tree changes are only allowed during the first 5 minutes of the game.[]");return;
+        }
+        choiceChangeRequests.add(player.uuid());
         factionMenu.open(player);
     }
 
@@ -348,7 +406,7 @@ public class PlayerUnitSystem {
     public void onPlayerDataWiped(@Nullable Player player) {
         if (player == null) return;
         String uuid = player.uuid();
-        rejoinPositions.remove(uuid);
+        chosenTrees.remove(uuid);trackedPlayers.remove(uuid);
         cleanupOwnedUnit(uuid);
         chosenFactions.remove(uuid);
         respawnAt.remove(uuid);
@@ -393,6 +451,8 @@ public class PlayerUnitSystem {
 
     /** Resolves this player's saved {@link UnitType} for {@code faction} when spawning (defaulting to {@code dagger} on first start). */
     public UnitType resolveStarterUnit(Player player, FactionDef faction) {
+        UnitTree selected=chosenTrees.get(player.uuid());
+        if(selected!=null&&selected.starter()!=null)return selected.starter();
         if (sessionManager != null && player != null && faction != null) {
             return sessionManager.resolveSavedUnitType(player, faction);
         }
@@ -402,7 +462,7 @@ public class PlayerUnitSystem {
     /** Apply an admin account override now for the active faction; inactive saves remain untouched. */
     public static void applyAccountUnitNow(Player player,FactionDef faction,UnitType type){
         if(instance==null||player==null||type==null||instance.chosenFactions.get(player.uuid())!=faction)return;
-        var self=instance;Unit old=self.owned.get(player.uuid());
+        var self=instance;UnitTree tree=UnitTree.forUnit(type.name);if(tree!=null)self.chosenTrees.put(player.uuid(),tree);Unit old=self.owned.get(player.uuid());
         if(old==null||old.dead())return;
         // Release payload holders first so no obsolete unit can reappear from a factory.
         ColouringSystem.exit(player);
@@ -429,56 +489,13 @@ public class PlayerUnitSystem {
     // ------------------------------------------------------------------ account login / logout hook
 
     private void onPlayerAccountChanged(Player player, AccountRecord newAccount) {
-        if (!valid(player)) return;
-        String uuid = player.uuid();
-
-        rejoinPositions.remove(uuid);
-        if (newAccount.isGuest()) {
-            // /logout: despawn active unit cleanly without altering the registered account's saved unitType, resync tech rules, then reopen faction menu
-            cleanupOwnedUnit(uuid);
-            chosenFactions.remove(uuid);
-            if (sessionManager != null) {
-                sessionManager.setActiveFaction(uuid, null);
-            }
-            respawnAt.remove(uuid);
-            lastRespawnOffer.remove(uuid);
-            lastExitOffer.remove(uuid);
-            lostScans.remove(uuid);
-            player.clearUnit();
-            if (techTree != null) {
-                techTree.syncPlayerRulesLive(player, null);
-            }
-            openFactionMenuIfNeeded(player);
-            return;
-        }
-
-        // /login: immediately sync active faction + per-faction Tech Tree rules for the logged-in account!
-        FactionDef currentFaction = chosenFactions.get(uuid);
-        if (sessionManager != null) {
-            sessionManager.setActiveFaction(uuid, currentFaction);
-        }
-        if (techTree != null) {
-            techTree.syncPlayerRulesLive(player, null);
-        }
-        if (currentFaction == null) return;
-
-        UnitType savedType = resolveStarterUnit(player, currentFaction);
-        persistUnitTypeForUuid(uuid, currentFaction, savedType);
-        Unit currentUnit = owned.get(uuid);
-        if (currentUnit != null
-            && !currentUnit.dead()
-            && currentUnit.isValid()
-            && currentUnit.type != savedType
-            && currentUnit.health >= currentUnit.maxHealth * 0.99f) {
-            float sx = currentUnit.x;
-            float sy = currentUnit.y;
-            cleanupOwnedUnit(uuid);
-            Unit replacement = savedType.spawn(currentFaction.team(), sx, sy);
-            Units.notifyUnitSpawn(replacement);
-            owned.put(uuid, replacement);
-            player.unit(replacement);
-            snapCamera(player, replacement);
-        }
+        if(!valid(player))return;
+        // Logging in/out changes the save/loadout owner, never the current game's
+        // faction/tree choice or the surviving world unit.
+        FactionDef faction=chosenFactions.get(player.uuid());
+        if(sessionManager!=null)sessionManager.setActiveFaction(player.uuid(),faction);
+        if(techTree!=null)techTree.syncPlayerRulesLive(player,null);
+        if(faction==null)openFactionMenuIfNeeded(player);
     }
 
     // ------------------------------------------------------------------ join & faction selection
@@ -491,6 +508,7 @@ public class PlayerUnitSystem {
         }
 
         String uuid = player.uuid();
+        trackedPlayers.put(uuid,player);
         FactionDef existingFaction = chosenFactions.get(uuid);
 
         if (existingFaction != null) {
@@ -536,52 +554,10 @@ public class PlayerUnitSystem {
     }
 
     public void onFactionChosen(Player player, FactionDef faction) {
-        if (!valid(player) || faction == null || !faction.available) return;
-        String uuid = player.uuid();
-        activeJoinMenus.remove(uuid);
-
-        boolean currentlyDead = respawnAt.containsKey(uuid);
-        FactionDef previousFaction = chosenFactions.get(uuid);
-        if (previousFaction == faction) {
-            if (currentlyDead) {
-                player.team(faction.team());
-                player.clearUnit();
-                return;
-            }
-            Unit existing = owned.get(uuid);
-            if (existing != null
-                && !existing.dead()
-                && (existing.isValid() || holders.containsKey(uuid) || assemblerHolders.containsKey(uuid))) {
-                if (existing.isValid()) {
-                    player.unit(existing);
-                }
-                return;
-            }
-        } else if (previousFaction != null) {
-            // Switching faction via /menu: despawn old faction's unit cleanly (preserving old faction's saved unitType in SQLite)
-            cleanupOwnedUnit(uuid);
-        }
-
-        chosenFactions.put(uuid, faction);
-        if (sessionManager != null) {
-            sessionManager.setActiveFaction(uuid, faction);
-        }
-
-        player.team(faction.team());
-        buildSystem.onPlayerWorldSynced(player);
-        if (techTree != null) {
-            techTree.syncPlayerRulesLive(player, null);
-        }
-
-        // Changing faction while dead updates active faction & team without respawning the player
-        if (currentlyDead) {
-            player.clearUnit();
-            return;
-        }
-
-        respawnAt.remove(uuid);
-        lastRespawnOffer.remove(uuid);
-        spawnFor(player, faction, resolveStarterUnit(player, faction));
+        if(!valid(player)||state.gameOver||faction==null||!faction.available)return;
+        if(!choiceAllowed(player))return;
+        activeJoinMenus.remove(player.uuid());
+        treeMenu.open(player,faction);
     }
 
     // ------------------------------------------------------------------ spawning & mapper poem
@@ -603,9 +579,8 @@ public class PlayerUnitSystem {
 
         player.team(faction.team());
 
-        Tile spawnTile = rejoinTile(uuid, faction);
-        boolean returning = spawnTile != null;
-        if (spawnTile == null) spawnTile = findFactionSpawnTile(faction, type);
+        trackedPlayers.put(uuid,player);
+        Tile spawnTile = findFactionSpawnTile(faction, type);
         if (spawnTile == null) {
             logMapperPoem(faction);
             spawnTile = buildSystem.pickFallbackCoreTile(faction.team());
@@ -615,18 +590,18 @@ public class PlayerUnitSystem {
         }
 
         if (spawnTile == null) {
-            respawnAt.put(uuid, Time.millis());
+            respawnAt.put(uuid, (long)gameTicks);
             player.sendMessage("[scarlet]No valid spawn point found! Use [white]/respawn[] to try again.");
             return;
         }
 
-        float wx = spawnTile.worldx() + (returning ? 0f : Mathf.range(2f));
-        float wy = spawnTile.worldy() + (returning ? 0f : Mathf.range(2f));
+        float wx = spawnTile.worldx() + Mathf.range(2f);
+        float wy = spawnTile.worldy() + Mathf.range(2f);
         Unit unit = type.spawn(faction.team(), wx, wy);
         Units.notifyUnitSpawn(unit);
 
-        rejoinPositions.remove(uuid);
         owned.put(uuid, unit);
+        deployedPlayers.add(uuid);
         holders.remove(uuid);
         assemblerHolders.remove(uuid);
         respawnAt.remove(uuid);
@@ -639,28 +614,6 @@ public class PlayerUnitSystem {
 
         player.unit(unit);
         snapCamera(player, unit);
-    }
-
-    private void rememberRejoinPosition(String uuid) {
-        Unit unit = owned.get(uuid);
-        FactionDef faction = chosenFactions.get(uuid);
-        // Never turn a death, missing unit, or menu-only disconnect into a return point.
-        if (unit == null || unit.dead() || unit.health <= 0f || faction == null || respawnAt.containsKey(uuid)) return;
-        Posc position = holders.get(uuid);
-        if (position == null) position = assemblerHolders.get(uuid);
-        if (position == null) position = unit;
-        Tile tile = world.tileWorld(position.x(), position.y());
-        if (tile != null) rejoinPositions.put(uuid, new RejoinPosition(tile.x, tile.y, faction));
-    }
-
-    private @Nullable Tile rejoinTile(String uuid, FactionDef faction) {
-        RejoinPosition saved = rejoinPositions.get(uuid);
-        if (saved == null) return null;
-        if (saved.faction != faction) {
-            rejoinPositions.remove(uuid); // Switching factions must not teleport to the old faction's location.
-            return null;
-        }
-        return world.tile(saved.x, saved.y);
     }
 
     public @Nullable Tile findFactionSpawnTile(FactionDef faction, UnitType type) {
@@ -945,6 +898,8 @@ public class PlayerUnitSystem {
         String uuid = player.uuid();
         Unit current = owned.get(uuid);
         if (current == null || current.dead()) return false;
+        UnitTree selected=chosenTrees.get(uuid);if(selected==null)selected=UnitTree.forUnit(current.type.name);
+        if(selected!=null&&UnitTree.forUnit(targetUnit.type.name)!=selected)return false;
         if (!current.isValid() && !holders.containsKey(uuid) && !assemblerHolders.containsKey(uuid)) return false;
 
         if (techTree != null && !techTree.isContentUnlocked(player, targetUnit.type)) {
@@ -1028,8 +983,11 @@ public class PlayerUnitSystem {
 
     // ------------------------------------------------------------------ death & periodic upkeep
 
+    private UnitType resolveStarterUnitForUuid(String uuid){
+        UnitTree tree=chosenTrees.get(uuid);return tree==null?UnitTypes.dagger:tree.starter();
+    }
+
     private void handleOwnedUnitLost(String uuid) {
-        rejoinPositions.remove(uuid);
         owned.remove(uuid);
         holders.remove(uuid);
         assemblerHolders.remove(uuid);
@@ -1039,10 +997,10 @@ public class PlayerUnitSystem {
         activeJoinMenus.remove(uuid);
 
         if (resetUnitOnDeath) {
-            persistUnitTypeForUuid(uuid, chosenFactions.get(uuid), UnitTypes.dagger);
+            persistUnitTypeForUuid(uuid, chosenFactions.get(uuid), resolveStarterUnitForUuid(uuid));
         }
 
-        respawnAt.put(uuid, Time.millis() + (long) (respawnUnlockSeconds * 1000f));
+        respawnAt.put(uuid, (long)gameTicks + (long)(respawnUnlockSeconds*60f));
 
         Player player = playerByUuid(uuid);
         if (player != null) {
@@ -1185,25 +1143,25 @@ public class PlayerUnitSystem {
     }
 
     public @Nullable Posc findHolder(@Nullable Unit unit) {
-        if (unit == null) return null;
-
-        for (Building building : Groups.build) {
-            Payload payload = building.getPayload();
-            if (payload == null && building instanceof PayloadConveyorBuild conveyor) {
-                payload = conveyor.item;
-            }
-            if (payload instanceof UnitPayload unitPayload && unitPayload.unit == unit) {
-                return building;
-            }
+        if(unit==null)return null;
+        for(Building building:Groups.build){
+            Payload payload=building.getPayload();
+            if(payload==null&&building instanceof PayloadConveyorBuild conveyor)payload=conveyor.item;
+            if(payload instanceof UnitPayload up&&up.unit==unit)return building;
+            Posc nested=nestedPayloadHolder(payload,unit,new ObjectSet<>(),0);if(nested!=null)return nested;
         }
-
-        for (Unit carrierUnit : Groups.unit) {
-            if (carrierUnit instanceof Payloadc payloadCarrier
-                && payloadCarrier.payloads().contains(p -> p instanceof UnitPayload up && up.unit == unit)) {
-                return carrierUnit;
-            }
+        for(Unit carrier:Groups.unit)if(carrier instanceof Payloadc cargo)for(Payload payload:cargo.payloads()){
+            if(payload instanceof UnitPayload up&&up.unit==unit)return carrier;
+            Posc nested=nestedPayloadHolder(payload,unit,new ObjectSet<>(),0);if(nested!=null)return nested;
         }
-
+        return null;
+    }
+    private @Nullable Posc nestedPayloadHolder(@Nullable Payload payload,Unit target,ObjectSet<Unit> seen,int depth){
+        if(depth>=16||!(payload instanceof UnitPayload up)||!(up.unit instanceof Payloadc carrier)||!seen.add(up.unit))return null;
+        for(Payload child:carrier.payloads()){
+            if(child instanceof UnitPayload held&&held.unit==target)return up.unit;
+            Posc nested=nestedPayloadHolder(child,target,seen,depth+1);if(nested!=null)return nested;
+        }
         return null;
     }
 
@@ -1236,12 +1194,14 @@ public class PlayerUnitSystem {
 
             String uuid = player.uuid();
             Long at = respawnAt.get(uuid);
-            if (at == null || Time.millis() < at || !needsUnit(player)) continue;
+            if (at == null || gameTicks < at || !needsUnit(player)) continue;
 
             long now = Time.millis();
-            if (now - lastRespawnOffer.get(uuid, 0L) >= (long) (respawnOfferSeconds * 1000f)) {
+            if (!lastRespawnOffer.containsKey(uuid)||now - lastRespawnOffer.get(uuid, 0L) >= (long) (respawnOfferSeconds * 1000f)) {
                 lastRespawnOffer.put(uuid, now);
-                player.sendMessage("[accent]Type [white]/respawn[] to deploy again.");
+                // A partial party death automatically redeploys the selected tier one.
+                // The survival director ends a total wipe before this cooldown expires.
+                spawnFor(player,chosenFactions.get(uuid),resolveStarterUnit(player,chosenFactions.get(uuid)));
             }
         }
     }

@@ -246,17 +246,10 @@ public class VerifyColouringGeneration {
         }
         var tree=new coolplugin.techtree.TechTreeService(workConfig.child("tree-migration-test"));
         tree.reloadTree();
-        var copper=tree.findNode("dp-copper-container");
-        check(copper!=null&&"conveyor".equals(copper.parent.id),"Default Copper Container follows Conveyor directly");
-        copper.parent.children.remove(copper,true);
-        var router=tree.findNode("router");router.children.add(copper);copper.parent=router;
-        copper.displayName="Migration sentinel";
-        coolplugin.techtree.TechTreeConfigIO.save(workConfig.child("tree-migration-test/techtree.hjson"),tree.getRoot(),new Seq<>());
-        tree.reloadTree();copper=tree.findNode("dp-copper-container");
-        check("conveyor".equals(copper.parent.id)&&"Migration sentinel".equals(copper.displayName),
-            "Saved router-child Copper Container is moved without replacing its configured node");
+        check(tree.findNode("dp-copper-container")==null&&tree.findNode("conveyor")==null,"Building nodes are removed from the research tree");
+        check(tree.findNode("mace")==null&&tree.findNode("dagger")!=null,"Only tier-one unit research nodes remain");
         tree.reloadTree();
-        check("conveyor".equals(tree.findNode("dp-copper-container").parent.id),"Copper Container migration persists and is idempotent");
+        check(tree.findNode("dp-copper-container")==null,"Unit/item projection remains idempotent on reload");
         var plugin=new CoolPlugin();
         var db=plugin.getPlayerDatabase();db.init();
         Player p=Player.create();p.name="Painter";p.con=new CapturingCon("painter");p.team(Team.sharded);p.add();
@@ -772,7 +765,7 @@ public class VerifyColouringGeneration {
         check(cannon.size==originalSize,"Native sprite dimensions no longer silently add weight or inventory size");
         coolplugin.gameplay.ColouringAssets.mountSizes.put(cannon.id,originalDimensions);
         itemSystem.destroyRig("flash-check");
-        var tech=plugin.getTechTree();tech.reloadTree();var progress=tech.getProgressStore();var researchNode=tech.findNode("graphite-press");
+        var tech=plugin.getTechTree();tech.reloadTree();var progress=tech.getProgressStore();var researchNode=tech.findNode("nova");
         p.team(Team.sharded);progress.unlockSingle(p.uuid(),p.plainName(),researchNode,tech.getRoot());
         progress.addPaidAmount(p.uuid(),p.plainName(),"faction-payment-probe","copper",37,tech.getRoot());
         progress.setFlag(p.uuid(),p.plainName(),"faction-flag-probe",true,tech.getRoot());
@@ -787,8 +780,8 @@ public class VerifyColouringGeneration {
             &&progress.hasFlag(p.uuid(),"faction-flag-probe"),"Switching back restores only Sharded's research progress");
         Vars.state.rules.researched.add(mindustry.content.Blocks.graphitePress);
         p.team(Team.crux);
-        check(!tech.buildPlayerRules(p).researched.contains(mindustry.content.Blocks.graphitePress),
-            "Per-faction client rules cannot inherit another faction's researched set from global world rules");
+        check(tech.buildPlayerRules(p).researched.contains(mindustry.content.Blocks.graphitePress),
+            "Buildings are available without research in every faction");
         boolean otherFactionsIsolated=true;
         for(var faction:new coolplugin.gameplay.FactionDef[]{coolplugin.gameplay.FactionDef.MALIS,coolplugin.gameplay.FactionDef.NEOPLASM}){
             p.team(faction.team());otherFactionsIsolated&=!progress.isUnlocked(p.uuid(),researchNode)
@@ -818,10 +811,8 @@ public class VerifyColouringGeneration {
             "Build fallback curve exactly matches Nova, Mega/2, Quad/3 and Oct/3 anchors");
         check(coolplugin.gameplay.UnitPatchManager.computeBuildSpeedFallback(UnitTypes.arkyid.health)>.2f,
             "Arkyid health-based build fallback is no longer the stale 20 percent override");
-        check(tech.findNode("dp-colouring-station").parent.id.equals("dp-workbench")
-            &&tech.findNode("dp-colouring-station-2").parent.id.equals("dp-colouring-station")
-            &&tech.findNode("landing-pad").parent.id.equals("launch-pad"),
-            "Existing research trees migrate colouring to a Workbench split and Landing pad after Launch pad");
+        check(tech.findNode("dp-colouring-station")==null&&tech.findNode("landing-pad")==null,
+            "Colouring stations and landing pads no longer require building research");
         var demoCatalog=coolplugin.gameplay.ShopConfigIO.loadOrCreate(workConfig.child("alphystuff/shop.hjson"));
         var reignTest=demoCatalog.findItem("bz-test-reign");var preceptTest=demoCatalog.findItem("bz-test-precept");
         check(UnitTypes.reign.weapons.first().name.equals(coolplugin.gameplay.ColouringAssets.mountSources.get(reignTest.id)),
@@ -917,7 +908,8 @@ public class VerifyColouringGeneration {
         admission.clearAllRigs();
         verifyInventoryBudgets(plugin,p,workConfig);
         verifyMountAimAndInventory(plugin,p,workConfig);
-        verifyRejoinPosition(plugin);
+        verifyTreeLoadouts(plugin,p,workConfig);
+        verifyNeoplasmSurvival(plugin,workConfig);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -939,46 +931,193 @@ public class VerifyColouringGeneration {
         return false;
     }
 
+    private static final class SurvivalProbe extends coolplugin.gameplay.PlayerUnitSystem {
+        final Seq<coolplugin.gameplay.PlayerUnitSystem.Survivor> samples=new Seq<>();
+        boolean deployed;
+        SurvivalProbe(BuildSystem build){super(build,null);}
+        @Override public Seq<coolplugin.gameplay.PlayerUnitSystem.Survivor> survivalPlayers(){return samples;}
+        @Override public boolean hasDeployedPlayers(){return deployed;}
+        void live(Unit unit,int count,float health){samples.clear();for(int i=0;i<count;i++)samples.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("probe-"+i,unit,unit,true,true,health));deployed=true;}
+    }
     @SuppressWarnings("unchecked")
-    private static void verifyRejoinPosition(CoolPlugin plugin)throws Exception{
-        var system=plugin.getPlayerUnitSystem();
-        system.start();
+    private static void verifyNeoplasmSurvival(CoolPlugin plugin,Fi config)throws Exception{
+        Vars.state.gameOver=false;
+        Vars.world.loadGenerator(48,48,tiles->{for(int y=0;y<48;y++)for(int x=0;x<48;x++)tiles.set(x,y,new Tile(x,y,Blocks.stone,Blocks.air,Blocks.air));});
+        Vars.state.set(GameState.State.playing);Vars.state.rules.unitCap=99999;
+        Vars.world.tile(3,3).setOverlay(Blocks.spawn);
+        var probe=new SurvivalProbe(plugin.getBuildSystem());Unit hero=UnitTypes.dagger.spawn(Team.sharded,240,240);probe.live(hero,1,1f);
+        var director=new coolplugin.gameplay.NeoplasmDirector(config.child("survival-probe-waves.json"),probe);director.reset();
+        check(director.spawnPointCount()==1&&!Vars.state.rules.waves&&Vars.state.rules.waveTeam==Team.neoplastic,"Survival uses only vanilla spawn overlays and disables native duplicate wave spawning");
+        director.update(59.99f);check(director.continuousSpawned()==0&&director.waveNumber()==0,"No enemies spawn before sixty seconds");
+        director.update(.02f);check(director.continuousSpawned()==1,"The first continuous Neoplasm unit spawns at sixty seconds");
+        check(Math.abs(director.continuousInterval(1)-7f)<.001f&&Math.abs(director.continuousInterval(4)-7f/(float)Math.pow(4,.8))<.001f,"Continuous interval follows 7 / playercount^0.8 at full health");
+        probe.live(hero,1,.01f);director.update(0f);
+        check(director.healthReliefMultiplier()>3.96f&&director.healthReliefMultiplier()<=4f,"Near-zero player health slows continuous spawning by almost four times, bounded at four");
+        probe.live(hero,1,1f);probe.samples.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("dead-probe",null,null,true,false,0f));director.update(0f);
+        check(Math.abs(director.healthReliefMultiplier()-2f)<.001f,"A newly dead player contributes half-weight as a zero-health player");
+        check(Math.abs(director.deathWeight(300)-.25f)<.001f&&director.deathWeight(600)==0f&&director.deathWeight(900)==0f,"Dead-player contribution decays linearly to nothing after ten minutes");
+        probe.live(hero,1,1f);director.reset();director.update(219.99f);check(director.waveNumber()==0,"The first organised wave does not start before 220 seconds");
+        director.update(.02f);check(director.waveNumber()==1&&Math.abs(director.nextWaveSeconds()-370f)<.001f,"Wave one starts at 220 seconds, scheduling wave two 150 seconds later");
+        while(director.queuedSpawns()>0)director.update(0f);
+        check(director.waveSpawned()==10,"Wave one contains one boss plus its one-player swarm");
+        Unit boss=Groups.unit.find(unit->unit.team==Team.neoplastic&&unit.getDuration(mindustry.content.StatusEffects.boss)>0f);
+        check(boss!=null&&boss.health==boss.maxHealth&&boss.healthMultiplier==1.5f,"Native boss health scaling starts full, without multiplying both raw HP and damage resistance");
+        check(Math.abs(director.bossHealthScale(4,1)-2.95f)<.001f,"Boss effective HP increases with player count");
+        director.update(149.98f);check(director.waveNumber()==1,"The second wave waits for its complete 150-second interval");
+        director.update(.02f);check(director.waveNumber()==2,"Wave two runs at 370 seconds independently of remaining enemies");
+        probe.live(hero,4,1f);director.reset();director.update(220f);while(director.queuedSpawns()>0)director.update(0f);
+        check(director.waveSpawned()==28,"Four players increase the swarm, while the wave still has only one boss");
+        var settings=coolplugin.gameplay.NeoplasmWaveConfig.load(config.child("survival-probe-waves.json"));
+        boolean validBosses=true;for(var wave:settings.waves){int n=0;for(var group:wave.bosses())n+=group.base();validBosses&=n>=1&&n<=3&&!wave.continuous().isEmpty();}
+        check(settings.waves.size==25&&validBosses,"All 25 editable waves have one to three bosses and a nonempty random continuous pool");
+        boolean badRejected=false;try{coolplugin.gameplay.NeoplasmWaveConfig.parse("{wave1:{bosses:[{unit:dagger,count:4}],swarm:[],continuous:[dagger]}}");}catch(IllegalArgumentException expected){badRejected=true;}
+        check(badRejected,"Invalid boss counts are rejected instead of silently loading bad wave data");
+        check(director.bossHealthScale(1,30)>director.bossHealthScale(1,25),"After the final authored wave, difficulty continues increasing without exceeding three bosses");
+        probe.live(hero,1,1f);director.reset();director.update(0f);
+        probe.samples.clear();probe.samples.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("last",hero,hero,false,true,1f));
+        director.update(39f);check(!Vars.state.gameOver,"The last logout does not immediately end the round or despawn the survivor");
+        probe.live(hero,1,1f);director.update(0f);director.update(2f);check(!Vars.state.gameOver,"Rejoining during the empty-server grace cancels the pending game over");
+        probe.samples.clear();probe.samples.add(new coolplugin.gameplay.PlayerUnitSystem.Survivor("last",hero,hero,false,true,1f));director.update(0f);director.update(39.99f);check(!Vars.state.gameOver,"A new last-logout grace lasts a full forty seconds");
+        director.update(.02f);check(Vars.state.gameOver,"An empty server ends the round after forty seconds");
+        Vars.state.gameOver=false;probe.live(hero,2,1f);director.reset();director.update(0f);
+        probe.samples.set(0,new coolplugin.gameplay.PlayerUnitSystem.Survivor("probe-0",null,null,true,false,0f));director.update(0f);check(!Vars.state.gameOver,"One player's death does not end the game while another survivor remains");
+        probe.samples.set(1,new coolplugin.gameplay.PlayerUnitSystem.Survivor("probe-1",null,null,true,false,0f));director.update(0f);check(Vars.state.gameOver,"A complete party wipe ends the game immediately instead of waiting out respawn timers");
+        Vars.state.gameOver=false;
+        var lifecycle=plugin.getPlayerUnitSystem();
+        var ownedField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("owned");ownedField.setAccessible(true);var owned=(arc.struct.ObjectMap<String,Unit>)ownedField.get(lifecycle);
+        var factionField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("chosenFactions");factionField.setAccessible(true);var factions=(arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)factionField.get(lifecycle);
+        var treeField=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("chosenTrees");treeField.setAccessible(true);var trees=(arc.struct.ObjectMap<String,coolplugin.gameplay.UnitTree>)treeField.get(lifecycle);
+        Player player=Player.create();player.name="Survivor";player.con=new CapturingCon("survival-player");player.team(Team.sharded);player.add();factions.put(player.uuid(),coolplugin.gameplay.FactionDef.SHARDED);trees.put(player.uuid(),coolplugin.gameplay.UnitTree.SUPPORT_MECH);
+        Unit advanced=UnitTypes.vela.spawn(Team.sharded,200,180);owned.put(player.uuid(),advanced);player.unit(advanced);
+        Tile holderTile=Vars.world.tile(25,23);holderTile.setBlock(Blocks.additiveReconstructor,Team.sharded);
+        var holder=(mindustry.world.blocks.units.Reconstructor.ReconstructorBuild)holderTile.build;
+        advanced.remove();holder.payload=new mindustry.world.blocks.payloads.UnitPayload(advanced);
+        var snapshot=lifecycle.survivalPlayers().find(survivor->survivor.uuid().equals(player.uuid()));
+        check(snapshot!=null&&snapshot.alive()&&snapshot.position()==holder,"A live player inside a payload building is alive and targeted at the actual holder location");
+        probe.samples.clear();probe.samples.add(snapshot);probe.deployed=true;director.reset();director.update(0f);
+        check(director.nearestPlayer(20,20,true,true)==holder,"Neoplasm target acquisition finds players inside payloads");
+        Unit carrier=UnitTypes.oct.create(Team.sharded);carrier.set(holder.x,holder.y);((mindustry.gen.Payloadc)carrier).payloads().add(new mindustry.world.blocks.payloads.UnitPayload(advanced));holder.payload=new mindustry.world.blocks.payloads.UnitPayload(carrier);
+        snapshot=lifecycle.survivalPlayers().find(survivor->survivor.uuid().equals(player.uuid()));
+        check(snapshot!=null&&snapshot.alive()&&snapshot.position()==holder,"Nested carrier payloads resolve to the outer holder, not stale stored unit coordinates");
+        holder.payload=null;advanced.add();
+        arc.Events.fire(new mindustry.game.EventType.UnitDestroyEvent(advanced));advanced.remove();
+        check(lifecycle.respawnUnlockSeconds==40f&&lifecycle.respawnSecondsRemaining(player.uuid())==40f,"Player death installs the forty-second respawn cooldown");
+        var ticks=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredField("gameTicks");ticks.setAccessible(true);ticks.setFloat(lifecycle,ticks.getFloat(lifecycle)+2400f);
+        var respawn=coolplugin.gameplay.PlayerUnitSystem.class.getDeclaredMethod("offerRespawnCommand");respawn.setAccessible(true);respawn.invoke(lifecycle);
+        check(owned.get(player.uuid())!=null&&owned.get(player.uuid()).type==UnitTypes.nova,"A surviving party member automatically respawns as their selected tree's tier one after forty seconds");
+        probe.samples.clear();probe.deployed=false;director.reset();director.update(0f);
+        Unit attacker=UnitTypes.flare.spawn(Team.neoplastic,140,140);director.installControllers();
+        check(attacker.controller() instanceof coolplugin.gameplay.NeoplasmAI&&attacker.type.circleTarget,"Neoplasm uses the survival AI while retaining Flare's native dive-and-turn movement mode");
+        Vars.state.teams.updateTeamStats();Groups.unit.updatePhysics();
+        var ai=(coolplugin.gameplay.NeoplasmAI)attacker.controller();mindustry.gen.Teamc target=ai.findTarget(140,140,500,true,true);
+        check(target!=null&&target.team()!=Team.neoplastic,"Non-player enemy units remain valid native weapon targets");
+        player.remove();Unit returned=owned.remove(player.uuid());if(returned!=null)returned.remove();factions.remove(player.uuid());trees.remove(player.uuid());hero.remove();carrier.remove();
+        for(Unit enemy:Groups.unit.copy(new Seq<>()))if(enemy.team==Team.neoplastic)enemy.remove();
+        Vars.state.gameOver=false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void verifyTreeLoadouts(CoolPlugin plugin,Player player,Fi config)throws Exception{
+        var system=plugin.getPlayerUnitSystem();var items=plugin.getPlayerItemSystem();var db=plugin.getPlayerDatabase();
         var klass=coolplugin.gameplay.PlayerUnitSystem.class;
-        var ownerField=klass.getDeclaredField("owned");ownerField.setAccessible(true);
-        var owners=(arc.struct.ObjectMap<String,Unit>)ownerField.get(system);
+        var field=klass.getDeclaredField("owned");field.setAccessible(true);
+        var owners=(arc.struct.ObjectMap<String,Unit>)field.get(system);
+        Unit old=owners.get(player.uuid());
+        Unit dagger=UnitTypes.dagger.spawn(Team.sharded,80,80);owners.put(player.uuid(),dagger);player.unit(dagger);
+        var data=new EquipmentData();data.equipped.add("wb-01");while(data.equipped.size<30)data.equipped.add("");data.equipped.add("wb-02");items.saveEquipment(player,data);
+        long account=plugin.getSessionManager().getOrInitSession(player).id;
+        check(db.getUnitLoadout(account,"dagger").equipped.size<=30&&!db.getUnitLoadout(account,"dagger").equipped.contains("wb-02"),"Carried slots never enter the loadout database");
+        Unit mace=UnitTypes.mace.spawn(Team.sharded,80,80);owners.put(player.uuid(),mace);player.unit(mace);
+        var maceGear=items.getEquipment(player);
+        check(maceGear.equipped.size>30&&maceGear.equipped.get(30).equals("wb-02")&&!maceGear.equipped.contains("wb-01"),"Unit change loads independent equipped gear and transfers carried gear");
+        maceGear.equipped.set(0,"wb-03");items.saveEquipment(player,maceGear);
+        owners.put(player.uuid(),dagger);player.unit(dagger);
+        check(items.getEquipment(player).equipped.get(0).equals("wb-01"),"Changing back restores that unit's saved equipment");
+        var painted=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant("dagger",coolplugin.gameplay.ColouringAssets.palettes.first())).spawn(Team.sharded,80,80);
+        owners.put(player.uuid(),painted);player.unit(painted);
+        check(items.getEquipment(player).equipped.get(0).equals("wb-01"),"All paint variants share the canonical unit loadout");
+        plugin.getSessionManager().saveUnitType(player,coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.reign);
+        check(db.getFactionUnitType(account,"sharded",null).equals("tree:mech")&&plugin.getSessionManager().resolveSavedUnitType(player,coolplugin.gameplay.FactionDef.SHARDED)==UnitTypes.dagger,
+            "Progression save stores the tree, not the upgraded unit or its recolour");
+        items.start();arc.Events.fire(new mindustry.game.EventType.GameOverEvent(Team.sharded));var cleared=items.getEquipment(player);
+        check(cleared.equipped.size<=30&&cleared.equipped.get(0).equals("wb-01"),"Game-over carry reset leaves permanent equipped gear intact");
+        check(!coolplugin.gameplay.UnitTree.TANK.available&&!coolplugin.gameplay.UnitTree.LEGGED.available&&!coolplugin.gameplay.UnitTree.ATTACK_NAVALS.available,
+            "Erekir, legged and naval tree cards are disabled");
+        String ui=new String(serializeUi(system.getTreeMenu().build(player,coolplugin.gameplay.FactionDef.SHARDED)),StandardCharsets.ISO_8859_1);
+        check(ui.contains("Choose your unit tree")&&ui.contains("Support mech")&&ui.contains("Insectoid")&&ui.contains("Chemical"),"Tree picker serializes all horizontal faction-style columns");
+        system.start();
         var factionField=klass.getDeclaredField("chosenFactions");factionField.setAccessible(true);
-        var factions=(arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)factionField.get(system);
-        var positionsField=klass.getDeclaredField("rejoinPositions");positionsField.setAccessible(true);
-        var positions=(arc.struct.ObjectMap<String,?>)positionsField.get(system);
-        var remember=klass.getDeclaredMethod("rememberRejoinPosition",String.class);remember.setAccessible(true);
-        var tileMethod=klass.getDeclaredMethod("rejoinTile",String.class,coolplugin.gameplay.FactionDef.class);tileMethod.setAccessible(true);
-        var lost=klass.getDeclaredMethod("handleOwnedUnitLost",String.class);lost.setAccessible(true);
-        var faction=coolplugin.gameplay.FactionDef.SHARDED;
-        Player player=Player.create();player.con=new CapturingCon("rejoin-test");player.name="Rejoin test";
-        String uuid=player.uuid();
-        Unit original=UnitTypes.dagger.create(Team.sharded);original.set(Vars.world.tile(4,5).worldx()+1f,Vars.world.tile(4,5).worldy()+2f);original.add();
-        owners.put(uuid,original);factions.put(uuid,faction);player.unit(original);
+        ((arc.struct.ObjectMap<String,coolplugin.gameplay.FactionDef>)factionField.get(system)).put(player.uuid(),coolplugin.gameplay.FactionDef.SHARDED);
         arc.Events.fire(new mindustry.game.EventType.PlayerLeave(player));
-        check(!owners.containsKey(uuid)&&tileMethod.invoke(system,uuid,faction)==Vars.world.tile(4,5),"Disconnect captures the live unit's exact tile");
-        owners.remove(uuid);original.remove();player.clearUnit();factions.put(uuid,faction);
-        system.spawnFor(player,faction,UnitTypes.dagger);
-        Unit returned=owners.get(uuid);
-        check(returned!=null&&returned.tileX()==4&&returned.tileY()==5&&!positions.containsKey(uuid),
-            "Reconnect spawn returns to the saved tile and consumes the location once");
-        remember.invoke(system,uuid);lost.invoke(system,uuid);returned.remove();player.clearUnit();
-        check(!positions.containsKey(uuid)&&tileMethod.invoke(system,uuid,faction)==null,"Death clears any reconnect location, retaining normal spawn selection");
-        system.spawnFor(player,faction,UnitTypes.dagger);
-        Unit afterDeath=owners.get(uuid);
-        check(afterDeath!=null&&(afterDeath.tileX()!=4||afterDeath.tileY()!=5),"Post-death deployment uses normal spawns, not the last disconnect tile");
-        remember.invoke(system,uuid);
-        check(tileMethod.invoke(system,uuid,coolplugin.gameplay.FactionDef.CRUX)==null&&!positions.containsKey(uuid),
-            "Changing faction discards the old faction's reconnect location");
-        afterDeath.health=0f;remember.invoke(system,uuid);
-        check(!positions.containsKey(uuid),"Disconnecting with a dead unit cannot save a return location");
-        afterDeath.health=100f;remember.invoke(system,uuid);
-        arc.Events.fire(new mindustry.game.EventType.WorldLoadEvent());
-        check(positions.isEmpty(),"Loading another world clears all saved reconnect locations");
-        owners.remove(uuid);factions.remove(uuid);afterDeath.remove();
+        check(owners.get(player.uuid())==painted&&painted.isAdded(),"Disconnect leaves the same equipped unit alive in the world");
+        player.remove();items.updateUnitsAndVisuals();
+        check(!items.getWorldLogicManager().getProcessorsForOwner(player.uuid()).isEmpty(),"Offline surviving units keep their equipped item visual rigs");
+        player.add();
+        var confirmed=klass.getDeclaredMethod("handleConnectionConfirmed",Player.class);confirmed.setAccessible(true);confirmed.invoke(system,player);
+        check(player.unit()==painted&&owners.get(player.uuid())==painted,"Rejoin restores control of the original surviving unit");
+        var ticks=klass.getDeclaredField("gameTicks");ticks.setAccessible(true);ticks.setFloat(system,18000f);
+        check(!system.canChangeChoice(),"Choice-change exception closes at exactly five minutes of game time");
+        ticks.setFloat(system,17999f);check(system.canChangeChoice(),"Choice changes remain possible before the five-minute deadline");
+        var choiceField=klass.getDeclaredField("chosenTrees");choiceField.setAccessible(true);
+        ((arc.struct.ObjectMap<String,coolplugin.gameplay.UnitTree>)choiceField.get(system)).put(player.uuid(),coolplugin.gameplay.UnitTree.MECH);
+        system.onTreeChosen(player,coolplugin.gameplay.FactionDef.SHARDED,coolplugin.gameplay.UnitTree.MECH);
+        check(owners.get(player.uuid())==painted,"An already-chosen tree cannot be selected again without the /menu exception");
+        system.requestOpenFactionMenu(player);
+        system.onTreeChosen(player,coolplugin.gameplay.FactionDef.SHARDED,coolplugin.gameplay.UnitTree.MECH);
+        Unit changed=owners.get(player.uuid());
+        check(changed!=painted&&changed.type==UnitTypes.dagger,"The /menu exception permits a fresh tree deployment during the first five minutes");
+        system.onTreeChosen(player,coolplugin.gameplay.FactionDef.SHARDED,coolplugin.gameplay.UnitTree.MECH);
+        check(owners.get(player.uuid())==changed,"Confirming a correction consumes its one-shot choice permission");
+        ticks.setFloat(system,18000f);system.requestOpenFactionMenu(player);
+        system.onTreeChosen(player,coolplugin.gameplay.FactionDef.SHARDED,coolplugin.gameplay.UnitTree.MECH);
+        check(owners.get(player.uuid())==changed,"After five minutes even /menu cannot reset the chosen unit tree");
+        arc.Events.fire(new mindustry.game.EventType.UnitDestroyEvent(changed));changed.remove();
+        check(!owners.containsKey(player.uuid()),"An offline or online death destroys ownership instead of retaining a reconnect target");
+        owners.put(player.uuid(),old);player.unit(old);dagger.remove();mace.remove();painted.remove();
+        verifyUnitSaveMigration(config);
+        verifyTreeResearchNotifications(plugin);
+
+    }
+
+    private static void verifyTreeResearchNotifications(CoolPlugin plugin)throws Exception{
+        Player player=Player.create();player.name="Research probe";var con=new CapturingCon("tree-research-probe");player.con=con;player.team(Team.sharded);player.add();
+        var tech=plugin.getTechTree();
+        arc.util.Time.clear();float delta=arc.util.Time.delta;arc.util.Time.delta=1f;
+        check(tech.unlockNode(player,"nova")&&tech.isUnitUnlockedForPlayer(player,UnitTypes.corvus),"Researching a tier-one unit unlocks its entire upgrade tree");
+        check(tech.buildPlayerRules(player).researched.contains(UnitTypes.corvus),"Client rules expose higher tiers immediately after tier-one research");
+        arc.util.Time.update();
+        check(con.sentPackets.count(packet->packet instanceof mindustry.gen.ResearchedCallPacket)==1,"Tier-one content unlock notification is emitted first");
+        arc.util.Time.delta=178f;arc.util.Time.update();
+        check(con.sentPackets.count(packet->packet instanceof mindustry.gen.ResearchedCallPacket)==1,"Upgrade unlock notification waits for the full three-second interval");
+        arc.util.Time.delta=1f;arc.util.Time.update();
+        check(con.sentPackets.count(packet->packet instanceof mindustry.gen.ResearchedCallPacket)==2,"First upgrade notification arrives three seconds after the tier-one notification");
+        arc.util.Time.delta=180f;for(int i=0;i<3;i++)arc.util.Time.update();
+        check(con.sentPackets.count(packet->packet instanceof mindustry.gen.ResearchedCallPacket)==5,"All five unit tiers receive separate spaced content unlock notifications");
+        arc.util.Time.delta=delta;arc.util.Time.clear();player.remove();
+        check(tech.isBlockAllowedForPlayer(null,Blocks.graphitePress),"Buildings require no research even for an uninitialized player");
+        var field=coolplugin.techtree.TechTreeService.class.getDeclaredField("mapBannedBlocks");field.setAccessible(true);
+        @SuppressWarnings("unchecked") var bans=(arc.struct.ObjectSet<Block>)field.get(tech);bans.add(Blocks.graphitePress);
+        check(!tech.isBlockAllowedForPlayer(null,Blocks.graphitePress),"Unlocking all buildings does not override explicit map bans");bans.remove(Blocks.graphitePress);
+    }
+
+    private static void verifyUnitSaveMigration(Fi config)throws Exception{
+        Fi file=config.child("migration-probe.db");file.delete();
+        var db=new coolplugin.database.PlayerDatabase(file);db.init();
+        var account=db.getOrCreateGuestByUuid("old-loadout","Legacy");
+        var gear=new EquipmentData();gear.equipped.add("wb-01");while(gear.equipped.size<30)gear.equipped.add("");gear.equipped.add("wb-02");gear.stash.put("wb-03",4);
+        db.saveEquipmentData(account.id,"sharded",gear);db.setFactionUnitType(account.id,"sharded","reign");
+        var field=coolplugin.database.PlayerDatabase.class.getDeclaredField("connection");field.setAccessible(true);
+        try(var st=((java.sql.Connection)field.get(db)).createStatement()){
+            st.executeUpdate("UPDATE account_factions SET unit_type='dp-paint-unit-oct-reign'");
+            st.executeUpdate("DELETE FROM plugin_migrations WHERE id='unit-tree-loadouts-v1'");
+        }
+        db.close();db.init();
+        check(db.getFactionUnitType(account.id,"sharded",null).equals("tree:mech"),"Legacy coloured tier-five save migrates to a stable tree ID");
+        var loadout=db.getUnitLoadout(account.id,"reign");
+        check(loadout.equipped.size==30&&loadout.equipped.get(0).equals("wb-01")&&!loadout.equipped.contains("wb-02")&&loadout.stash.isEmpty(),
+            "Migration preserves equipped slots on the old exact unit, never persisted carry or stash");
+        db.close();db.init();
+        check(db.getUnitLoadout(account.id,"reign").equipped.equals(loadout.equipped),"Save migration is idempotent across database reopen");db.close();
     }
 
     private static void verifyInventoryBudgets(CoolPlugin plugin,Player p,Fi config)throws Exception{
@@ -1046,13 +1185,14 @@ public class VerifyColouringGeneration {
         Unit huge=UnitTypes.reign.spawn(Team.sharded,180,180);ownerMap.put(p.uuid(),huge);p.unit(huge);
         system.saveEquipment(p,upgraded);var largeInventory=system.getEquipment(p);
         int largeCount=largeInventory.equipped.count(id->!id.isBlank());for(var e:largeInventory.stash)largeCount+=e.value;
+        var savedLargeGear=dbLoadout(plugin,p,"reign");
         Unit little=UnitTypes.dagger.spawn(Team.sharded,180,180);ownerMap.put(p.uuid(),little);p.unit(little);
         var smallInventory=system.getEquipment(p);int smallCount=smallInventory.equipped.count(id->!id.isBlank());for(var e:smallInventory.stash)smallCount+=e.value;
-        check(smallCount==largeCount&&coolplugin.gameplay.PlayerItemSystem.usedCapacity(smallInventory,true)<=1
-            &&coolplugin.gameplay.PlayerItemSystem.usedCapacity(smallInventory,false)<=2,"Real unit downgrade rebalances both size budgets and preserves excess ownership");
+        check(coolplugin.gameplay.PlayerItemSystem.usedCapacity(smallInventory,true)<=1
+            &&coolplugin.gameplay.PlayerItemSystem.usedCapacity(smallInventory,false)<=2,"Changing unit loads its own equipment and rebalances carried capacity");
         ownerMap.put(p.uuid(),huge);p.unit(huge);var returnedInventory=system.getEquipment(p);
-        check(returnedInventory.stash.isEmpty()&&returnedInventory.equipped.count(id->!id.isBlank())==largeCount,
-            "Real getEquipment restores preserved overflow after returning to a large unit");
+        check(dbLoadout(plugin,p,"reign").equals(savedLargeGear),
+            "Returning to a large unit restores its separate persistent loadout");
         ownerMap.put(p.uuid(),savedOwned);p.unit(savedPlayerUnit);huge.remove();little.remove();
 
         var account=plugin.getSessionManager().getOrInitSession(p);var db=plugin.getPlayerDatabase();
@@ -1185,6 +1325,8 @@ public class VerifyColouringGeneration {
 
         owners.put(player.uuid(),savedOwner);player.unit(savedUnit);invHost.remove();
     }
+
+    private static Seq<String> dbLoadout(CoolPlugin plugin,Player p,String name){return plugin.getPlayerDatabase().getUnitLoadout(plugin.getSessionManager().getOrInitSession(p).id,name).equipped.copy();}
 
     private static Seq<String> legacySlots(Seq<String> old){
         Seq<String> result=new Seq<>();

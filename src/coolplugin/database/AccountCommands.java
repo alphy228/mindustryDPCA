@@ -62,7 +62,7 @@ public final class AccountCommands {
 
         handler.<Player>register(
             "account",
-            "Show your current account status and saved per-faction units.",
+            "Show your current account status and saved per-faction unit trees.",
             (args, player) -> {
                 AccountRecord acc = sessions.getOrInitSession(player);
                 PlayerDatabase db = sessions.getDatabase();
@@ -84,7 +84,7 @@ public final class AccountCommands {
                           .append("[gray]: [white]New game[]\n");
                     } else {
                         sb.append("  [#").append(faction.accentHex).append("]").append(faction.title)
-                          .append("[gray]: unit=[white]").append(unitName)
+                          .append("[gray]: tree=[white]").append(unitName)
                           .append("[gray], tech=[white]").append(unlockedCount).append(" unlocked[]\n");
                     }
                 }

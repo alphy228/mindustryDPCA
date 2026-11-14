@@ -153,7 +153,7 @@ public final class WorldItemLogicManager {
         Events.on(mindustry.game.EventType.PlayerConnectionConfirmed.class,e->{
             if(e.player!=null&&obtainSlot(e.player.uuid())==null)rejectRig(e.player.uuid(),"Server visual processor capacity reached (250). Try again when a slot is free.");
         });
-        Events.on(mindustry.game.EventType.PlayerLeave.class,e->{if(e.player!=null)clearRig(e.player.uuid());});
+        // Disconnected owners retain their live units and visual rigs.
     }
 
     public void resetForNewWorld() {

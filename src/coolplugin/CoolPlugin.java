@@ -45,6 +45,7 @@ public class CoolPlugin extends Plugin {
     private BuildSystem buildSystem;
     private PlayerUnitSystem playerUnitSystem;
     private LaunchPadSystem launchPadSystem;
+    private coolplugin.gameplay.NeoplasmDirector neoplasmDirector;
     private PlayerItemSystem playerItemSystem;
     private ItemShopSystem itemShopSystem;
     private ColouringSystem colouringSystem;
@@ -61,6 +62,7 @@ public class CoolPlugin extends Plugin {
         techTree.init();
         buildSystem.start();
         playerUnitSystem.start();
+        neoplasmDirector.start();
         launchPadSystem.start();
         new coolplugin.gameplay.LandingPadSystem(playerDatabase,sessionManager).start();
         playerItemSystem.start();
@@ -110,6 +112,8 @@ public class CoolPlugin extends Plugin {
         ensureSystemsCreated();
         return playerUnitSystem;
     }
+
+    public coolplugin.gameplay.NeoplasmDirector getNeoplasmDirector(){ensureSystemsCreated();return neoplasmDirector;}
 
     public LaunchPadSystem getLaunchPadSystem() {
         ensureSystemsCreated();
@@ -164,6 +168,7 @@ public class CoolPlugin extends Plugin {
             techTree.setStorage(new BuildResourceStorage(buildSystem, playerDatabase, sessionManager));
             techTree.setWorldStreamListener(buildSystem::onPlayerWorldSynced);
             playerUnitSystem = new PlayerUnitSystem(buildSystem, techTree, sessionManager);
+            neoplasmDirector=new coolplugin.gameplay.NeoplasmDirector(alphyDir.child("waves.json"),playerUnitSystem);
             launchPadSystem = new LaunchPadSystem(playerDatabase, sessionManager);
             playerItemSystem = new PlayerItemSystem(alphyDir, playerDatabase, sessionManager, buildSystem);
             inventoryMenu=new coolplugin.gameplay.InventoryMenu(playerItemSystem);

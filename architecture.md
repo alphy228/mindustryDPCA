@@ -59,3 +59,9 @@ The shipped configuration contains 25 progressively stronger definitions. Beyond
 Build with Java 17 using `bash gradlew jar --no-daemon`. Run `tools/colouring-validation.sh` with `JAVA_HOME`, `MINDUSTRY_JAR`, and `SERVER_JAR` pointing to Java 17 and v160.7 binaries. The suite covers existing colouring/equipment/research behavior, tree persistence/loadouts, survival timing and scaling, nested payloads, respawn, logout/gameover, and AI targeting. Native artwork/menu tools require an OpenGL display (Xvfb with software Mesa is sufficient).
 
 The combined delivery is a binary-capable git patch against master commit `41e17fe956403d0fcab320ecc7f5e4b8efb2ef46`. It includes source, external artwork, configuration, and this architecture document, without README edits or the compiled JAR. The asset-free JAR is delivered separately.
+
+## Map protection
+
+`BuildSystem` starts `MapProtection`. Faction spawn floors/overlays are cached at world load. Buildings covering any marked tile are removed on the next authoritative update; tile-change callbacks also schedule immediate safe cleanup after native multiblock linking finishes. This includes construction placeholders, payload-delivered structures, and multiblocks whose centre is outside the marker. Removal is unconditional, without explosions or salvage, so protected barriers cannot obstruct spawnpoints either.
+
+Large shield projectors use a native `BaseShieldBuild` subclass that rejects damage, bullet hits, and kill calls. Targeting/destruction flags and power-consumer removal are mirrored in `config/assets/patches/map-protection.hjson` for clients. Server action filtering, builder-plan filtering, and synchronous cancellation of native deconstruction protect them from dismantling. They retain their native shield update/repulsion behavior at full efficiency without a power network. Explicit administrative tile replacement remains possible; spawn-floor cleanup takes priority over barrier protection.

@@ -910,6 +910,7 @@ public class VerifyColouringGeneration {
         verifyMountAimAndInventory(plugin,p,workConfig);
         verifyTreeLoadouts(plugin,p,workConfig);
         verifyNeoplasmSurvival(plugin,workConfig);
+        verifyMapProtection();
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -1017,6 +1018,42 @@ public class VerifyColouringGeneration {
     }
 
     @SuppressWarnings("unchecked")
+    private static void verifyMapProtection(){
+        var floor=Vars.content.block("dp-sharded-spawnpoint");
+        if(floor==null)floor=new mindustry.world.blocks.environment.Floor("dp-sharded-spawnpoint");
+        Vars.state.gameOver=false;
+        Vars.world.loadGenerator(32,32,tiles->{for(int y=0;y<32;y++)for(int x=0;x<32;x++)tiles.set(x,y,new Tile(x,y,Blocks.stone,Blocks.air,Blocks.air));});
+        Vars.state.set(GameState.State.playing);
+        coolplugin.gameplay.MapProtection.protectProjector();
+        Tile tile=Vars.world.tile(16,16);
+        tile.setBlock(Blocks.largeShieldProjector,Team.sharded,0);
+        Building barrier=tile.build;float health=barrier.health;
+        barrier.damage(1000000f);barrier.damagePierce(1000000f);barrier.kill();
+        check(barrier.health==health&&tile.build==barrier,"Large barrier rejects direct/piercing damage and kill calls");
+        check(!barrier.collide(null)&&!barrier.collision(null)&&!barrier.block.targetable&&!barrier.block.destructible&&!barrier.block.breakable,
+            "Large barrier is unhittable, untargetable and marked indestructible");
+        check(!barrier.block.hasPower&&barrier.block.consPower==null&&!barrier.block.hasConsumers,
+            "Large barrier has no power consumer or power requirement");
+        barrier.updateConsumption();
+        check(barrier.efficiency==1f,"Large barrier runs at full efficiency without a power network");
+        var guard=new coolplugin.gameplay.MapProtection();guard.start();
+        mindustry.world.Build.beginBreak(null,Team.sharded,16,16);
+        check(tile.block()==Blocks.largeShieldProjector,"Direct deconstruction is cancelled before a builder can dismantle a barrier");
+        barrier=tile.build;
+        check(floor!=null,"Faction spawn floor fixture exists for map protection checks");
+        if(floor!=null){
+            Vars.world.tile(17,17).setFloor(floor.asFloor());
+            check(coolplugin.gameplay.MapProtection.overlapsSpawn(barrier),"Spawn overlap includes the off-centre corner of multiblock buildings");
+            var protection=new coolplugin.gameplay.MapProtection();protection.start();protection.clearSpawnBuildings();
+            check(tile.block()==Blocks.air,"Even an invulnerable large barrier is removed from a faction spawnpoint");
+            Vars.world.tile(17,17).setBlock(Blocks.copperWall,Team.sharded,0);
+            protection.clearSpawnBuildings();
+            check(Vars.world.tile(17,17).block()==Blocks.air,"Ordinary buildings placed on faction spawnpoints are removed");
+        }
+        Vars.world.tile(5,5).setBlock(Blocks.copperWall,Team.sharded,0);
+        check(!coolplugin.gameplay.MapProtection.overlapsSpawn(Vars.world.tile(5,5).build),"Buildings outside faction spawnpoints remain allowed");
+    }
+
     private static void verifyTreeLoadouts(CoolPlugin plugin,Player player,Fi config)throws Exception{
         var system=plugin.getPlayerUnitSystem();var items=plugin.getPlayerItemSystem();var db=plugin.getPlayerDatabase();
         var klass=coolplugin.gameplay.PlayerUnitSystem.class;

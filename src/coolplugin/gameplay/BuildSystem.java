@@ -108,6 +108,7 @@ public class BuildSystem {
     public void start() {
         if (started) return;
         started = true;
+        new MapProtection().start();
 
         Events.on(WorldLoadEvent.class, e -> onWorldLoaded());
         Events.on(PlayEvent.class, e -> setupWorld(false));
@@ -324,6 +325,11 @@ public class BuildSystem {
 
         Tile tile = world.tile(plan.x, plan.y);
         if (tile == null) {
+            unit.plans.removeFirst();
+            return;
+        }
+
+        if (plan.breaking && tile.block() == Blocks.largeShieldProjector) {
             unit.plans.removeFirst();
             return;
         }

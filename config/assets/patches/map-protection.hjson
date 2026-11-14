@@ -1,0 +1,11 @@
+name: Protected large barrier projectors
+block.large-shield-projector: {
+  destructible: false
+  breakable: false
+  targetable: false
+  consumesPower: false
+  connectedPower: false
+  consumes: {
+    remove: power
+  }
+}

@@ -155,7 +155,7 @@ public final class ColouringSystem {
             for(var palette:choices){
                 boolean unavailable=!available(player,stationTier).contains(palette);
                 boolean locked=palette.tier()>stationTier,active=palette.id().equals(selected)&&!locked&&!unavailable;
-                TableBuilder tile=table().width(140f).height(locked||unavailable?134f:76f);
+                TableBuilder tile=table().width(140f).height(locked||unavailable?98f:76f);
                 ButtonTableBuilder button=buttonTable().style("defaultt").checked(active).disabled(locked||unavailable)
                     .clicked("palette:"+palette.id()).size(58f).margin(6f);
                 button.add(image(UiSpriteSync.resolveMenuDrawable("paint-can-"+palette.id()))
@@ -165,7 +165,7 @@ public final class ColouringSystem {
                     .color(mindustry.graphics.Pal.accent.toString()).scaling(Scaling.stretch));
                 framed.add(table().add(button));
                 tile.add(framed).row();
-                if(locked)tile.add(label("Requires colouring station 2").wrap().width(135f).labelAlign("center").color("9999aaff"));
+                if(locked)tile.add(table().add(label("Requires").style("defaultLabel").color("9999aaff")).add(image(UiSpriteSync.resolveMenuDrawable("colouring-station-2-ui")).scaling(Scaling.fit).size(16f).padLeft(3f)));
                 else if(unavailable)tile.add(label("No paint cans owned").wrap().width(135f).labelAlign("center").color("9999aaff"));
                 grid.add(tile);
                 if(++col%2==0)grid.row();

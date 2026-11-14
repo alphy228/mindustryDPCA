@@ -281,7 +281,7 @@ public class PlayerItemSystem {
             st.totalEquipped++;if(i<ACTIVE_PASSIVE_SLOTS)st.activeSlotsUsed++;else st.overloadCount++;
         }
 
-        for(int i=0;i<n;i++){ShopItemDef def=cat.findItem(equippedIds.get(i));if(def!=null)st.totalWeight+=Math.max(0f,def.weight);}
+        for(int i=0;i<n;i++){ShopItemDef def=cat.findItem(equippedIds.get(i));if(def!=null)st.totalWeight+=def.carryingWeight();}
         if(unit!=null&&unit.type!=null){st.weightReferenceHealth=Math.max(1f,unit.type.health);st.weightSpeedFactor=weightFactor(st.totalWeight,st.weightReferenceHealth);}
         float hpBonus = 0f;
         float dmgBonus = 0f;
@@ -753,8 +753,10 @@ public class PlayerItemSystem {
                 BulletType bulletType = resolveSubweaponBullet(barrel.def.subweaponPreset);
                 if (bulletType != null) {
                     float aimAngle = Angles.angle(muzzleX, muzzleY, aimX, aimY);
-                    float spawnX = muzzleX + Angles.trnsx(aimAngle, 4.0f);
-                    float spawnY = muzzleY + Angles.trnsy(aimAngle, 4.0f);
+                    var dimensions=ColouringAssets.mountSizes.get(barrel.def.id);
+                    float muzzleLength=dimensions==null?3f:dimensions.y*.45f;
+                    float spawnX = muzzleX + Angles.trnsx(aimAngle, muzzleLength);
+                    float spawnY = muzzleY + Angles.trnsy(aimAngle, muzzleLength);
                     float dmg = Math.max(1f, barrel.def.subweaponDamage * stats.damageMult);
                     float bSpeed = Math.max(1.5f, bulletType.speed);
                     float lifeScl = Mathf.clamp(barrel.def.subweaponRange / (bSpeed * Math.max(8f, bulletType.lifetime)), 0.45f, 1.85f);
@@ -762,11 +764,10 @@ public class PlayerItemSystem {
                     worldLogicManager.kickSubweapon(rigKey,barrel.def,barrel.localForward,barrel.localSide);
                     var muzzle=barrel.def.resolveWeaponEffect(barrel.def.subweaponShootEffect);
                     var smoke=barrel.def.resolveWeaponEffect(barrel.def.subweaponSmokeEffect);
-                    String domain=unit.isFlying()?"air":"ground";
-                    var flashStatus=Vars.content.statusEffect("dp-mount-"+domain+"-flash");
-                    var smokeStatus=Vars.content.statusEffect("dp-mount-"+domain+"-smoke");
-                    if(muzzle!=null && flashStatus!=null)Call.effect(flashStatus.effect,spawnX,spawnY,aimAngle,bulletType.hitColor);
-                    if(smoke!=null && smokeStatus!=null)Call.effect(smokeStatus.effect,spawnX,spawnY,aimAngle,bulletType.hitColor);
+                    // Built-in IDs are stable; dynamically parsed datapatch Effect IDs are not.
+                    // A client-local flash marker also renders above airborne mounts.
+                    if(muzzle!=null)Call.effect(muzzle,spawnX,spawnY,aimAngle,bulletType.hitColor);
+                    if(smoke!=null)Call.effect(smoke,spawnX,spawnY,aimAngle,bulletType.hitColor);
                     var sound=barrel.def.resolveShootSound();
                     if(sound!=null&&barrel.def.subweaponSoundVolume>0f)Call.soundAt(sound,spawnX,spawnY,barrel.def.subweaponSoundVolume,barrel.def.subweaponSoundPitch);
                 }

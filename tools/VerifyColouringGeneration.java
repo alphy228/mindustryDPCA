@@ -320,7 +320,7 @@ public class VerifyColouringGeneration {
         check(coolplugin.gameplay.ColouringAssets.baseName(restored.name).equals("reign"),"Retired variant names preserve the player's base unit on reconnect");
         var colour=new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_ARGB);colour.setRGB(0,0,0xff5b739a);
         int transferred=coolplugin.gameplay.ColouringAssets.recolour(colour,palette.ramp()).getRGB(0,0)&0xffffff;
-        check(java.util.Arrays.stream(palette.ramp()).anyMatch(c->c==transferred),"Whole-scheme transfer uses actual palette colours, not interpolated gradients");
+        check(transferred==0x5b739a,"Unknown RGB colours stay unchanged rather than being guessed");
         migrationEq=plugin.getPlayerItemSystem().getEquipment(p);migrationEq.equipped.add("paint-turret-duo");plugin.getPlayerItemSystem().saveEquipment(p,migrationEq);
         plugin.getPlayerItemSystem().getEquipment(p);
         var retired=plugin.getPlayerItemSystem().getCatalog().findItem("paint-turret-duo");
@@ -333,7 +333,7 @@ public class VerifyColouringGeneration {
         if(tier2!=null){
             setEquipped(plugin,p,tier2.canId());
             String lockedUi=new String(serializeUi(system.buildMenu(p,base,1,"")),StandardCharsets.UTF_8);
-            check(lockedUi.contains("Requires colouring station 2")&&lockedUi.contains("paint-can-"+tier2.id()),"T1 displays owned T2 can with requirement text");
+            check(lockedUi.contains("Requires")&&lockedUi.contains("colouring-station-2-ui")&&lockedUi.contains("paint-can-"+tier2.id()),"T1 displays owned T2 can with requirement text");
             check(!system.apply(p,station,host,tier2.id()),"Tier restrictions remain server-authoritative");
         }
         check(paintedUi.contains("shop-inv-hex-workbench")&&!paintedUi.contains(palette.title()),"Paints use icon-only hex panel, not text palette buttons");
@@ -342,7 +342,7 @@ public class VerifyColouringGeneration {
         var pixels=new java.awt.image.BufferedImage(4,1,java.awt.image.BufferedImage.TYPE_INT_ARGB);
         pixels.setRGB(0,0,0xff989aa4);pixels.setRGB(1,0,0xfff98dc9);pixels.setRGB(2,0,0x7f565666);pixels.setRGB(3,0,0x00123456);
         var mapped=coolplugin.gameplay.ColouringAssets.recolour(pixels,target);
-        check((mapped.getRGB(0,0)&0xffffff)==target[3]&&(mapped.getRGB(1,0)&0xffffff)==target[8],"Armour maps to armour and accents map to accents, not one mixed brightness ramp");
+        check((mapped.getRGB(0,0)&0xffffff)==target[4]&&(mapped.getRGB(1,0)&0xffffff)==target[8],"Armour maps to armour and accents map to accents, not one mixed brightness ramp");
         check((mapped.getRGB(2,0)>>>24)==127&&mapped.getRGB(3,0)==pixels.getRGB(3,0),"Recolour preserves alpha and transparent pixels exactly; no added edges or lines");
         int alphaErrors=0;
         for(var pal:coolplugin.gameplay.ColouringAssets.palettes)for(String unitName:new String[]{"dagger","toxopid","oct","dp-corrode-unit","dp-dissociate-unit"}){
@@ -549,16 +549,17 @@ public class VerifyColouringGeneration {
             &&workConfig.child("assets/sprites/item-mounts/"+paintedMount.substring(3)+".png").exists(),
             "Mount texture follows the host's native or painted palette, not the item's old colour");
         var layoutIds=Seq.with("wb-06","bz-07","wb-07","bz-13");
-        boolean disjoint=true;
+        boolean bounded=true,distinct=true;
         for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
             var placements=coolplugin.gameplay.MountLayout.resolve(type.create(Team.sharded),layoutIds,catalog);
-            float minimum=arc.math.Mathf.clamp(5.4f+type.hitSize*.14f,5.76f,10.56f)*1.04f*1.415f+5.5f;
+            float extent=Math.max(1.5f,Math.max(4f,type.hitSize*.5f)*.70f);
+            for(var placement:placements)bounded&=Math.abs(placement.forward())<=extent+.01f&&Math.abs(placement.side())<=extent+.01f;
             for(int i=0;i<placements.size;i++)for(int j=i+1;j<placements.size;j++){
                 var a=placements.get(i);var b=placements.get(j);
-                if(arc.math.Mathf.dst(a.forward(),a.side(),b.forward(),b.side())<minimum-.02f)disjoint=false;
+                distinct&=arc.math.Mathf.dst(a.forward(),a.side(),b.forward(),b.side())>.01f;
             }
         }
-        check(disjoint,"Shared mount layout avoids sprite/recoil overlap across all controllable units");
+        check(bounded&&distinct,"Multiple native-size mounts stay at distinct hull-bounded offsets instead of spreading off-body");
         itemSystem.updateVisualRigForUnit("mirror-test",wearer,Seq.with(cannon.id),itemSystem.computeStats(Seq.with(cannon.id),wearer));
         var mirrorProc=itemSystem.getWorldLogicManager().getProcessorForOwner("mirror-test");mirrorProc.executor.optionalVar("hostUnit").setobj(wearer);
         for(int step=0;step<3000;step++)mirrorProc.executor.runOnce();
@@ -600,6 +601,77 @@ public class VerifyColouringGeneration {
         var roleOutput=coolplugin.gameplay.ColouringAssets.recolour(rolePixels,targetRoles,sourceRoles);
         boolean exactRoles=true;for(int i=0;i<10;i++)exactRoles&=(roleOutput.getRGB(i,0)&0xffffff)==targetRoles[i];
         check(exactRoles&&roleOutput.getRGB(10,0)==0xff404049,"Source-aware recolouring replaces each material role exactly and preserves the outline");
+        var allGuns=new Seq<String>();for(var item:catalog.items)if(item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.SUBWEAPON&&item.isSymmetricallyDuplicated(4f)&&allGuns.size<4)allGuns.add(item.id);
+        while(allGuns.size<10)allGuns.add(cannon.id);
+        int gunCodeLines=0;
+        for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
+            String gunCode=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,type.create(Team.sharded),allGuns,catalog,visualEntries);
+            gunCodeLines=Math.max(gunCodeLines,(int)gunCode.lines().count());
+        }
+        check(gunCodeLines<1000,"Four dual-shooting mounts plus all six carry items fit the native parser including local muzzle flashes");
+        var octScheme=coolplugin.gameplay.ColouringAssets.palette("unit-oct");
+        var octDagger=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant("dagger",octScheme));
+        check(octDagger!=null&&octDagger.weapons.size==UnitTypes.dagger.weapons.size
+            &&octDagger.weapons.allMatch(w->w.name.startsWith("dp-paint-unit-oct-")
+                &&workConfig.child("assets/sprites/colouring-generated/"+w.name.substring(3)+".png").exists()),
+            "Dagger painted with Oct retains both normal weapons with resolvable recoloured sprite names");
+        var daggerPixels=javax.imageio.ImageIO.read(workConfig.child("colouring-cache/previews/base-dagger.png").file());
+        var greenPixels=javax.imageio.ImageIO.read(workConfig.child("colouring-cache/previews/paint-unit-oct-dagger.png").file());
+        int exactPaintErrors=0,orangePixels=0;
+        for(int y=0;y<daggerPixels.getHeight();y++)for(int x=0;x<daggerPixels.getWidth();x++){
+            int rgb=daggerPixels.getRGB(x,y)&0xffffff;if((daggerPixels.getRGB(x,y)>>>24)==0)continue;
+            if(rgb==0xffa664){orangePixels++;if((greenPixels.getRGB(x,y)&0xffffff)!=0x84f490)exactPaintErrors++;}
+            if(rgb==0xd06b53&&((greenPixels.getRGB(x,y)&0xffffff)!=0x62ae7e))exactPaintErrors++;
+        }
+        check(orangePixels>0&&exactPaintErrors==0,"Dagger-to-Oct maps exact orange light/dark accents to Oct's actual green light/dark RGB values");
+        check(workConfig.child("alphystuff/unit-palettes.hjson").exists()&&coolplugin.gameplay.ManualUnitPalettes.source("oct")[8]==0x84f490,
+            "Editable manual palette tables, not histogram extraction, define the shipped schemes");
+        itemSystem.updateVisualRigForUnit("flash-check",wearer,Seq.with(cannon.id),itemSystem.computeStats(Seq.with(cannon.id),wearer));
+        var flashProc=itemSystem.getWorldLogicManager().getProcessorForOwner("flash-check");flashProc.executor.optionalVar("hostUnit").setobj(wearer);
+        for(int step=0;step<3000;step++)flashProc.executor.runOnce();
+        var flashEntries=itemSystem.getWorldLogicManager().getCompiledEntries("flash-check");
+        for(var entry:flashEntries)itemSystem.getWorldLogicManager().kickSubweapon("flash-check",entry.def(),entry.localForwardWorld(),entry.localSideWorld());
+        for(int step=0;step<3000;step++)flashProc.executor.runOnce();
+        boolean visibleFlashes=true,nativeScale=true;
+        var nativeSize=coolplugin.gameplay.ColouringAssets.mountSizes.get(cannon.id);
+        for(var entry:flashEntries){
+            var sprite=(mindustry.game.MapObjectives.TextureMarker)Vars.state.markers.get(entry.primaryMarkerId());
+            var flash=(mindustry.game.MapObjectives.ShapeMarker)Vars.state.markers.get(entry.connectionLineMarkerId());
+            visibleFlashes&=flash.radius>0&&flash.color.a>0&&layerField.getFloat(flash)>layerField.getFloat(sprite);
+            nativeScale&=Math.abs(Math.abs(sprite.width)/nativeSize.x-1f)<.001f&&Math.abs(sprite.height/nativeSize.y-1f)<.001f;
+        }
+        check(visibleFlashes,"Both dual mounts display real local muzzle flashes above the weapon layer after authoritative shots");
+        check(nativeScale,"Mount markers render at 100 percent native sprite dimensions, within the requested 10 percent limit");
+        float originalMass=cannon.weight;
+        var originalDimensions=coolplugin.gameplay.ColouringAssets.mountSizes.get(cannon.id).cpy();
+        coolplugin.gameplay.ColouringAssets.mountSizes.put(cannon.id,new arc.math.geom.Vec2(40,80));
+        check(cannon.carryingWeight()>=500,"Large native sprites receive a size-based weight floor instead of being shrunk into tiny mounts");
+        coolplugin.gameplay.ColouringAssets.mountSizes.put(cannon.id,originalDimensions);cannon.weight=originalMass;
+        itemSystem.destroyRig("flash-check");
+        var tech=plugin.getTechTree();tech.reloadTree();var progress=tech.getProgressStore();var researchNode=tech.findNode("graphite-press");
+        p.team(Team.sharded);progress.unlockSingle(p.uuid(),p.plainName(),researchNode,tech.getRoot());
+        progress.addPaidAmount(p.uuid(),p.plainName(),"faction-payment-probe","copper",37,tech.getRoot());
+        progress.setFlag(p.uuid(),p.plainName(),"faction-flag-probe",true,tech.getRoot());
+        String shardedScope=progress.scope(p.uuid());
+        p.team(Team.crux);
+        check(!progress.isUnlocked(p.uuid(),researchNode)&&progress.getPaidAmount(p.uuid(),"faction-payment-probe","copper")==0
+            &&!progress.hasFlag(p.uuid(),"faction-flag-probe")&&!shardedScope.equals(progress.scope(p.uuid())),
+            "Switching live team to Crux isolates research unlocks, partial payments and condition flags from Sharded");
+        progress.addPaidAmount(p.uuid(),p.plainName(),"faction-payment-probe","copper",9,tech.getRoot());
+        p.team(Team.sharded);
+        check(progress.isUnlocked(p.uuid(),researchNode)&&progress.getPaidAmount(p.uuid(),"faction-payment-probe","copper")==37
+            &&progress.hasFlag(p.uuid(),"faction-flag-probe"),"Switching back restores only Sharded's research progress");
+        Vars.state.rules.researched.add(mindustry.content.Blocks.graphitePress);
+        p.team(Team.crux);
+        check(!tech.buildPlayerRules(p).researched.contains(mindustry.content.Blocks.graphitePress),
+            "Per-faction client rules cannot inherit another faction's researched set from global world rules");
+        boolean otherFactionsIsolated=true;
+        for(var faction:new coolplugin.gameplay.FactionDef[]{coolplugin.gameplay.FactionDef.MALIS,coolplugin.gameplay.FactionDef.NEOPLASM}){
+            p.team(faction.team());otherFactionsIsolated&=!progress.isUnlocked(p.uuid(),researchNode)
+                &&progress.getPaidAmount(p.uuid(),"faction-payment-probe","copper")==0&&!progress.hasFlag(p.uuid(),"faction-flag-probe");
+        }
+        check(otherFactionsIsolated,"Malis and Neoplasm also retain their own independent research profiles");
+        p.team(Team.sharded);Vars.state.rules.researched.remove(mindustry.content.Blocks.graphitePress);
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 

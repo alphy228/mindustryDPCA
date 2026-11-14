@@ -39,7 +39,6 @@ public final class ColouringAssets {
     private long bulkPixelsPerPalette;
     private final ObjectMap<String,int[]> sourceRamps=new ObjectMap<>();
     private final ObjectMap<String,int[]> hostRamps=new ObjectMap<>();
-    private static final Map<String,Double> schemeDistances=new HashMap<>();
     private static final String DIR = "colouring-generated";
     private final Map<Class<?>,Object> defaults=new HashMap<>();
     private final Fi data;
@@ -91,21 +90,21 @@ public final class ColouringAssets {
             });
             probe.apply(patches, content, false);
             Seq<UnitType> units = Vars.content.units().select(u -> !UnitPatchManager.isHiddenUnit(u) && u.playerControllable && !u.name.startsWith("dp-paint-"));
-            palettes.clear(); originals.clear(); paletteAliases.clear(); schemeDistances.clear();
+            palettes.clear(); originals.clear(); paletteAliases.clear();
             // A candidate is a complete controllable-unit family scheme, never a turret,
             // internal projectile, or a new palette per component sprite.
-            for (UnitType unit : units) addFamilyPalette(unit);
+            ManualUnitPalettes.load(data);
             Seq<String> names = unitSpriteNames(units); names.sort();
             indexSourceRamps(units,names);
             int budgetCount = (int)Math.min(MAX_PALETTES, BULK_RGBA_BUDGET_BYTES / Math.max(1,bulkPixelsPerPalette*4));
             if(budgetCount<1)throw new IllegalStateException("One unit-family texture set exceeds the colouring memory budget");
-            consolidatePalettes(budgetCount);
+            if(palettes.size>budgetCount)throw new IllegalStateException("Manual palette list exceeds sprite budget: "+palettes.size+" > "+budgetCount);
             palettes.sort(Comparator.comparing(Palette::id));
             generateItemMounts(units);
             Log.info("[Colouring] @ distinct whole-unit schemes (hard cap @); @ MiB bulk RGBA, @ MiB conservative packing estimate.",
                 palettes.size,MAX_PALETTES,String.format(Locale.ROOT,"%.1f",bulkPixelsPerPalette*4.0*palettes.size/1048576),
                 String.format(Locale.ROOT,"%.1f",bulkPixelsPerPalette*4.0*palettes.size*1.9/1048576));
-            if (palettes.isEmpty()) throw new IllegalStateException("No palettes extracted");
+            if (palettes.isEmpty()) throw new IllegalStateException("Manual palette list is empty");
             indexConstants(Fx.class); indexConstants(Sounds.class); indexConstants(mindustry.entities.UnitSorts.class); indexConstants(arc.math.Interp.class); indexConstants(mindustry.entities.part.DrawPart.PartProgress.class);
             Fi liveImages = data.child("assets/sprites/" + DIR);
             Fi target = data.child("colouring-cache/staging/images");
@@ -113,6 +112,7 @@ public final class ColouringAssets {
             unitDir.deleteDirectory(); unitDir.mkdirs();
             // A source/content digest invalidates every recoloured output when inputs change.
             MessageDigest hash = MessageDigest.getInstance("SHA-256");
+            hash.update(data.child("alphystuff/unit-palettes.hjson").readBytes());
             for (Palette p : palettes) {
                 hash.update(p.id().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 for(int c:p.ramp()){hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);}
@@ -124,7 +124,7 @@ public final class ColouringAssets {
                     int c=image.getRGB(x,y); hash.update((byte)(c>>>24));hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);
                 }
             }
-            String digest = HexFormat.of().formatHex(hash.digest()) + "-source-material-roles-preview-v8";
+            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v11";
             Fi stamp = data.child("colouring-cache/digest");
             boolean cached = stamp.exists() && stamp.readString().equals(digest);
             if (cached) target=liveImages;
@@ -218,37 +218,27 @@ public final class ColouringAssets {
     private void indexSourceRamps(Seq<UnitType> units,Seq<String> names)throws Exception{
         sourceRamps.clear();hostRamps.clear();
         for(UnitType unit:units){
+            int[] ramp=ManualUnitPalettes.source(unit.name);if(ramp==null)continue;
+            hostRamps.put(unit.name,ramp);
             ObjectSet<String> family=new ObjectSet<>();family.add(unit.name);
             collectSpriteFamilies(unit,unit.name,0,new IdentityHashMap<>(),family);
-            Map<Integer,Integer> histogram=new HashMap<>();
-            for(String name:names){
-                boolean belongs=false;for(String root:family)if(name.equals(root)||name.startsWith(root+"-")){belongs=true;break;}
-                if(!belongs||isMask(name)||isMenuIconOrWreck(name))continue;
-                BufferedImage img=sprites.get(name);if(img==null)continue;
-                for(int y=0;y<img.getHeight();y++)for(int x=0;x<img.getWidth();x++){
-                    int c=img.getRGB(x,y);if((c>>>24)>240&&!outlineColour(c))histogram.merge(c&0xffffff,1,Integer::sum);
-                }
-            }
-            int[] ramp=roleRamp(histogram);if(ramp.length==0)continue;hostRamps.put(unit.name,ramp);
             for(String name:names)for(String root:family)if(name.equals(root)||name.startsWith(root+"-")){
-                if(!sourceRamps.containsKey(name))sourceRamps.put(name,ramp);break;
+                sourceRamps.put(name,ramp);break;
             }
+        }
+        for(String name:names){
+            if(name.equals("large-weapon")||name.startsWith("large-weapon-"))sourceRamps.put(name,ManualUnitPalettes.source("dagger"));
+            if(name.equals("small-weapon")||name.startsWith("small-weapon-"))sourceRamps.put(name,ManualUnitPalettes.source("alpha"));
         }
     }
     public static BufferedImage recolour(BufferedImage source,int[] target,int[] original){
-        if(original==null||original.length!=10||target.length!=10)return recolour(source,target);
         BufferedImage out=new BufferedImage(source.getWidth(),source.getHeight(),BufferedImage.TYPE_INT_ARGB);
         Map<Integer,Integer> lookup=new HashMap<>();
         for(int y=0;y<source.getHeight();y++)for(int x=0;x<source.getWidth();x++){
             int c=source.getRGB(x,y),rgb=c&0xffffff;
-            if((c>>>24)==0||outlineColour(rgb)){out.setRGB(x,y,c);continue;}
-            int mapped=lookup.computeIfAbsent(rgb,key->{
-                int exact=-1;for(int i=0;i<original.length;i++)if(original[i]==key){exact=i;break;}
-                if(exact>=0)return target[exact];
-                int start=accent(key)?6:0,end=accent(key)?10:6,best=start;
-                for(int i=start+1;i<end;i++)if(colourDistance(key,original[i])<colourDistance(key,original[best]))best=i;
-                return target[best];
-            });out.setRGB(x,y,(c&0xff000000)|mapped);
+            if((c>>>24)==0){out.setRGB(x,y,c);continue;}
+            int mapped=lookup.computeIfAbsent(rgb,key->ManualUnitPalettes.map(key,original,target));
+            out.setRGB(x,y,(c&0xff000000)|mapped);
         }return out;
     }
 
@@ -271,11 +261,11 @@ public final class ColouringAssets {
         for(var item:catalog.items){
             if(item.attachMode!=ShopItemDef.AttachMode.MOUNT && item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON)continue;
             String family=switch(item.subweaponPreset.toLowerCase(java.util.Locale.ROOT)){
-                case "mortar","artillery","blast" -> "precept";
-                case "pierce","lance","phase" -> "vanquish";
-                case "incendiary","pyratite","gatling" -> "conquer";
-                case "blaster","homing","plastanium" -> "quell";
-                default -> "stell";
+                case "mortar","artillery","blast" -> "elude";
+                case "pierce","lance","phase" -> "cleroi";
+                case "incendiary","pyratite","gatling" -> "cleroi";
+                case "blaster","homing","plastanium" -> "elude";
+                default -> "cleroi";
             };
             UnitType unit=Vars.content.unit(family);
             BufferedImage source=null;
@@ -285,14 +275,13 @@ public final class ColouringAssets {
             }
             boolean overrideAccepted=false;
             if(!item.mountWeaponSprite.isBlank()){source=outlinedWeapon(item.mountWeaponSprite);overrideAccepted=source!=null;}
-            if(source==null){source=outlinedWeapon("stell-weapon");family="stell";}
+            if(source==null){source=outlinedWeapon("cleroi-weapon");family="cleroi";}
             if(source==null)throw new IllegalStateException("No outlined weapon source for "+item.id);
             // Prefer a real outlined weapon; small unoutlined barrels are not suitable mounts.
-            if(!hasOutline(source)){source=outlinedWeapon("stell-weapon");family="stell";}
+            if(!hasOutline(source)){source=outlinedWeapon("cleroi-weapon");family="cleroi";}
             if(source==null||!hasOutline(source))throw new IllegalStateException("No outlined weapon sprite for "+item.id);
-            float largest=Math.max(source.getWidth(),source.getHeight());
-            mountSizes.put(item.id,new arc.math.geom.Vec2(source.getWidth()/largest,source.getHeight()/largest));
-            int[] weaponRamp=overrideAccepted?sourceRamps.get(item.mountWeaponSprite,hostRamps.get(family)):hostRamps.get(family);
+            mountSizes.put(item.id,new arc.math.geom.Vec2(source.getWidth()*.25f,source.getHeight()*.25f));
+            int[] weaponRamp=overrideAccepted?sourceRamps.get(item.mountWeaponSprite,ManualUnitPalettes.source(family)):ManualUnitPalettes.source(family);
             ImageIO.write(source,"png",target.child("item-mount-"+item.id+".png").file());
             for(UnitType host:units){
                 int[] nativeRamp=hostRamps.get(host.name);
@@ -410,112 +399,11 @@ public final class ColouringAssets {
     private static boolean isMenuIconOrWreck(String name){
         return name.endsWith("-full")||name.endsWith("-ui")||name.endsWith("-icon")||name.matches(".*-wreck[0-9]*$");
     }
-    private void addFamilyPalette(UnitType unit)throws Exception{
-        ObjectSet<String> family=new ObjectSet<>();family.add(unit.name);
-        collectSpriteFamilies(unit,unit.name,0,new IdentityHashMap<>(),family);
-        Map<Integer,Integer> histogram=new HashMap<>();
-        for(String name:sprites.keys()){
-            if(isMenuIconOrWreck(name)||isMask(name))continue;
-            boolean belongs=false;
-            for(String root:family)if(!root.isEmpty()&&(name.equals(root)||name.startsWith(root+"-"))){belongs=true;break;}
-            if(!belongs)continue;
-            BufferedImage img=sprites.get(name);
-            for(int y=0;y<img.getHeight();y++)for(int x=0;x<img.getWidth();x++){
-                int c=img.getRGB(x,y);if((c>>>24)<240||outlineColour(c))continue;
-                histogram.merge(c&0xffffff,1,Integer::sum);
-            }
-        }
-        int[] colours=roleRamp(histogram);
-        if(colours.length>1)palettes.add(new Palette("unit-"+unit.name,unit.localizedName+" scheme",unit.isPatchContent()?2:1,colours));
-    }
     private static boolean isMask(String name){
         return name.endsWith("-cell")||name.contains("-cell-")||name.endsWith("-heat")||name.endsWith("-glow")||name.endsWith("-light");
     }
-    // Stable material roles: six armour shades followed by four accent shades.
-    // Never put saturated glow/heat pixels in the armour colour table.
-    private static boolean accent(int c){
-        int r=(c>>>16)&255,g=(c>>>8)&255,b=c&255;
-        int hi=Math.max(r,Math.max(g,b)),lo=Math.min(r,Math.min(g,b));
-        return hi-lo>45 && (hi-lo)/(double)Math.max(1,hi)>0.25;
-    }
-    private static final int[] MATERIAL_REFERENCE={0x393944,0x565666,0x6e7080,0x989aa4,0xb0bac0,0xd7dbe0,0x70424f,0xa8527d,0xf98dc9,0xffc6e8};
-    private static int[] roleRamp(Map<Integer,Integer> histogram){
-        int[] result=new int[10];
-        for(int role=0;role<2;role++){
-            final boolean wantAccent=role==1;
-            int count=role==0?6:4,offset=role==0?0:6;
-            int[] colours=histogram.entrySet().stream().filter(e->accent(e.getKey())==wantAccent)
-                .sorted(Map.Entry.<Integer,Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
-                .limit(count).map(Map.Entry::getKey).sorted(Comparator.comparingDouble(ColouringAssets::luminance)).mapToInt(Integer::intValue).toArray();
-            if(colours.length==0){
-                // A neutral scheme has neutral accents too, not invented hue gradients.
-                colours=histogram.entrySet().stream().sorted(Map.Entry.<Integer,Integer>comparingByValue().reversed()).limit(6)
-                    .map(Map.Entry::getKey).sorted(Comparator.comparingDouble(ColouringAssets::luminance)).mapToInt(Integer::intValue).toArray();
-            }
-            if(colours.length==0)return new int[0];
-            for(int i=0;i<count;i++)result[offset+i]=colours[(int)Math.round(i*(colours.length-1.0)/Math.max(1,count-1))];
-        }
-        return result;
-    }
-
-    private static double colourDistance(int a,int b){
-        double r=((a>>16)&255)-((b>>16)&255),g=((a>>8)&255)-((b>>8)&255),bl=(a&255)-(b&255);
-        return Math.sqrt(0.2126*r*r+0.7152*g*g+0.0722*bl*bl);
-    }
-    private static double schemeDistance(Palette a,Palette b){
-        String key=a.id().compareTo(b.id())<0?a.id()+"|"+b.id():b.id()+"|"+a.id();
-        Double cached=schemeDistances.get(key);if(cached!=null)return cached;
-        double sum=0;
-        for(int c:a.ramp()){double nearest=Double.POSITIVE_INFINITY;for(int d:b.ramp())nearest=Math.min(nearest,colourDistance(c,d));sum+=nearest;}
-        for(int c:b.ramp()){double nearest=Double.POSITIVE_INFINITY;for(int d:a.ramp())nearest=Math.min(nearest,colourDistance(c,d));sum+=nearest;}
-        double result=sum/(a.ramp().length+b.ramp().length);schemeDistances.put(key,result);return result;
-    }
-    private void consolidatePalettes(int cap){
-        List<List<Palette>> groups=new ArrayList<>();
-        palettes.sort(Comparator.comparing(Palette::id));
-        for(Palette p:palettes){List<Palette> group=new ArrayList<>();group.add(p);groups.add(group);}
-        while(groups.size()>1){
-            int ai=-1,bi=-1;double closest=Double.POSITIVE_INFINITY;
-            for(int a=0;a<groups.size();a++)for(int b=a+1;b<groups.size();b++){
-                if(groups.get(a).get(0).tier()!=groups.get(b).get(0).tier())continue;
-                double distance=schemeDistance(representative(groups.get(a)),representative(groups.get(b)));
-                if(distance<closest){closest=distance;ai=a;bi=b;}
-            }
-            if(ai<0 || (groups.size()<=cap&&closest>2.0))break;
-            groups.get(ai).addAll(groups.remove(bi));
-        }
-        if(groups.size()>cap)throw new IllegalStateException("Palette budget cannot fit both station tiers");
-        palettes.clear();
-        for(List<Palette> group:groups){
-            Palette chosen=representative(group);palettes.add(chosen);
-            for(Palette member:group)paletteAliases.put(member.id(),chosen.id());
-        }
-    }
-    private static Palette representative(List<Palette> group){
-        Palette best=group.get(0);double score=Double.POSITIVE_INFINITY;
-        for(Palette candidate:group){double sum=0;for(Palette member:group)sum+=schemeDistance(candidate,member);
-            if(sum<score){score=sum;best=candidate;}}
-        return best;
-    }
-    private static double luminance(int c) { return (((c>>16)&255)*0.2126+((c>>8)&255)*0.7152+(c&255)*0.0722)/255.0; }
-    public static BufferedImage recolour(BufferedImage src,int[] ramp) {
-        BufferedImage out=new BufferedImage(src.getWidth(),src.getHeight(),BufferedImage.TYPE_INT_ARGB);
-        Map<Integer,Integer> lookup=new HashMap<>();
-        for(int y=0;y<src.getHeight();y++)for(int x=0;x<src.getWidth();x++){
-            int c=src.getRGB(x,y),a=c>>>24;
-            if(a==0||outlineColour(c)){out.setRGB(x,y,c);continue;}
-            int mapped=lookup.computeIfAbsent(c&0xffffff,rgb->{
-                if(ramp.length!=10){ // compatibility for externally supplied colour tables
-                    int closest=0;for(int i=1;i<ramp.length;i++)if(colourDistance(rgb,ramp[i])<colourDistance(rgb,ramp[closest]))closest=i;
-                    return ramp[closest];
-                }
-                int start=accent(rgb)?6:0,end=accent(rgb)?10:6,best=start;
-                for(int i=start+1;i<end;i++)if(colourDistance(rgb,MATERIAL_REFERENCE[i])<colourDistance(rgb,MATERIAL_REFERENCE[best]))best=i;
-                return ramp[best];
-            });
-            out.setRGB(x,y,(a<<24)|mapped);
-        }
-        return out;
+    public static BufferedImage recolour(BufferedImage src,int[] ramp){
+        return recolour(src,ramp,new int[]{0x404049,0x404049,0x565666,0x6e7080,0x989aa4,0xb0bac0,0xa8527d,0xa8527d,0xf98dc9,0xf98dc9});
     }
     private static BufferedImage paintCan(int[] ramp) {
         BufferedImage out=new BufferedImage(24,24,BufferedImage.TYPE_INT_ARGB);
@@ -553,13 +441,18 @@ public final class ColouringAssets {
         j.add("generateIcons",Jval.valueOf(false));
         j.add("fullOverride",Jval.valueOf("dp-"+p.spritePrefix()+u.name));
         remapNames(j,p);
+        Jval weapons=j.get("weapons");
+        if(weapons!=null)for(Jval weapon:weapons.asArray()){
+            String name=weapon.getString("name","");
+            if(name.startsWith("dp-"))weapon.add("name",Jval.valueOf(name.substring(3)));
+        }
         j.add("name",Jval.valueOf(u.localizedName));j.add("localizedName",Jval.valueOf(u.localizedName));
         return j;
     }
     private void remapNames(Jval j,Palette p) {
         if(j.isObject())for(var entry:j.asObject()) {
             if((entry.key.equals("name") || entry.key.equals("sprite") || entry.key.endsWith("Sprite") || entry.key.equals("fullOverride")) && entry.value.isString() && sprites.containsKey(entry.value.asString()))
-                entry.value=Jval.valueOf("dp-"+p.spritePrefix()+entry.value.asString());
+                j.add(entry.key,Jval.valueOf("dp-"+p.spritePrefix()+entry.value.asString()));
             else remapNames(entry.value,p);
         }else if(j.isArray())for(Jval child:j.asArray())remapNames(child,p);
     }

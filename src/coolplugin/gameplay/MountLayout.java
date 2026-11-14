@@ -10,25 +10,32 @@ public final class MountLayout {
     public static Seq<Placement> resolve(Unit unit, Seq<String> ids, ShopConfigIO.Catalog catalog){
         Seq<Placement> result=new Seq<>();
         float radius=Math.max(4f,unit.hitSize*0.5f);
-        // Circumscribed sprite disk + maximum recoil: no overlap at any aim angle.
-        float diameter=Mathf.clamp(5.4f+unit.hitSize*.14f,5.76f,10.56f)*1.04f;
-        float separation=diameter*1.415f+5.5f;
+        // Centres stay on the hull. On very small units, several full-size weapons
+        // physically cannot be disjoint; minimize overlap instead of moving them off-body.
+        float extent=Math.max(1.5f,radius*.70f);
         for(int i=0;i<Math.min(4,ids.size);i++){
             ShopItemDef item=catalog.findItem(ids.get(i));
             if(item==null||(item.attachMode!=ShopItemDef.AttachMode.MOUNT&&item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON))continue;
-            float preferredForward=item.computeForwardOffset(radius),preferredSide=Math.abs(item.computeSideOffset(radius));
+            var size=ColouringAssets.mountSizes.get(item.id);
+            float width=size==null?6f:size.x,height=size==null?7f:size.y;
             boolean dual=item.isSymmetricallyDuplicated(radius);
-            float chosenForward=preferredForward,chosenSide=dual?Math.max(preferredSide,separation/2f):0;
-            search: for(int row=0;row<16;row++)for(int column=0;column<8;column++){
-                if(!dual&&column>0)continue;
-                float forward=preferredForward-row*separation;
-                float side=dual?Math.max(preferredSide,separation/2f)+column*separation:0;
-                boolean clear=true;
+            float preferredForward=Mathf.clamp(item.computeForwardOffset(radius),-extent,extent);
+            float preferredSide=dual?Mathf.clamp(Math.abs(item.computeSideOffset(radius)),extent*.35f,extent*.85f):0;
+            float chosenForward=preferredForward,chosenSide=preferredSide,best=Float.POSITIVE_INFINITY;
+            for(int row=0;row<9;row++)for(int column=0;column<(dual?5:1);column++){
+                float forward=-extent+row*extent/4f;
+                float side=dual?extent*(.3f+column*.15f):0;
+                float score=.025f*(Mathf.sqr(forward-preferredForward)+Mathf.sqr(side-preferredSide));
                 for(Placement other:result){
-                    if(Mathf.dst(forward,side,other.forward,other.side)<separation-.01f)clear=false;
-                    if(dual&&Mathf.dst(forward,-side,other.forward,other.side)<separation-.01f)clear=false;
+                    var otherSize=ColouringAssets.mountSizes.get(other.item.id);
+                    float ow=otherSize==null?6f:otherSize.x,oh=otherSize==null?7f:otherSize.y;
+                    float overlapY=Math.max(0,(height+oh)*.5f+.2f-Math.abs(forward-other.forward));
+                    score+=Math.max(0,(width+ow)*.5f+.2f-Math.abs(side-other.side))*overlapY;
+                    if(dual)score+=Math.max(0,(width+ow)*.5f+.2f-Math.abs(-side-other.side))*overlapY;
+                    if(Mathf.dst(forward,side,other.forward,other.side)<.4f)score+=10000;
+                    if(dual&&Mathf.dst(forward,-side,other.forward,other.side)<.4f)score+=10000;
                 }
-                if(clear){chosenForward=forward;chosenSide=side;break search;}
+                if(score<best){best=score;chosenForward=forward;chosenSide=side;}
             }
             result.add(new Placement(i,item,chosenForward,chosenSide,false));
             if(dual)result.add(new Placement(i,item,chosenForward,-chosenSide,true));

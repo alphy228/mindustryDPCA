@@ -48,6 +48,7 @@ public class TechTreeMenu {
 
     private static final class PlayerMenuSession {
         String selectedNodeId = "";
+        String profileScope="";
     }
 
     private final TechTreeService service;
@@ -91,15 +92,15 @@ public class TechTreeMenu {
 
     public void refreshOpenSession(Player player) {
         if (player == null || player.con == null || menuId == -1) return;
-        PlayerMenuSession session = sessions.get(player.uuid());
-        if (session == null) return;
+        if(!sessions.containsKey(player.uuid()))return;
+        PlayerMenuSession session = getOrInitSession(player);
         pushPartialUpdates(player, session, true, true);
     }
 
     private PlayerMenuSession getOrInitSession(Player player) {
         PlayerMenuSession session = sessions.get(player.uuid());
-        if (session == null) {
-            session = new PlayerMenuSession();
+        if (session == null || !session.profileScope.equals(service.progressScope(player))) {
+            session = new PlayerMenuSession();session.profileScope=service.progressScope(player);
             sessions.put(player.uuid(), session);
         }
         if (!session.selectedNodeId.isEmpty()) {

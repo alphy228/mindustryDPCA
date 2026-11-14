@@ -607,8 +607,11 @@ public final class WorldItemLogicManager {
                     }
 
                     for(var placement:MountLayout.resolve(unit,equippedIds,catalog))if(placement.slot()==i){
-                        if(nextMarkerOffset+1>MARKERS_PER_SLOT)break;
-                        outEntries.add(new CompiledVisualEntry(def,i,kind,false,baseMarkerId+(nextMarkerOffset++),-1,
+                        int required=kind==RenderedKind.SUBWEAPON?2:1;
+                        if(nextMarkerOffset+required>MARKERS_PER_SLOT)break;
+                        int textureId=baseMarkerId+(nextMarkerOffset++);
+                        int flashId=kind==RenderedKind.SUBWEAPON?baseMarkerId+(nextMarkerOffset++):-1;
+                        outEntries.add(new CompiledVisualEntry(def,i,kind,false,textureId,flashId,
                             placement.forward(),placement.side(),placement.mirrored()?-def.effectiveMountAngleOffset():def.effectiveMountAngleOffset()));
                     }
                 }
@@ -653,12 +656,19 @@ public final class WorldItemLogicManager {
                 case MOUNT, SUBWEAPON -> {
                     float sz = ce.kind == RenderedKind.SUBWEAPON ? spriteTiles * 1.04f : spriteTiles;
                     var fit=ColouringAssets.mountSizes.get(ce.def.id);
-                    float width=sz*(fit==null?1f:fit.x),height=sz*(fit==null?1f:fit.y);
+                    float width=(fit==null?6f:fit.x)/tilesize,height=(fit==null?7f:fit.y)/tilesize;
                     sb.append("makemarker texture ").append(ce.primaryMarkerId).append(" 0 0 true\n");
                     sb.append("setmarker texture ").append(ce.primaryMarkerId).append(" 0 \"")
                         .append(MountLayout.texture(unit,ce.def)).append("\" 0\n");
                     sb.append("setmarker textureSize ").append(ce.primaryMarkerId).append(" ")
                         .append(f(ce.localSideWorld<0?-width:width)).append(" ").append(f(height)).append(" 0\n");
+                    if(ce.kind==RenderedKind.SUBWEAPON){
+                        sb.append("makemarker shape ").append(ce.connectionLineMarkerId).append(" 0 0 true\n");
+                        sb.append("setmarker shape ").append(ce.connectionLineMarkerId).append(" 3 1 0\n");
+                        sb.append("setmarker radius ").append(ce.connectionLineMarkerId).append(" 0 0 0\n");
+                        sb.append("setmarker minimap ").append(ce.connectionLineMarkerId).append(" 0 0 0\n");
+                        sb.append("setmarker world ").append(ce.connectionLineMarkerId).append(" 0 0 0\n");
+                    }
                     sb.append("setmarker minimap ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                     sb.append("setmarker world ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                 }
@@ -684,8 +694,11 @@ public final class WorldItemLogicManager {
                     sb.append("makemarker texture ").append(ce.primaryMarkerId).append(" 0 0 true\n");
                     sb.append("setmarker texture ").append(ce.primaryMarkerId).append(" 0 \"")
                         .append(ce.def.attachMode==AttachMode.MOUNT||ce.def.attachMode==AttachMode.SUBWEAPON?MountLayout.texture(unit,ce.def):ce.def.worldTextureName()).append("\" 0\n");
+                    var carryFit=ColouringAssets.mountSizes.get(ce.def.id);
+                    float carryWidth=carryFit==null?tailSpriteTiles:carryFit.x/tilesize;
+                    float carryHeight=carryFit==null?tailSpriteTiles:carryFit.y/tilesize;
                     sb.append("setmarker textureSize ").append(ce.primaryMarkerId).append(" ")
-                        .append(f(tailSpriteTiles)).append(" ").append(f(tailSpriteTiles)).append(" 0\n");
+                        .append(f(carryWidth)).append(" ").append(f(carryHeight)).append(" 0\n");
                     sb.append("setmarker minimap ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                     sb.append("setmarker world ").append(ce.primaryMarkerId).append(" 0 0 0\n");
                 }
@@ -790,6 +803,7 @@ public final class WorldItemLogicManager {
                     sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" mountLayer 0 0\n");
                 }
                 case SUBWEAPON -> {
+                    sb.append("subBegin").append(e).append(":\n");
                     sb.append("op add mountLayer baseLayer ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     sb.append("op sub adx sx mx\n");
@@ -817,6 +831,13 @@ public final class WorldItemLogicManager {
                     sb.append("setmarker pos ").append(ce.primaryMarkerId).append(" mx my 0\n");
                     sb.append("setmarker rotation ").append(ce.primaryMarkerId).append(" mrot 0 0\n");
                     sb.append("setmarker drawLayer ").append(ce.primaryMarkerId).append(" mountLayer 0 0\n");
+                    if(ce.def.resolveWeaponEffect(ce.def.subweaponShootEffect)!=null){
+                        var dimensions=ColouringAssets.mountSizes.get(ce.def.id);
+                        sb.append("set flashId ").append(ce.connectionLineMarkerId).append("\n");
+                        sb.append("set flashLength ").append(f((dimensions==null?3f:dimensions.y*.45f)/tilesize)).append("\n");
+                        sb.append("op add flashReturn @counter 1\njump mountFlashDraw always 0 0\n");
+                    }
+                    sb.append("subEnd").append(e).append(":\n");
                 }
                 case HALO -> {
                     // One compact call per anchor avoids the native 1000-instruction parser
@@ -1043,6 +1064,12 @@ public final class WorldItemLogicManager {
         sb.append("set vis 0\n");
 
         sb.append("jump waitTick always 0 0\n");
+        if(outEntries.contains(entry->entry.kind==RenderedKind.SUBWEAPON)){
+            sb.append("mountFlashDraw:\nop div flashAlpha shotAge 6\nop sub flashAlpha 1 flashAlpha\nop max flashAlpha flashAlpha 0\nop min flashAlpha flashAlpha 1\nop mul flashAlpha flashAlpha hasShot\n");
+            sb.append("op add flashAngle mrot 90\nop cos flashX flashAngle 0\nop sin flashY flashAngle 0\nop mul flashX flashX flashLength\nop mul flashY flashY flashLength\nop add flashX flashX mx\nop add flashY flashY my\n");
+            sb.append("setmarker pos flashId flashX flashY 0\nsetmarker rotation flashId flashAngle 0 0\nop add flashLayer mountLayer 0.45\nsetmarker drawLayer flashId flashLayer 0 0\n");
+            sb.append("op mul flashRadius flashAlpha 2.2\nsetmarker radius flashId flashRadius 0 0\npackcolor flashColor 1 0.91 0.55 flashAlpha\nsetmarker color flashId flashColor 0 0\nset @counter flashReturn\n");
+        }
         if(outEntries.contains(entry->entry.kind==RenderedKind.HALO)){
             sb.append("haloDraw:\nop idiv hId hPacked 4000000000000\nop add hId hId ").append(baseMarkerId).append("\n");
             sb.append("op mod hSide hPacked 2000000\nop sub hSide hSide 1000000\nop div hSide hSide 10000\n");
@@ -1070,9 +1097,11 @@ public final class WorldItemLogicManager {
     // Native LParser truncates at 1000 lines. Share physics instead of unrolling it
     // six times; retain all spring, collision and hull-deflection calculations.
     private static String compactPhysics(String code){
+        code=shareBlocks(code,"(?m)^subBegin\\d+:\n[\\s\\S]*?^subEnd\\d+:\n","subweapon");
         code=shareBlocks(code,"(?m)^op sub rx anchorX tx\\d+\n[\\s\\S]*?^tForceDone\\d+:\n","towForce");
         code=shareBlocks(code,"(?m)^op mul vx\\d+ vx\\d+ drag\n[\\s\\S]*?^setmarker drawLayer \\d+ baseLayer 0 0\n","towStep");
         code=shareBlocks(code,"(?m)^op sub pdx tx\\d+ tx\\d+\n[\\s\\S]*?^pSkip_\\d+_\\d+:\n","towPair");
+        code=code.replaceAll("(?m)^(?:subBegin\\d+|subEnd\\d+|subweaponsubBegin|subweaponsubEnd):\n", "");
         var visibility=java.util.regex.Pattern.compile("(?m)(?:^setmarker world [0-9]+ [01] 0 0\\n){5,}").matcher(code);
         StringBuffer compact=new StringBuffer();int group=0;
         while(visibility.find()){
@@ -1095,10 +1124,10 @@ public final class WorldItemLogicManager {
         while(matcher.find()){
             String block=matcher.group();originals.add(block);
             var vars=new java.util.LinkedHashMap<String,String>();
-            var vm=java.util.regex.Pattern.compile("\\b(?:tx|ty|vx|vy)\\d+\\b").matcher(block);
+            var vm=java.util.regex.Pattern.compile("\\b(?:tx|ty|vx|vy|seenShot|recoilStart|shot)\\d+\\b").matcher(block);
             while(vm.find())vars.computeIfAbsent(vm.group(),k->routine+"v"+vars.size());
             for(var entry:vars.entrySet())block=block.replaceAll("\\b"+entry.getKey()+"\\b",entry.getValue());
-            block=block.replaceAll("(tSnap|tSlack|tForceDone|vCap|tHullOk)\\d+",routine+"$1")
+            block=block.replaceAll("(tSnap|tSlack|tForceDone|vCap|tHullOk|swAimDone|recoilReady|subBegin|subEnd)\\d+",routine+"$1")
                 .replaceAll("(pSkip|pNudge)_\\d+_\\d+",routine+"$1");
             tokens.add(block.split("(?<=\\s)|(?=\\s)"));mappings.add(vars);
         }
@@ -1121,7 +1150,7 @@ public final class WorldItemLogicManager {
             for(var entry:mappings.get(n).entrySet())call.append("set ").append(entry.getValue()).append(" ").append(entry.getKey()).append("\n");
             for(int i:params)call.append("set ").append(routine).append("p").append(i).append(" ").append(tokens.get(n)[i]).append("\n");
             call.append("op add ").append(routine).append("Return @counter 1\njump ").append(routine).append(" always 0 0\n");
-            for(var entry:mappings.get(n).entrySet())call.append("set ").append(entry.getKey()).append(" ").append(entry.getValue()).append("\n");
+            for(var entry:mappings.get(n).entrySet())if(!entry.getKey().matches("shot\\d+"))call.append("set ").append(entry.getKey()).append(" ").append(entry.getValue()).append("\n");
             code=code.replace(originals.get(n),call.toString());
         }
         return code+routine+":\n"+String.join("",body)+"set @counter "+routine+"Return\n";

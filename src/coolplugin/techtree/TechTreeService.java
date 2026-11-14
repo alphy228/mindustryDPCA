@@ -383,6 +383,8 @@ public class TechTreeService {
         return conditionRegistry;
     }
 
+    public String progressScope(Player player){return progressStore.scope(player.uuid());}
+
     public TechProgressStore getProgressStore() {
         return progressStore;
     }
@@ -638,6 +640,8 @@ public class TechTreeService {
     /** Builds a clean per-player {@link Rules} copy with {@code hideBannedBlocks = true} and {@code player}'s banned buildings. */
     public Rules buildPlayerRules(Player player) {
         Rules base = (Vars.state != null && Vars.state.rules != null) ? Vars.state.rules.copy() : new Rules();
+        base.researched.clear();
+        for(TechNodeDef node:nodesById.values())if(node.content!=null&&isUnlocked(player,node))base.researched.add(node.content);
         base.hideBannedBlocks = true;
         base.bannedBlocks.clear();
         populateBannedBlocksForPlayer(player, base.bannedBlocks);
@@ -658,6 +662,7 @@ public class TechTreeService {
         ensurePlayerInitialized(player);
 
         Rules cleanRules = buildPlayerRules(player);
+        menu.refreshOpenSession(player);
         Block triggerBlock = (newlyUnlockedBlock != null && !newlyUnlockedBlock.alwaysUnlocked)
             ? newlyUnlockedBlock
             : findFallbackTriggerBlock();

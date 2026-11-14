@@ -61,6 +61,10 @@ public class TechProgressStore {
         this.sessionManager = sessionManager;
     }
 
+    public synchronized String scope(String uuid){
+        ProfileKey profile=resolveProfileKey(uuid,null);return profile==null?uuid:profile.cacheKey();
+    }
+
     public boolean isDatabaseBacked() {
         return database != null && sessionManager != null;
     }

@@ -373,6 +373,12 @@ public final class ShopItemDef {
         return "item-" + iconItem + "-ui";
     }
 
+    public float carryingWeight(){
+        var size=ColouringAssets.mountSizes.get(id);
+        float spriteMass=size==null?0f:(float)Math.ceil(size.x*size.y/64f)*10f;
+        return Math.max(Math.max(0f,weight),spriteMass);
+    }
+
     public String worldTextureName() {
         if(worldSprite!=null&&!worldSprite.isBlank())return worldSprite.trim();
         if(attachMode==AttachMode.MOUNT || attachMode==AttachMode.SUBWEAPON)return "dp-item-mount-"+id;

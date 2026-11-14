@@ -117,6 +117,11 @@ public class PlayerSessionManager {
 
     public synchronized String getActiveFactionId(@Nullable String playerUuid) {
         if (playerUuid == null) return DEFAULT_FACTION_ID;
+        if(Groups.player!=null)for(Player player:Groups.player)if(playerUuid.equals(player.uuid())){
+            for(FactionDef faction:FactionDef.values())if(player.team()==faction.team()){
+                activeFactionByUuid.put(playerUuid,faction.id);return faction.id;
+            }
+        }
         String active = activeFactionByUuid.get(playerUuid);
         return (active == null || active.isEmpty()) ? DEFAULT_FACTION_ID : active;
     }

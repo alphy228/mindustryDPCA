@@ -733,9 +733,9 @@ public final class WorldItemLogicManager {
             sb.append("sensor sy u @shootY\n");
         }
 
-        sb.append("set baseLayer 60.45\n");
+        sb.append("set baseLayer ").append(f(unit.type.groundLayer + Math.min(unit.hitSize / 4000f, 0.01f) + 0.15f)).append("\n");
         sb.append("jump layerReady equal flying 0\n");
-        sb.append("set baseLayer 115.45\n");
+        sb.append("set baseLayer ").append(f((unit.type.flyingLayer < 0 ? (unit.type.lowAltitude ? 90f : 115f) : unit.type.flyingLayer) + 0.15f)).append("\n");
         sb.append("layerReady:\n");
         sb.append("op sub underLayer baseLayer 0.80\n");
 
@@ -794,7 +794,8 @@ public final class WorldItemLogicManager {
 
             switch (ce.kind) {
                 case MOUNT -> {
-                    sb.append("op add mountLayer baseLayer ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
+                    sb.append("op min mountBase baseLayer 99\n");
+                    sb.append("op add mountLayer mountBase ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     float rotDelta = ce.angleOffsetDeg - 90f;
                     sb.append("op add mrot urot ").append(f(rotDelta)).append("\n");
@@ -804,7 +805,8 @@ public final class WorldItemLogicManager {
                 }
                 case SUBWEAPON -> {
                     sb.append("subBegin").append(e).append(":\n");
-                    sb.append("op add mountLayer baseLayer ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
+                    sb.append("op min mountBase baseLayer 99\n");
+                    sb.append("op add mountLayer mountBase ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     sb.append("op sub adx sx mx\n");
                     sb.append("op sub ady sy my\n");

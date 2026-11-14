@@ -241,7 +241,17 @@ public class VerifyColouringGeneration {
         Tile t=Vars.world.tile(20,20);t.setNet(Vars.content.block("dp-colouring-station-2"),Team.sharded,0);
         var station=t.build;host.remove();station.handlePayload(station,new mindustry.world.blocks.payloads.UnitPayload(host));
         host.health=61;host.shield=23;
-        check(system.apply(p,station,host,palette.id())&&host.type==copy&&host.health==61&&host.shield==23,
+        system.open(p,station,host);
+        var sessionsField=coolplugin.gameplay.ColouringSystem.class.getDeclaredField("sessions");sessionsField.setAccessible(true);
+        var sessionsMap=(arc.struct.ObjectMap<?,?>)sessionsField.get(system);
+        Object paintSession=sessionsMap.values().next();
+        var selectedField=paintSession.getClass().getDeclaredField("selected");selectedField.setAccessible(true);selectedField.set(paintSession,palette.id());
+        var tokenField=paintSession.getClass().getDeclaredField("token");tokenField.setAccessible(true);
+        var menuResult=new mindustry.ui.builder.MenuResult();menuResult.token=tokenField.getLong(paintSession);menuResult.result="apply";
+        var resultMethod=coolplugin.gameplay.ColouringSystem.class.getDeclaredMethod("result",Player.class,mindustry.ui.builder.MenuResult.class);resultMethod.setAccessible(true);
+        resultMethod.invoke(system,p,menuResult);
+        check("".equals(selectedField.get(paintSession)),"Successful paint clears hypothetical selection and shows actual recoloured unit");
+        check(host.type==copy&&host.health==61&&host.shield==23,
             "Apply changes held unit type while preserving identity, health and shield");
         check(plugin.getPlayerItemSystem().countOwnedTotal(plugin.getPlayerItemSystem().getEquipment(p),palette.canId())==0,
             "Applying consumes exactly one inventory paint can");
@@ -255,6 +265,15 @@ public class VerifyColouringGeneration {
         system.open(p,station,host);
         check(coolplugin.gameplay.ColouringSystem.exit(p)&&station.enabled&&station.getPayload()==null,"/exit delegate releases payload and closes session");
         check(!coolplugin.gameplay.ColouringSystem.exit(p),"Repeated /exit cannot duplicate a released payload");
+        host.remove();station.handlePayload(station,new mindustry.world.blocks.payloads.UnitPayload(host));system.open(p,station,host);
+        boolean destructionSessionOpen=!sessionsMap.isEmpty();
+        arc.Events.fire(new mindustry.game.EventType.BlockDestroyEvent(station.tile));
+        check(destructionSessionOpen&&sessionsMap.isEmpty(),"Station destruction immediately discards the open menu session");
+        station.takePayload();station.enabled=true;
+        coolplugin.gameplay.UiSpriteSync.reloadSprites(workConfig);
+        check(coolplugin.gameplay.UiSpriteSync.hasSprite("colouring-station-2-ui")
+            &&coolplugin.gameplay.UiSpriteSync.resolveMenuDrawable("colouring-station-2-ui").equals("net-colouring-station-2-ui"),
+            "Generated T2 station icon is included in reload-safe UI texture streams");
         Unit large=UnitTypes.reign.create(Team.sharded);large.set(station.x,station.y);
         check(station.canControlSelect(large),"5x5 T2 can accept a larger player unit as a payload");
         Tile smallTile=Vars.world.tile(30,20);smallTile.setNet(Vars.content.block("dp-colouring-station"),Team.sharded,0);
@@ -608,6 +627,12 @@ public class VerifyColouringGeneration {
             String gunCode=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,type.create(Team.sharded),allGuns,catalog,visualEntries);
             gunCodeLines=Math.max(gunCodeLines,(int)gunCode.lines().count());
         }
+        boolean correctMountLayers=true;
+        for(UnitType layerType:new UnitType[]{UnitTypes.dagger,UnitTypes.flare,UnitTypes.zenith}){
+            String layerCode=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,layerType.create(Team.sharded),allGuns,catalog,visualEntries);
+            correctMountLayers&=layerCode.contains("op min mountBase baseLayer 99")&&layerCode.contains("op add mountLayer mountBase ");
+        }
+        check(correctMountLayers,"Ground, low and high altitude mounts are ordered below native bullets while preserving mount depth");
         check(gunCodeLines<1000,"Four dual-shooting mounts plus all six carry items fit the native parser including local muzzle flashes");
         var octScheme=coolplugin.gameplay.ColouringAssets.palette("unit-oct");
         var octDagger=Vars.content.unit(coolplugin.gameplay.ColouringAssets.variant("dagger",octScheme));
@@ -670,6 +695,13 @@ public class VerifyColouringGeneration {
             p.team(faction.team());otherFactionsIsolated&=!progress.isUnlocked(p.uuid(),researchNode)
                 &&progress.getPaidAmount(p.uuid(),"faction-payment-probe","copper")==0&&!progress.hasFlag(p.uuid(),"faction-flag-probe");
         }
+        int[] seamSource=coolplugin.gameplay.ManualUnitPalettes.source("dagger");
+        int[] seamTarget=coolplugin.gameplay.ManualUnitPalettes.source("oct");
+        check(coolplugin.gameplay.ManualUnitPalettes.map(0xf99f62,seamSource,seamTarget)==seamTarget[8]
+            &&coolplugin.gameplay.ManualUnitPalettes.map(0xcc735f,seamSource,seamTarget)==seamTarget[6],
+            "Explicit intermediate orange shades no longer leave original-colour pixel seams");
+        check(coolplugin.gameplay.ManualUnitPalettes.map(0x123456,seamSource,seamTarget)==0x123456,
+            "Seam corrections leave unknown RGB values untouched");
         check(otherFactionsIsolated,"Malis and Neoplasm also retain their own independent research profiles");
         p.team(Team.sharded);Vars.state.rules.researched.remove(mindustry.content.Blocks.graphitePress);
         System.out.println("GENERATED CONFIG="+workConfig);

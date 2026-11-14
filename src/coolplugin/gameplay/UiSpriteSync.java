@@ -2,13 +2,15 @@ package coolplugin.gameplay;
 
 import arc.Events;
 import arc.files.Fi;
-import arc.struct.IntSet;
+import arc.struct.ObjectSet;
 import arc.struct.ObjectMap;
 import arc.util.Log;
 import arc.util.Nullable;
 import mindustry.Vars;
 import mindustry.game.EventType.PlayerConnectionConfirmed;
 import mindustry.game.EventType.PlayerLeave;
+import mindustry.game.EventType.ResetEvent;
+import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.gen.Player;
 import mindustry.net.NetConnection;
 
@@ -25,7 +27,7 @@ import mindustry.net.NetConnection;
 public final class UiSpriteSync {
 
     private static final ObjectMap<String, byte[]> SPRITE_BYTES = new ObjectMap<>();
-    private static final IntSet SENT_CONNECTIONS = new IntSet();
+    private static final ObjectSet<NetConnection> SENT_CONNECTIONS = new ObjectSet<>();
     private static boolean initialized = false;
 
     private UiSpriteSync() {}
@@ -37,17 +39,31 @@ public final class UiSpriteSync {
 
         Events.on(PlayerConnectionConfirmed.class, e -> {
             if (e.player != null) {
-                ensureSent(e.player);
+                // connectConfirm also fires after /sync and world transfers on the SAME connection.
+                // The client has unloaded DataImagePacker, including all net-* textures.
+                synchronized (UiSpriteSync.class) {
+                    SENT_CONNECTIONS.remove(e.player.con);
+                    ensureSent(e.player);
+                }
             }
         });
+
+        // Invalidate only: sending here races the client's world-data unload. The
+        // post-load confirmation (or next menu open) will send the new textures.
+        Events.on(ResetEvent.class, e -> invalidateConnections());
+        Events.on(WorldLoadEvent.class, e -> invalidateConnections());
 
         Events.on(PlayerLeave.class, e -> {
             if (e.player != null && e.player.con != null) {
                 synchronized (UiSpriteSync.class) {
-                    SENT_CONNECTIONS.remove(System.identityHashCode(e.player.con));
+                    SENT_CONNECTIONS.remove(e.player.con);
                 }
             }
         });
+    }
+
+    private static synchronized void invalidateConnections() {
+        SENT_CONNECTIONS.clear();
     }
 
     public static synchronized void reloadSprites(@Nullable Fi dataDirectory) {
@@ -62,7 +78,9 @@ public final class UiSpriteSync {
         spritesDir.walk(file -> {
             if (!"png".equalsIgnoreCase(file.extension())) return;
             if (file.path().contains("/item-mounts/")) return; // World-only variants belong in the datapatch, not thousands of UI streams.
-            if (file.path().contains("/colouring-generated/") && !file.name().startsWith("paint-can-")) return;
+            if (file.path().contains("/colouring-generated/")
+                && !file.name().startsWith("paint-can-")
+                && !file.name().startsWith("colouring-station")) return;
             String stem = file.nameWithoutExtension();
             try {
                 byte[] bytes = file.readBytes();
@@ -81,17 +99,19 @@ public final class UiSpriteSync {
         if (player == null || player.con == null || !player.con.isConnected()) return;
         if (Vars.netServer == null || SPRITE_BYTES.isEmpty()) return;
 
-        int conHash = System.identityHashCode(player.con);
-        if (!SENT_CONNECTIONS.add(conHash)) return;
-
+        if (SENT_CONNECTIONS.contains(player.con)) return;
+        boolean complete = true;
         for (ObjectMap.Entry<String, byte[]> entry : SPRITE_BYTES) {
             try {
                 Vars.netServer.sendTexture(player.con, entry.key, entry.value);
             } catch (Throwable t) {
+                complete = false;
                 Log.warn("[CoolPlugin] Failed streaming UI texture '@' to @: @",
                     entry.key, player.plainName(), t.getMessage());
             }
         }
+        // Failed sends must remain retryable when a menu is reopened.
+        if (complete) SENT_CONNECTIONS.add(player.con);
     }
 
     public static synchronized boolean hasSprite(@Nullable String stemOrDpName) {

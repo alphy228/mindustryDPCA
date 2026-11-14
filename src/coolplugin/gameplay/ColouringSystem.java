@@ -42,6 +42,15 @@ public final class ColouringSystem {
         menu=Menus.registerMenuBuilder(this::result);
         Events.run(Trigger.update,this::update);
         Events.on(PlayerLeave.class,e->release(e.player));
+        Events.on(BlockDestroyEvent.class,e->{
+            // Close immediately, including while simulation updates are paused.
+            Seq<Player> affected=new Seq<>();
+            for(Session s:sessions.values())if(s.station.tile==e.tile)affected.add(s.player);
+            for(Player player:affected){
+                sessions.remove(player.uuid());
+                if(player.con!=null&&player.con.isConnected())Call.hideMenuBuilder(player.con,menu);
+            }
+        });
         Events.on(WorldLoadEvent.class,e->{sessions.clear();seen.clear();});
     }
     public static UnitPayload payload(Building b){
@@ -183,9 +192,11 @@ public final class ColouringSystem {
         if(result.result.startsWith("palette:")){
             String id=result.result.substring(8);
             if(available(player,tier(s.station)).contains(p->p.id().equals(id)&&p.tier()<=tier(s.station)))s.selected=id;
-        }else if(result.is("apply"))apply(player,s.station,s.unit,s.selected);
-        var choices=available(player,tier(s.station)).select(pal->pal.tier()<=tier(s.station));
-        if(!choices.contains(p->p.id().equals(s.selected)))s.selected=choices.isEmpty()?"":choices.first().id();
+        }else if(result.is("apply")&&apply(player,s.station,s.unit,s.selected)){
+            // Empty selection means the ACTUAL held unit, not the next owned paint.
+            s.selected="";
+        }
+        if(!s.selected.isEmpty()&&!available(player,tier(s.station)).contains(pal->pal.id().equals(s.selected)&&pal.tier()<=tier(s.station)))s.selected="";
         show(s);
     }
     public boolean apply(Player p,Building station,Unit unit,String paletteId){

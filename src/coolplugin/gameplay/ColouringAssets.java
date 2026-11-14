@@ -124,7 +124,7 @@ public final class ColouringAssets {
                     int c=image.getRGB(x,y); hash.update((byte)(c>>>24));hash.update((byte)(c>>>16));hash.update((byte)(c>>>8));hash.update((byte)c);
                 }
             }
-            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v11";
+            String digest = HexFormat.of().formatHex(hash.digest()) + "-manual-exact-palettes-weapons-v12";
             Fi stamp = data.child("colouring-cache/digest");
             boolean cached = stamp.exists() && stamp.readString().equals(digest);
             if (cached) target=liveImages;

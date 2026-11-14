@@ -92,6 +92,7 @@ public final class ColouringAssets {
             // A candidate is a complete controllable-unit family scheme, never a turret,
             // internal projectile, or a new palette per component sprite.
             for (UnitType unit : units) addFamilyPalette(unit);
+            generateItemMounts();
             Seq<String> names = unitSpriteNames(units); names.sort();
             int budgetCount = (int)Math.min(MAX_PALETTES, BULK_RGBA_BUDGET_BYTES / Math.max(1,bulkPixelsPerPalette*4));
             if(budgetCount<1)throw new IllegalStateException("One unit-family texture set exceeds the colouring memory budget");
@@ -182,6 +183,48 @@ public final class ColouringAssets {
 
     private static void replaceDirectory(Fi source,Fi target) {
         target.deleteDirectory();target.parent().mkdirs();source.moveTo(target);
+    }
+
+    private void generateItemMounts() throws Exception {
+        Fi target=data.child("assets/sprites/item-mounts");target.deleteDirectory();target.mkdirs();
+        var catalog=ShopConfigIO.loadOrCreate(data.child("alphystuff/shop.hjson"));
+        // Use the same catalog path as PlayerItemSystem.
+        for(var item:catalog.items){
+            if(item.attachMode!=ShopItemDef.AttachMode.MOUNT && item.attachMode!=ShopItemDef.AttachMode.SUBWEAPON)continue;
+            String family=switch(item.subweaponPreset.toLowerCase(java.util.Locale.ROOT)){
+                case "mortar","artillery","blast" -> "fortress";
+                case "pierce","lance","phase" -> "vela";
+                case "incendiary","pyratite","gatling" -> "reign";
+                case "blaster","homing","plastanium" -> "zenith";
+                default -> "dagger";
+            };
+            UnitType unit=Vars.content.unit(family);
+            BufferedImage source=null;
+            if(unit!=null)for(var weapon:unit.weapons){
+                source=sprites.get(weapon.name);
+                if(source!=null)break;
+            }
+            if(!item.mountWeaponSprite.isBlank())source=sprites.get(item.mountWeaponSprite);
+            if(source==null)source=sprites.get("dagger-weapon");
+            if(source==null)throw new IllegalStateException("Missing unit weapon source for "+item.id);
+            Color c;
+            try{c=Color.valueOf(item.colorHex);}catch(Exception ignored){c=Color.valueOf("ffd37f");}
+            int[] ramp=new int[10];
+            for(int i=0;i<ramp.length;i++){
+                float v=i<6?0.22f+i*0.13f:0.50f+(i-6)*0.16f;
+                ramp[i]=((int)(c.r*v*255)<<16)|((int)(c.g*v*255)<<8)|(int)(c.b*v*255);
+            }
+            ImageIO.write(recolour(source,ramp),"png",target.child("item-mount-"+item.id+".png").file());
+        }
+        Fi effects=data.child("assets/content/statuses/item-mounts");effects.deleteDirectory();effects.mkdirs();
+        for(String domain:new String[]{"ground","air"})for(String kind:new String[]{"flash","smoke"}){
+            boolean smoke=kind.equals("smoke");
+            String json="""
+                {show:false,effect:{type:"ParticleEffect",layer:%s,lifetime:%s,particles:%s,
+                cone:24,length:%s,sizeFrom:%s,sizeTo:0,colorFrom:"%s",colorTo:"ffffff00"}}
+                """.formatted(domain.equals("air")?116:61,smoke?20:8,smoke?4:6,smoke?9:15,smoke?2:1.5,smoke?"a0a0a0aa":"fff1b8");
+            effects.child("mount-"+domain+"-"+kind+".hjson").writeString(json);
+        }
     }
 
     private void loadVanilla() throws Exception {

@@ -1,0 +1,55 @@
+Mount sprites, effects, paint menu and following fix
+===================================================
+Base: master 159917b975e77d052eb802d57d6ff5a65156af3e
+
+Mounts
+- Shipped MOUNT and SUBWEAPON items now use real unit-weapon sprite sources,
+  recoloured with armour/accent shade ramps derived from each item's colorHex.
+- Presets select Dagger/Fortress/Vela/Reign/Zenith weapon families.
+- Optional mountWeaponSprite selects an exact source atlas region. It does not
+  change the inventory icon. worldSprite remains an explicit override.
+- Generated PNGs live under config/assets/sprites/item-mounts, outside the JAR.
+- Rear/front ordering, recoil, sounds and separate iconSprite remain intact.
+
+Shooting effects
+- Native datapatch ParticleEffects provide muzzle flash and smoke at layer 61
+  for ground mounts and 116 for airborne mounts, above the mount marker layers.
+- These dedicated flash/smoke visuals replace the old fixed-layer Fx renderers;
+  subweaponShootEffect/subweaponSmokeEffect still resolve their configured Fx
+  names to enable the corresponding channel (none/invalid remains silent).
+- Hidden carrier statuses register effects on both server and clients; they are
+  never applied to units. Definitions generate under assets/content/statuses.
+
+Paint station
+- Live preview textures are keyed by unit/variant instead of all asynchronous
+  transfers competing to replace one shared texture. The loading fallback uses
+  the actual base unit full-icon atlas name, not the missing unit-...-full name.
+- An owned can is listed as before. To list a can even when the player owns none,
+  configure its shop item with hidden: false. It stays disabled and displays
+  No paint cans owned. Default hidden: true preserves owned-only listing.
+- T2 restrictions, painting payment and hidden unit variants are unchanged.
+
+Following after purchases
+- Large halo + full-inventory rigs exceeded Mindustry's native 1000-line parser
+  limit. Their generated logic was silently truncated before follow updates.
+- Shared spring/rope integration and pairwise collision routines, compact marker
+  visibility loops and packed halo arguments keep the tested inventories below
+  that limit without dropping the physics or item slots.
+- A compile-time limit check now rejects oversized custom rigs instead of silently
+  feeding incomplete code to the native parser.
+
+Validation
+- 90 feature checks passed, 0 failed; includes all controllable base/custom units
+  with four WEAPONS halos plus progressively all six following items, and real
+  native executor tracking after inventory rebuilds from four through ten slots.
+- 67 gameplay regression checks passed, 0 failed.
+- Native effect layers and unavailable hidden:false menu entries verified.
+- Atlas measurement: 192 MiB in five packing orders (not process RAM).
+
+Install
+1. Apply the patch against the stated master.
+2. Install the supplied JAR as config/mods/coolplugin.jar.
+3. Keep the patched config/alphystuff/shop.hjson worldSprite settings.
+4. Restart the server so generated PNGs/effect definitions are registered, then
+   reconnect clients to receive the updated datapatch.
+No README changes or compacted-resource construction changes.

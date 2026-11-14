@@ -849,9 +849,12 @@ public final class WorldItemLogicManager {
                         sb.append("packcolor hColor ").append(f(hc.r)).append(" ").append(f(hc.g)).append(" ").append(f(hc.b)).append(" 0.90\n");
                         sb.append("packcolor hInnerColor ").append(f(Math.min(1f,hc.r+0.18f))).append(" ").append(f(Math.min(1f,hc.g+0.18f))).append(" ").append(f(Math.min(1f,hc.b+0.18f))).append(" 0.75\n");
                     }
-                    sb.append("set hId ").append(ce.primaryMarkerId).append("\n");
-                    sb.append("set hFwd ").append(f(fwdT)).append("\nset hSide ").append(f(sideT)).append("\n");
-                    sb.append("set hPhase ").append(f(ce.angleOffsetDeg)).append("\n");
+                    // Pack marker offset and two fixed-point coordinates into an exact
+                    // (<2^53) integer, keeping even fourteen-weapon rigs below 1000 lines.
+                    long packed=(long)(ce.primaryMarkerId-baseMarkerId)*4_000_000_000_000L
+                        +(Math.round(fwdT*10000d)+1_000_000L)*2_000_000L
+                        +Math.round(sideT*10000d)+1_000_000L;
+                    sb.append("set hPacked ").append(packed).append("\n");
                     sb.append("op add hReturn @counter 1\njump haloDraw always 0 0\n");
                 }
                 case TAIL_FOLLOW -> {
@@ -1062,7 +1065,9 @@ public final class WorldItemLogicManager {
 
         sb.append("jump waitTick always 0 0\n");
         if(outEntries.contains(entry->entry.kind==RenderedKind.HALO)){
-            sb.append("haloDraw:\nop add hInner hId 1\n");
+            sb.append("haloDraw:\nop idiv hId hPacked 4000000000000\nop add hId hId ").append(baseMarkerId).append("\n");
+            sb.append("op mod hSide hPacked 2000000\nop sub hSide hSide 1000000\nop div hSide hSide 10000\n");
+            sb.append("op idiv hFwd hPacked 2000000\nop mod hFwd hFwd 2000000\nop sub hFwd hFwd 1000000\nop div hFwd hFwd 10000\nop add hInner hId 1\n");
             sb.append("jump haloStyleReady equal halosReady 1\n");
             sb.append("makemarker shape hId 0 0 true\nsetmarker shape hId hSides 0 0\nsetmarker radius hId hRadius 0 0\n");
             sb.append("setmarker stroke hId 0.85 0 0\nsetmarker color hId hColor 0 0\nsetmarker minimap hId 0 0 0\nsetmarker world hId 1 0 0\n");
@@ -1071,7 +1076,7 @@ public final class WorldItemLogicManager {
             sb.append("setmarker stroke hInner 0.65 0 0\nsetmarker color hInner hInnerColor 0 0\nsetmarker minimap hInner 0 0 0\nsetmarker world hInner 1 0 0\n");
             sb.append("haloStyleReady:\nop mul hfx hFwd ucos\nop mul hfy hFwd usin\nop mul hsx hSide usin\nop mul hsy hSide ucos\n");
             sb.append("op add mx ux hfx\nop sub mx mx hsx\nop add my uy hfy\nop add my my hsy\n");
-            sb.append("op mul hrot @time 0.055\nop add hrot hrot hPhase\nop add hLayer baseLayer 0.30\n");
+            sb.append("op mul hPhase hId 15\nop mul hrot @time 0.055\nop add hrot hrot hPhase\nop add hLayer baseLayer 0.30\n");
             sb.append("setmarker pos hId mx my 0\nsetmarker rotation hId hrot 0 0\nsetmarker drawLayer hId hLayer 0 0\n");
             sb.append("op mul innerRot hrot -1\nop add innerRot innerRot 30\nsetmarker pos hInner mx my 0\nsetmarker rotation hInner innerRot 0 0\nsetmarker drawLayer hInner hLayer 0 0\n");
             sb.append("set @counter hReturn\n");
@@ -1080,7 +1085,67 @@ public final class WorldItemLogicManager {
         sb.append("wait 0\n");
         sb.append("jump mainLoop always 0 0\n");
 
-        return sb.toString();
+        return compactPhysics(sb.toString());
+    }
+
+    // Native LParser truncates at 1000 lines. Share physics instead of unrolling it
+    // six times; retain all spring, collision and hull-deflection calculations.
+    private static String compactPhysics(String code){
+        code=shareBlocks(code,"(?m)^op sub rx anchorX tx\\d+\n[\\s\\S]*?^tForceDone\\d+:\n","towForce");
+        code=shareBlocks(code,"(?m)^op mul vx\\d+ vx\\d+ drag\n[\\s\\S]*?^setmarker drawLayer \\d+ baseLayer 0 0\n","towStep");
+        code=shareBlocks(code,"(?m)^op sub pdx tx\\d+ tx\\d+\n[\\s\\S]*?^pSkip_\\d+_\\d+:\n","towPair");
+        var visibility=java.util.regex.Pattern.compile("(?m)(?:^setmarker world [0-9]+ [01] 0 0\\n){5,}").matcher(code);
+        StringBuffer compact=new StringBuffer();int group=0;
+        while(visibility.find()){
+            String[] rows=visibility.group().strip().split("\\n");
+            int lo=Integer.MAX_VALUE,hi=0;String flag="0";
+            for(String row:rows){String[] words=row.split(" ");int id=Integer.parseInt(words[2]);lo=Math.min(lo,id);hi=Math.max(hi,id);flag=words[3];}
+            String label="visibility"+(group++);
+            visibility.appendReplacement(compact,java.util.regex.Matcher.quoteReplacement("set visibilityId "+lo+"\n"+label+":\nsetmarker world visibilityId "+flag+" 0 0\nop add visibilityId visibilityId 1\njump "+label+" lessThanEq visibilityId "+hi+"\n"));
+        }
+        visibility.appendTail(compact);code=compact.toString();
+        long lines=code.lines().count();
+        if(lines>=1000){ throw new IllegalStateException("Item rig exceeds native parser limit: "+lines); }
+        return code;
+    }
+    private static String shareBlocks(String code,String pattern,String routine){
+        var matcher=java.util.regex.Pattern.compile(pattern).matcher(code);
+        java.util.List<String> originals=new java.util.ArrayList<>();
+        java.util.List<String[]> tokens=new java.util.ArrayList<>();
+        java.util.List<java.util.LinkedHashMap<String,String>> mappings=new java.util.ArrayList<>();
+        while(matcher.find()){
+            String block=matcher.group();originals.add(block);
+            var vars=new java.util.LinkedHashMap<String,String>();
+            var vm=java.util.regex.Pattern.compile("\\b(?:tx|ty|vx|vy)\\d+\\b").matcher(block);
+            while(vm.find())vars.computeIfAbsent(vm.group(),k->routine+"v"+vars.size());
+            for(var entry:vars.entrySet())block=block.replaceAll("\\b"+entry.getKey()+"\\b",entry.getValue());
+            block=block.replaceAll("(tSnap|tSlack|tForceDone|vCap|tHullOk)\\d+",routine+"$1")
+                .replaceAll("(pSkip|pNudge)_\\d+_\\d+",routine+"$1");
+            tokens.add(block.split("(?<=\\s)|(?=\\s)"));mappings.add(vars);
+        }
+        if(tokens.size()<2)return code;
+        String[] body=tokens.get(0).clone();
+        var params=new java.util.ArrayList<Integer>();
+        for(int i=0;i<body.length;i++){
+            boolean different=false;
+            for(var row:tokens){if(row.length!=body.length)return code;if(!row[i].equals(body[i]))different=true;}
+            if(different){
+                if(!body[i].matches("-?[0-9.]+"))return code;
+                Integer equivalent=null;
+                for(int previous:params){boolean same=true;for(var row:tokens)if(!row[i].equals(row[previous]))same=false;if(same){equivalent=previous;break;}}
+                if(equivalent==null){params.add(i);body[i]=routine+"p"+i;}
+                else body[i]=routine+"p"+equivalent;
+            }
+        }
+        for(int n=0;n<originals.size();n++){
+            StringBuilder call=new StringBuilder();
+            for(var entry:mappings.get(n).entrySet())call.append("set ").append(entry.getValue()).append(" ").append(entry.getKey()).append("\n");
+            for(int i:params)call.append("set ").append(routine).append("p").append(i).append(" ").append(tokens.get(n)[i]).append("\n");
+            call.append("op add ").append(routine).append("Return @counter 1\njump ").append(routine).append(" always 0 0\n");
+            for(var entry:mappings.get(n).entrySet())call.append("set ").append(entry.getKey()).append(" ").append(entry.getValue()).append("\n");
+            code=code.replace(originals.get(n),call.toString());
+        }
+        return code+routine+":\n"+String.join("",body)+"set @counter "+routine+"Return\n";
     }
 
     private static @Nullable String sanitizeMlogString(@Nullable String raw) {

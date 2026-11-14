@@ -162,8 +162,8 @@ public class VerifyColouringGeneration {
         if (System.getProperty("coolplugin.colouring.testPaletteLimit") == null) System.setProperty("coolplugin.colouring.testPaletteLimit", "1");
         new coolplugin.gameplay.ColouringAssets(workConfig).generate();
         Seq<ContentAsset> assets=new Seq<>();
-        for(String folder:new String[]{"liquids","items","blocks","units"}) {
-            ContentType ct=ContentType.valueOf(folder.substring(0,folder.length()-1));
+        for(String folder:new String[]{"liquids","items","blocks","units","statuses"}) {
+            ContentType ct=folder.equals("statuses")?ContentType.status:ContentType.valueOf(folder.substring(0,folder.length()-1));
             workConfig.child("assets/content/"+folder).walk(f->{
                 if(f.extension().equals("hjson"))assets.add(new ContentAsset(f.nameWithoutExtension(),ct,f.readString()));
             });
@@ -325,10 +325,10 @@ public class VerifyColouringGeneration {
         plugin.getPlayerItemSystem().getEquipment(p);
         var retired=plugin.getPlayerItemSystem().getCatalog().findItem("paint-turret-duo");
         check(retired!=null&&!retired.craftable&&retired.decraftable,"Retired turret cans remain salvageable without regenerating turret palettes");
-        check(emptyUi.contains("net-colour-preview-live"),"Empty inventory still displays the player unit preview");
+        check(emptyUi.contains("net-colour-preview-"),"Empty inventory still displays the player unit preview");
         check(workConfig.child("colouring-cache/previews/base-dagger.png").exists(),"Unpainted full preview is cached server-side");
         String alreadyPainted=new String(serializeUi(system.buildMenu(p,copy,2,palette.id())),StandardCharsets.UTF_8);
-        check(alreadyPainted.contains("net-colour-preview-live")&&!alreadyPainted.contains("unit-"+copy.name+"-full"),"Already-painted unit uses streamed preview, never missing variant atlas icon");
+        check(alreadyPainted.contains("net-colour-preview-")&&!alreadyPainted.contains("unit-"+copy.name+"-full"),"Already-painted unit uses streamed preview, never missing variant atlas icon");
         var tier2=coolplugin.gameplay.ColouringAssets.palettes.find(pal->pal.tier()==2);
         if(tier2!=null){
             setEquipped(plugin,p,tier2.canId());
@@ -425,8 +425,8 @@ public class VerifyColouringGeneration {
         catalog.findItem("wb-01").healthMultBonus=savedHealthBonus;
         check(itemSystem.weightFactor(0,150)==1f&&itemSystem.weightFactor(100000,150)==catalog.minimumWeightSpeedFactor,
             "Zero load has no weight penalty and extreme load respects the configured floor");
-        check(roundtrip.findItem("wb-06").weight==cannon.weight&&"duo".equals(roundtrip.findItem("wb-06").worldTextureName()),
-            "Weight and vanilla mounted sprite survive configuration roundtrip");
+        check(roundtrip.findItem("wb-06").weight==cannon.weight&&"dp-item-mount-wb-06".equals(roundtrip.findItem("wb-06").worldTextureName()),
+            "Weight and repaletted mounted sprite survive configuration roundtrip");
         String savedIcon=cannon.iconSprite,savedWorld=cannon.worldSprite;
         cannon.iconSprite="item-copper-ui";cannon.worldSprite="lancer";
         check("item-copper-ui".equals(cannon.uiDrawable())&&"lancer".equals(cannon.worldTextureName()),"Item icon and world sprite are independently selectable");
@@ -444,7 +444,7 @@ public class VerifyColouringGeneration {
             "Real WorldProcessor executes both halo shape elements");
         itemSystem.destroyRig("halo-check");
         check(catalog.items.select(item->item.attachMode==coolplugin.gameplay.ShopItemDef.AttachMode.SUBWEAPON)
-            .allMatch(item->!item.worldTextureName().startsWith("dp-")),"Every shipped turret-mount item uses a vanilla mounted sprite");
+            .allMatch(item->workConfig.child("assets/sprites/item-mounts/item-mount-"+item.id+".png").exists()),"Every shipped turret-mount item has a generated repaletted weapon sprite");
         check(coolplugin.gameplay.WorldItemLogicManager.mountLayerOffset(-10)>coolplugin.gameplay.WorldItemLogicManager.mountLayerOffset(10),
             "Rear-mounted item depth is above front-mounted item depth, independent of slot order");
         itemSystem.applyStatsToUnit(wearer,lightStats);
@@ -478,6 +478,51 @@ public class VerifyColouringGeneration {
         haloItem.haloAnchor=savedAnchor;
         check(maxHaloLines<1000,"Shared halo subroutine stays within the native parser limit on every controllable base unit");
         check(clippedHalos==0,"Two-element halos fit all four active slots on every controllable base unit without marker clipping");
+        var mixed=Seq.with(haloItem.id,haloItem.id,haloItem.id,haloItem.id);
+        haloItem.haloAnchor=coolplugin.gameplay.ShopItemDef.HaloAnchor.WEAPONS;
+        int maxMixed=0;
+        for(int n=0;n<=6;n++){
+            if(n>0)mixed.add(cannon.id);
+            for(UnitType type:Vars.content.units())if(type.playerControllable&&!type.hidden){
+                String code=coolplugin.gameplay.WorldItemLogicManager.compileRigMlog(200000,null,type.create(Team.sharded),mixed,catalog,visualEntries);
+                maxMixed=Math.max(maxMixed,(int)code.lines().count());
+                mindustry.logic.LAssembler assembler=mindustry.logic.LAssembler.assemble(code,true);
+                if(assembler.instructions.length==0)throw new AssertionError("Empty mixed rig");
+            }
+        }
+        haloItem.haloAnchor=savedAnchor;
+        check(maxMixed<1000,"Purchase progression from 4 to 10 slots preserves complete native MLOG, including six spring/rope follows");
+        boolean followsAfterPurchase=true;
+        mixed=Seq.with(haloItem.id,haloItem.id,haloItem.id,haloItem.id);
+        for(int n=0;n<=6;n++){
+            if(n>0)mixed.add(cannon.id);
+            wearer.set(180,180);
+            itemSystem.updateVisualRigForUnit("purchase-follow",wearer,mixed,itemSystem.computeStats(mixed,wearer));
+            var proc=itemSystem.getWorldLogicManager().getProcessorForOwner("purchase-follow");
+            proc.executor.optionalVar("hostUnit").setobj(wearer);
+            for(int step=0;step<10000;step++)proc.executor.runOnce();
+            wearer.set(240,240);
+            for(int step=0;step<10000;step++)proc.executor.runOnce();
+            var ux=proc.executor.optionalVar("ux");var uy=proc.executor.optionalVar("uy");
+            followsAfterPurchase&=ux!=null&&uy!=null&&Math.abs(ux.num()-30)<0.01&&Math.abs(uy.num()-30)<0.01;
+            for(var entry:itemSystem.getWorldLogicManager().getCompiledEntries("purchase-follow")){
+                var marker=Vars.state.markers.get(entry.primaryMarkerId());
+                if(marker instanceof mindustry.game.MapObjectives.PosMarker pos)followsAfterPurchase&=Float.isFinite(pos.pos.x)&&Float.isFinite(pos.pos.y);
+                else followsAfterPurchase=false;
+            }
+        }
+        itemSystem.destroyRig("purchase-follow");
+        check(followsAfterPurchase,"Real native executor keeps tracking the moving host after each inventory rebuild from 4 through 10 slots");
+        var visibleCan=catalog.findItem(palette.canId());
+        setEquipped(plugin,p);visibleCan.hidden=false;
+        String unavailableUi=new String(serializeUi(system.buildMenu(p,base,1,"")),StandardCharsets.UTF_8);
+        check(unavailableUi.contains("paint-can-"+palette.id())&&unavailableUi.contains("No paint cans owned"),"Unavailable hidden:false paints remain listed and disabled");
+        visibleCan.hidden=true;
+        var groundFx=Vars.content.statusEffect("dp-mount-ground-flash");
+        var airFx=Vars.content.statusEffect("dp-mount-air-flash");
+        System.out.println("MOUNT FX LAYERS "+(groundFx==null?"null":groundFx.effect.layer)+" / "+(airFx==null?"null":airFx.effect.layer));
+        check(groundFx!=null&&airFx!=null&&groundFx.effect.layer>60.55f&&airFx.effect.layer>115.55f,
+            "Native datapatch shooting effects render above ground and airborne mounted weapons");
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 

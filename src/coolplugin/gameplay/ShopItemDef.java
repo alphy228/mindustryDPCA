@@ -228,6 +228,7 @@ public final class ShopItemDef {
     public String iconSprite = "", worldSprite = "";
     public float weight = 10f;
     public String iconItem = "copper";
+    public String mountWeaponSprite = "";
     public String colorHex = "ffd37f";
     public AttachMode attachMode = AttachMode.FOLLOW;
 
@@ -262,6 +263,7 @@ public final class ShopItemDef {
     public float followDistance = 10.5f;
 
     /** True if players can craft this item at its station; false for salvage/relic items that can only be decrafted. */
+    public boolean hidden = true;
     public boolean craftable = true;
     /** True if players can break this item down at Workbench/Bazaar into its recipe components. */
     public boolean decraftable = true;
@@ -373,6 +375,7 @@ public final class ShopItemDef {
 
     public String worldTextureName() {
         if(worldSprite!=null&&!worldSprite.isBlank())return worldSprite.trim();
+        if(attachMode==AttachMode.MOUNT || attachMode==AttachMode.SUBWEAPON)return "dp-item-mount-"+id;
         if(attachMode==AttachMode.SUBWEAPON)return vanillaTurretSprite();
         String sp = effectiveSprite();
         if (sp.startsWith("dp-") || sp.startsWith("item-") || sp.startsWith("block-") || sp.startsWith("unit-")) {

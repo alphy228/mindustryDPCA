@@ -748,8 +748,11 @@ public class PlayerItemSystem {
                     worldLogicManager.kickSubweapon(rigKey,barrel.def,barrel.localForward,barrel.localSide);
                     var muzzle=barrel.def.resolveWeaponEffect(barrel.def.subweaponShootEffect);
                     var smoke=barrel.def.resolveWeaponEffect(barrel.def.subweaponSmokeEffect);
-                    if(muzzle!=null)Call.effect(muzzle,spawnX,spawnY,aimAngle,bulletType.hitColor);
-                    if(smoke!=null)Call.effect(smoke,spawnX,spawnY,aimAngle,bulletType.hitColor);
+                    String domain=unit.isFlying()?"air":"ground";
+                    var flashStatus=Vars.content.statusEffect("dp-mount-"+domain+"-flash");
+                    var smokeStatus=Vars.content.statusEffect("dp-mount-"+domain+"-smoke");
+                    if(muzzle!=null && flashStatus!=null)Call.effect(flashStatus.effect,spawnX,spawnY,aimAngle,bulletType.hitColor);
+                    if(smoke!=null && smokeStatus!=null)Call.effect(smokeStatus.effect,spawnX,spawnY,aimAngle,bulletType.hitColor);
                     var sound=barrel.def.resolveShootSound();
                     if(sound!=null&&barrel.def.subweaponSoundVolume>0f)Call.soundAt(sound,spawnX,spawnY,barrel.def.subweaponSoundVolume,barrel.def.subweaponSoundPitch);
                 }

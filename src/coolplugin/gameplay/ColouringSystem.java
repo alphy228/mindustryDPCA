@@ -98,6 +98,14 @@ public final class ColouringSystem {
         var eq=items.getEquipment(p);
         return ColouringAssets.palettes.select(pal->items.countOwnedTotal(eq,pal.canId())>0);
     }
+    private Seq<ColouringAssets.Palette> visible(Player p,int tier){
+        var owned=available(p,tier);
+        return ColouringAssets.palettes.select(pal->{
+            var item=items.getCatalog().findItem(pal.canId());
+            return owned.contains(pal) || (item!=null&&!item.hidden);
+        });
+    }
+    private String previewKey(UnitType type){return "colour-preview-"+type.name;}
     private void show(Session s){
         s.token=++tokens; // reject late results from a replaced menu
         UiSpriteSync.ensureSent(s.player);
@@ -116,7 +124,7 @@ public final class ColouringSystem {
     private void streamPreview(Player player,UnitType type){
         Fi png=previewFile(type);
         if(!png.exists()||Vars.netServer==null)return;
-        try{Vars.netServer.sendTexture(player.con,"colour-preview-live",png.readBytes());}
+        try{Vars.netServer.sendTexture(player.con,previewKey(type),png.readBytes());}
         catch(Exception e){arc.util.Log.warn("[Colouring] Preview stream failed for @: @",type.name,e.toString());}
     }
     public TableBuilder buildMenu(Player player,UnitType unit,int stationTier,String selected){
@@ -127,15 +135,15 @@ public final class ColouringSystem {
         String base=ColouringAssets.baseName(unit.name);
         TableBuilder left=table().width(330f);
         // Always draw the stream, even if no cans exist or selection equals current unit.
-        left.add(image("net-colour-preview-live").placeholder("unit-"+base+"-full")
+        left.add(image("net-"+previewKey(preview==null?unit:preview)).placeholder(base+"-full")
             .scaling(Scaling.fit).size(280f).padBottom(12f)).row();
         left.add(label(unit.localizedName)).row();
         var chosen=ColouringAssets.palette(selected);
-        boolean canApply=chosen!=null&&chosen.tier()<=stationTier&&preview!=null&&preview!=unit;
+        boolean canApply=chosen!=null&&chosen.tier()<=stationTier&&preview!=null&&preview!=unit&&available(player,stationTier).contains(chosen);
         if(chosen!=null)left.add(buttonTable().style("defaultt").clicked("apply").disabled(!canApply).margin(8f)
             .add(label("Apply · 1 paint can")).padTop(12f));
         body.add(left.padRight(20f));
-        var choices=available(player,stationTier);
+        var choices=visible(player,stationTier);
         StackBuilder hex=stack().width(380f).height(420f);
         hex.add(image(UiSpriteSync.resolveMenuDrawable("shop-inv-hex-workbench")).scaling(Scaling.stretch));
         TableBuilder right=table().margin(30f).align("top");
@@ -145,18 +153,20 @@ public final class ColouringSystem {
         }else{
             TableBuilder grid=table();int col=0;
             for(var palette:choices){
-                boolean locked=palette.tier()>stationTier,active=palette.id().equals(selected)&&!locked;
-                TableBuilder tile=table().width(140f).height(locked?134f:76f);
-                ButtonTableBuilder button=buttonTable().style("defaultt").checked(active).disabled(locked)
+                boolean unavailable=!available(player,stationTier).contains(palette);
+                boolean locked=palette.tier()>stationTier,active=palette.id().equals(selected)&&!locked&&!unavailable;
+                TableBuilder tile=table().width(140f).height(locked||unavailable?134f:76f);
+                ButtonTableBuilder button=buttonTable().style("defaultt").checked(active).disabled(locked||unavailable)
                     .clicked("palette:"+palette.id()).size(58f).margin(6f);
                 button.add(image(UiSpriteSync.resolveMenuDrawable("paint-can-"+palette.id()))
-                    .placeholder("item-silicon-ui").color(locked?"666670ff":"ffffffff").scaling(Scaling.fit).size(40f));
+                    .placeholder("item-silicon-ui").color(locked||unavailable?"666670ff":"ffffffff").scaling(Scaling.fit).size(40f));
                 StackBuilder framed=stack().size(72f);
                 if(active)framed.add(image(UiSpriteSync.resolveMenuDrawable(PlayerInventoryDrawer.GLOW_SPRITE))
                     .color(mindustry.graphics.Pal.accent.toString()).scaling(Scaling.stretch));
                 framed.add(table().add(button));
                 tile.add(framed).row();
                 if(locked)tile.add(label("Requires colouring station 2").wrap().width(135f).labelAlign("center").color("9999aaff"));
+                else if(unavailable)tile.add(label("No paint cans owned").wrap().width(135f).labelAlign("center").color("9999aaff"));
                 grid.add(tile);
                 if(++col%2==0)grid.row();
             }

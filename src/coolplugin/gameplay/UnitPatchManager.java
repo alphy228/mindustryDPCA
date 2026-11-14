@@ -211,7 +211,7 @@ public final class UnitPatchManager {
         if (!contentDir.exists()) return out;
 
         for (ContentType type : ContentType.all) {
-            Fi folder = contentDir.child(type.name() + "s");
+            Fi folder = contentDir.child(type==ContentType.status?"statuses":type.name() + "s");
             if (!folder.exists()) continue;
             folder.walk(file -> {
                 if (!isJsonOrHjson(file)) return;

@@ -140,6 +140,8 @@ public final class ShopConfigIO {
 
                 item.followDistance = v.getFloat("followDistance", 10.5f);
 
+                item.mountWeaponSprite=v.getString("mountWeaponSprite", "");
+                item.hidden = v.getBoolean("hidden", true);
                 item.craftable = v.getBoolean("craftable", true);
                 item.decraftable = v.getBoolean("decraftable", true);
 
@@ -274,6 +276,8 @@ public final class ShopConfigIO {
                 sb.append("]\n");
             }
 
+            sb.append("    mountWeaponSprite: ").append(quote(it.mountWeaponSprite)).append("\n");
+            sb.append("    hidden: ").append(it.hidden).append("\n");
             sb.append("    craftable: ").append(it.craftable).append("\n");
             sb.append("    decraftable: ").append(it.decraftable).append("\n");
             if (it.healthMultBonus != 0f) sb.append("    healthMultBonus: ").append(fmt(it.healthMultBonus)).append("\n");

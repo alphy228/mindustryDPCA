@@ -67,7 +67,7 @@ items: [
     id: "wb-04"
     weight: 10
     iconSprite: "shop-wb-04"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-04"
     name: "Scrap Relic Core"
     description: "Recovered core husk; cannot be crafted, only decrafted for resources."
     tier: workbench
@@ -86,7 +86,7 @@ items: [
     id: "wb-05"
     weight: 10
     iconSprite: "shop-wb-05"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-05"
     name: "Copper Fang"
     description: "Sharpened copper wing blades boosting weapon damage."
     tier: workbench
@@ -105,7 +105,7 @@ items: [
     id: "wb-06"
     weight: 10
     iconSprite: "shop-wb-06"
-    worldSprite: "duo"
+    worldSprite: "dp-item-mount-wb-06"
     name: "Graphite Striker"
     description: "Twin hull-mounted autocannon pods firing kinetic bolts."
     tier: workbench
@@ -135,7 +135,7 @@ items: [
     id: "wb-07"
     weight: 10
     iconSprite: "shop-wb-07"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-07"
     name: "Silicon Sight"
     description: "Prow-mounted optical rangefinder improving damage and fire rate."
     tier: workbench
@@ -155,7 +155,7 @@ items: [
     id: "wb-08"
     weight: 10
     iconSprite: "shop-wb-08"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-08"
     name: "Twin Fang Array"
     description: "Dual linked Copper Fangs forged into symmetrical wing blades."
     tier: workbench
@@ -176,7 +176,7 @@ items: [
     id: "wb-09"
     weight: 10
     iconSprite: "shop-wb-09"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-09"
     name: "Lead Buckler"
     description: "Riveted flank shields bolstering hull health and armor."
     tier: workbench
@@ -196,7 +196,7 @@ items: [
     id: "wb-10"
     weight: 10
     iconSprite: "shop-wb-10"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-10"
     name: "Ceramic Plate"
     description: "Kiln-fired metaglass cheek armor plating."
     tier: workbench
@@ -240,7 +240,7 @@ items: [
     id: "wb-12"
     weight: 10
     iconSprite: "shop-wb-12"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-12"
     name: "Bastion Carapace"
     description: "Reinforced Lead Bucklers layered with dense graphite ribs."
     tier: workbench
@@ -261,7 +261,7 @@ items: [
     id: "wb-13"
     weight: 10
     iconSprite: "shop-wb-13"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-13"
     name: "Glass Thruster"
     description: "Centerline metaglass jet nozzle boosting movement speed."
     tier: workbench
@@ -280,7 +280,7 @@ items: [
     id: "wb-14"
     weight: 10
     iconSprite: "shop-wb-14"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-wb-14"
     name: "Builder's Servo"
     description: "Symmetrical shoulder construction claws accelerating build speed."
     tier: workbench
@@ -373,7 +373,7 @@ items: [
     id: "bz-04"
     weight: 25
     iconSprite: "shop-bz-04"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-bz-04"
     name: "Orbital Blackbox"
     description: "Orbital ship salvage; non-craftable, decrafts into advanced alloys."
     tier: bazaar
@@ -393,7 +393,7 @@ items: [
     id: "bz-05"
     weight: 25
     iconSprite: "shop-bz-05"
-    worldSprite: "cyclone"
+    worldSprite: "dp-item-mount-bz-05"
     name: "Plastanium Repeater"
     description: "Twin rotary subweapon pods unloading rapid plastanium flechettes."
     tier: bazaar
@@ -424,7 +424,7 @@ items: [
     id: "bz-06"
     weight: 25
     iconSprite: "shop-bz-06"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-bz-06"
     name: "Surge Sabre"
     description: "Twin Fang Array reforged with high-voltage surge wing blades."
     tier: bazaar
@@ -445,7 +445,7 @@ items: [
     id: "bz-07"
     weight: 25
     iconSprite: "shop-bz-07"
-    worldSprite: "hail"
+    worldSprite: "dp-item-mount-bz-07"
     name: "Blast Cannon Pod"
     description: "Dorsal artillery subweapon firing high-explosive blast shells."
     tier: bazaar
@@ -476,7 +476,7 @@ items: [
     id: "bz-08"
     weight: 25
     iconSprite: "shop-bz-08"
-    worldSprite: "lancer"
+    worldSprite: "dp-item-mount-bz-08"
     name: "Phase Lance"
     description: "Wing-mounted phase lance subweapons firing armor-piercing bolts."
     tier: bazaar
@@ -507,7 +507,7 @@ items: [
     id: "bz-09"
     weight: 25
     iconSprite: "shop-bz-09"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-bz-09"
     name: "Titanium Aegis"
     description: "Bastion Carapace reinforced with heavy titanium flank kite plates."
     tier: bazaar
@@ -553,7 +553,7 @@ items: [
     id: "bz-11"
     weight: 25
     iconSprite: "shop-bz-11"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-bz-11"
     name: "Plastanium Mesh"
     description: "Impact-absorbing honeycomb shoulder armor shells."
     tier: bazaar
@@ -597,7 +597,7 @@ items: [
     id: "bz-13"
     weight: 25
     iconSprite: "shop-bz-13"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-bz-13"
     name: "Phase Blink Drive"
     description: "Glass Thruster upgraded into twin phase-folded rear nacelles."
     tier: bazaar
@@ -730,7 +730,7 @@ items: [
     id: "ca-04"
     weight: 50
     iconSprite: "shop-ca-04"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-ca-04"
     name: "Bloodthirst Scythe"
     description: "Twin reaper wing blades granting massive damage at health cost."
     tier: cursed-altar
@@ -751,7 +751,7 @@ items: [
     id: "ca-05"
     weight: 50
     iconSprite: "shop-ca-05"
-    worldSprite: "spectre"
+    worldSprite: "dp-item-mount-ca-05"
     name: "Abyssal Gatling"
     description: "Twin demonic rotary subweapons unleashing incendiary barrages."
     tier: cursed-altar
@@ -783,7 +783,7 @@ items: [
     id: "ca-06"
     weight: 50
     iconSprite: "shop-ca-06"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-ca-06"
     name: "Ruinblade"
     description: "Corrupted Surge Sabres mounted symmetrically across the hull."
     tier: cursed-altar
@@ -830,7 +830,7 @@ items: [
     id: "ca-08"
     weight: 50
     iconSprite: "shop-ca-08"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-ca-08"
     name: "Leviathan Husk"
     description: "Colossal obsidian flank carapaces doubling hull health and armor."
     tier: cursed-altar
@@ -876,7 +876,7 @@ items: [
     id: "ca-10"
     weight: 50
     iconSprite: "shop-ca-10"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-ca-10"
     name: "Dread Bulwark"
     description: "Titanium Aegis fused with cursed spikes for extreme flank armor."
     tier: cursed-altar
@@ -923,7 +923,7 @@ items: [
     id: "ca-12"
     weight: 50
     iconSprite: "shop-ca-12"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-ca-12"
     name: "Wraith Stride"
     description: "Phase Blink Drive twisted into spectral crimson tail wings."
     tier: cursed-altar
@@ -944,7 +944,7 @@ items: [
     id: "ca-13"
     weight: 50
     iconSprite: "shop-ca-13"
-    worldSprite: ""
+    worldSprite: "dp-item-mount-ca-13"
     name: "Architect's Curse"
     description: "Forbidden golden shoulder claws erecting structures at blinding speed."
     tier: cursed-altar

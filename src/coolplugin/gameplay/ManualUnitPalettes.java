@@ -9,7 +9,7 @@ public final class ManualUnitPalettes {
     private static final java.util.IdentityHashMap<int[],ObjectMap<String,Integer>> aliasesBySource=new java.util.IdentityHashMap<>();
     private static final String DEFAULTS="""
 {
-  "version": 2,
+  "version": 3,
   "description": "Hand-authored RGB material tables. Roles: outline, outline, armour dark/mid/light/highlight, accent dark/dark/light/light. Unknown RGB values remain unchanged.",
   "schemes": [
     {
@@ -386,10 +386,7 @@ public final class ManualUnitPalettes {
         "locus",
         "precept",
         "vanquish",
-        "conquer",
-        "merui",
-        "tecta",
-        "collaris"
+        "conquer"
       ],
       "aliases": {
         "bc5452": 6,
@@ -524,8 +521,11 @@ public final class ManualUnitPalettes {
         "d0efff"
       ],
       "units": [
+        "merui",
         "cleroi",
-        "anthicus"
+        "anthicus",
+        "tecta",
+        "collaris"
       ],
       "aliases": {
         "8ca8e8": 6,
@@ -562,7 +562,18 @@ public final class ManualUnitPalettes {
         "819bd4": 6,
         "768dc1": 6,
         "c9e7fc": 8,
-        "c1dff9": 8
+        "c1dff9": 8,
+        "c1dceb": 8,
+        "cae5f4": 8,
+        "c4dcea": 8,
+        "b2cad8": 8,
+        "bbd2e2": 8,
+        "bad2e2": 8,
+        "b3cad8": 8,
+        "acc4d3": 8,
+        "bed9e9": 8,
+        "b0c4d4": 8,
+        "bdd2e0": 8
       }
     },
     {
@@ -664,19 +675,40 @@ public final class ManualUnitPalettes {
     public static void load(Fi data){
         Fi file=data.child("alphystuff/unit-palettes.hjson");if(!file.exists())file.writeString(DEFAULTS);
         Jval root=Jval.read(file.readString());
-        if(root.getInt("version",1)<2){
+        if(root.getInt("version",1)<3){
             Jval defaults=Jval.read(DEFAULTS);
             for(String section:new String[]{"schemes","sources"}){
                 Jval rows=root.get(section);if(rows==null)continue;
                 for(Jval row:rows.asArray())for(Jval shipped:defaults.get(section).asArray()){
                     // Preserve custom roles and aliases; only migrate matching shipped sources.
                     if(!row.get("roles").toString().equals(shipped.get("roles").toString()))continue;
-                    if(!row.get("units").toString().equals(shipped.get("units").toString()))continue;
+                    if(!row.getString("id","").equals(shipped.getString("id","__source__"))
+                        &&!row.get("units").toString().equals(shipped.get("units").toString()))continue;
                     Jval aliases=row.get("aliases");if(aliases==null){aliases=Jval.newObject();row.add("aliases",aliases);}
                     for(var alias:shipped.get("aliases").asObject())if(aliases.get(alias.key)==null)aliases.add(alias.key,alias.value);
                 }
             }
-            root.add("version",Jval.valueOf(2));file.writeString(root.toString(Jval.Jformat.formatted));
+            // Repair only the shipped orange/cyan assignments. Custom ramps and extra
+            // source overrides remain authoritative; owned orange/cyan paints keep their IDs.
+            Jval orange=null,cyan=null,defaultOrange=null,defaultCyan=null;
+            for(Jval row:root.get("schemes").asArray()){
+                if(row.getString("id","").equals("unit-stell"))orange=row;
+                if(row.getString("id","").equals("unit-cleroi"))cyan=row;
+            }
+            for(Jval row:defaults.get("schemes").asArray()){
+                if(row.getString("id","").equals("unit-stell"))defaultOrange=row;
+                if(row.getString("id","").equals("unit-cleroi"))defaultCyan=row;
+            }
+            if(orange!=null&&cyan!=null&&orange.get("roles").toString().equals(defaultOrange.get("roles").toString())
+                &&cyan.get("roles").toString().equals(defaultCyan.get("roles").toString())){
+                for(String unit:new String[]{"merui","tecta","collaris"}){
+                    var old=orange.get("units").asArray();boolean moved=false;
+                    for(int i=old.size-1;i>=0;i--)if(old.get(i).asString().equals(unit)){old.remove(i);moved=true;}
+                    if(moved){boolean present=false;for(Jval value:cyan.get("units").asArray())if(value.asString().equals(unit))present=true;
+                        if(!present)cyan.get("units").asArray().add(Jval.valueOf(unit));}
+                }
+            }
+            root.add("version",Jval.valueOf(3));file.writeString(root.toString(Jval.Jformat.formatted));
         }
         sources.clear();aliasesBySource.clear();
         ColouringAssets.palettes.clear();ColouringAssets.paletteAliases.clear();

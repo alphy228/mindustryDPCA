@@ -794,6 +794,16 @@ public class VerifyColouringGeneration {
             p.team(faction.team());otherFactionsIsolated&=!progress.isUnlocked(p.uuid(),researchNode)
                 &&progress.getPaidAmount(p.uuid(),"faction-payment-probe","copper")==0&&!progress.hasFlag(p.uuid(),"faction-flag-probe");
         }
+        for(String mechName:new String[]{"merui","cleroi","anthicus","tecta","collaris"}){
+            int[] mechSource=coolplugin.gameplay.ManualUnitPalettes.source(mechName);
+            int[] mechTarget=coolplugin.gameplay.ManualUnitPalettes.source("dagger");
+            check(mechSource[6]==0x8ca8e8&&mechSource[8]==0xd0efff
+                &&coolplugin.gameplay.ManualUnitPalettes.map(0x8ca8e8,mechSource,mechTarget)==mechTarget[6]
+                &&coolplugin.gameplay.ManualUnitPalettes.map(0xd0efff,mechSource,mechTarget)==mechTarget[8]
+                &&coolplugin.gameplay.ManualUnitPalettes.map(0xc1dceb,mechSource,mechTarget)==mechTarget[8]
+                &&coolplugin.gameplay.ManualUnitPalettes.map(0x797e8e,mechSource,mechTarget)==0x797e8e,
+                mechName+" exact cyan accents repaint without changing unrelated blue-grey armour");
+        }
         int[] seamSource=coolplugin.gameplay.ManualUnitPalettes.source("dagger");
         int[] seamTarget=coolplugin.gameplay.ManualUnitPalettes.source("oct");
         check(coolplugin.gameplay.ManualUnitPalettes.map(0xf99f62,seamSource,seamTarget)==seamTarget[8]

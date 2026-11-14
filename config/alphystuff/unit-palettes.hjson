@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "description": "Hand-authored RGB material tables. Roles: outline, outline, armour dark/mid/light/highlight, accent dark/dark/light/light. Unknown RGB values remain unchanged.",
   "schemes": [
     {
@@ -376,10 +376,7 @@
         "locus",
         "precept",
         "vanquish",
-        "conquer",
-        "merui",
-        "tecta",
-        "collaris"
+        "conquer"
       ],
       "aliases": {
         "bc5452": 6,
@@ -514,8 +511,11 @@
         "d0efff"
       ],
       "units": [
+        "merui",
         "cleroi",
-        "anthicus"
+        "anthicus",
+        "tecta",
+        "collaris"
       ],
       "aliases": {
         "8ca8e8": 6,
@@ -552,7 +552,18 @@
         "819bd4": 6,
         "768dc1": 6,
         "c9e7fc": 8,
-        "c1dff9": 8
+        "c1dff9": 8,
+        "c1dceb": 8,
+        "cae5f4": 8,
+        "c4dcea": 8,
+        "b2cad8": 8,
+        "bbd2e2": 8,
+        "bad2e2": 8,
+        "b3cad8": 8,
+        "acc4d3": 8,
+        "bed9e9": 8,
+        "b0c4d4": 8,
+        "bdd2e0": 8
       }
     },
     {

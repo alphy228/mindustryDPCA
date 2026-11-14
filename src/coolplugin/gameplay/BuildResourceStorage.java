@@ -2,6 +2,8 @@ package coolplugin.gameplay;
 
 import arc.struct.Seq;
 import coolplugin.techtree.TechResourceStorage;
+import coolplugin.database.PlayerDatabase;
+import coolplugin.database.PlayerSessionManager;
 import mindustry.Vars;
 import mindustry.gen.Player;
 import mindustry.type.Item;
@@ -15,23 +17,48 @@ public class BuildResourceStorage implements TechResourceStorage {
 
     private final BuildSystem buildSystem;
 
+    private final PlayerDatabase database;
+    private final PlayerSessionManager sessions;
+
     public BuildResourceStorage(BuildSystem buildSystem) {
+        this(buildSystem, null, null);
+    }
+
+    public BuildResourceStorage(BuildSystem buildSystem, PlayerDatabase database, PlayerSessionManager sessions) {
         this.buildSystem = buildSystem;
+        this.database = database;
+        this.sessions = sessions;
+    }
+
+    private int orbitalAmount(Player player, Item item) {
+        if (player == null || item == null || database == null || sessions == null) return 0;
+        var account = sessions.getOrInitSession(player);
+        return database.getOrbitalItemAmount(account.id, sessions.getActiveFactionId(player.uuid()), item.name);
     }
 
     @Override
     public boolean isAvailable(Player player) {
-        return player != null && !player.dead() && player.unit() != null;
+        return player != null && (database != null || (!player.dead() && player.unit() != null));
     }
 
     @Override
     public int getAmount(Player player, Item item) {
-        return buildSystem.getAvailableAmount(player, item);
+        if (player == null || item == null) return 0;
+        return (int)Math.min(Integer.MAX_VALUE, (long)orbitalAmount(player, item)
+            + buildSystem.getAvailableAmount(player, item));
     }
 
     @Override
     public int remove(Player player, Item item, int maxAmount) {
-        return buildSystem.takeItems(player, item, maxAmount);
+        if (player == null || item == null || maxAmount <= 0) return 0;
+        int orbital = Math.min(maxAmount, orbitalAmount(player, item));
+        if (orbital > 0) {
+            var account = sessions.getOrInitSession(player);
+            if (!database.takeOrbitalItem(account.id, sessions.getActiveFactionId(player.uuid()), item.name, orbital)) {
+                orbital = 0;
+            }
+        }
+        return orbital + buildSystem.takeItems(player, item, maxAmount - orbital);
     }
 
     @Override
@@ -49,6 +76,6 @@ public class BuildResourceStorage implements TechResourceStorage {
 
     @Override
     public String storageName(Player player) {
-        return "Nearby Storage";
+        return "World + Orbital";
     }
 }

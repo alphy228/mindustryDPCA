@@ -202,6 +202,12 @@ public class ItemShopMenu {
         ActionResult invRes = inventoryDrawer.handleAction(player, action, s.selectedInvSlot, s.station);
         if (invRes.handled()) {
             s.selectedInvSlot = invRes.selectedSlot();
+            EquipmentData selectedEq = itemSystem.getEquipment(player);
+            s.selectedShopItemId = s.selectedInvSlot >= 0 && s.selectedInvSlot < selectedEq.equipped.size
+                ? selectedEq.equipped.get(s.selectedInvSlot) : "";
+            if (action.startsWith(PlayerInventoryDrawer.ACT_SELECT_PREFIX) && s.selectedInvSlot >= 0) {
+                s.bazaarShipsMode = false;
+            }
             s.statusMsg = invRes.statusMessage();
             clearUnownedSalvageSelection(player, s);
             pushUpdates(
@@ -209,7 +215,7 @@ public class ItemShopMenu {
                 s,
                 !s.statusMsg.isEmpty(),
                 invRes.resourcesChanged(),
-                invRes.inventoryChanged() || invRes.resourcesChanged(),
+                true,
                 true
             );
             return;
@@ -247,6 +253,7 @@ public class ItemShopMenu {
 
         // 4. Shop item selection -> toggles the item detail (dsc) panel
         if (action.startsWith("select:")) {
+            s.selectedInvSlot = -1;
             String itemId = action.substring("select:".length());
             if ("close".equals(itemId) || itemId.equals(s.selectedShopItemId)) {
                 s.selectedShopItemId = "";
@@ -425,7 +432,9 @@ public class ItemShopMenu {
         Catalog cat = itemSystem.getCatalog();
         EquipmentData eq = itemSystem.getEquipment(player);
         ObjectIntMap<Item> mapRes = buildSystem.getAvailableSnapshot(player);
-        ShopItemDef selectedItem = s.selectedShopItemId.isEmpty() ? null : cat.findItem(s.selectedShopItemId);
+        String detailItemId = s.selectedInvSlot >= 0 && s.selectedInvSlot < eq.equipped.size
+            ? eq.equipped.get(s.selectedInvSlot) : s.selectedShopItemId;
+        ShopItemDef selectedItem = detailItemId.isEmpty() ? null : cat.findItem(detailItemId);
         if (selectedItem != null && !isItemVisibleInShop(selectedItem, eq)) {
             selectedItem = null;
             s.selectedShopItemId = "";

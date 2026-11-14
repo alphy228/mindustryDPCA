@@ -433,13 +433,7 @@ public class PlayerItemSystem {
             totalVanished += Math.max(0, rc.amount() - deposited);
         }
 
-        if (totalVanished > 0 || vanishedSubItems > 0) {
-            return new ActionOutcome(true,
-                "[#ffbe76]Decrafted [white]" + item.name + "[#ffbe76]: stored " + totalReturned
-                    + " ([scarlet]" + totalVanished + " vanished - insufficient storage[]).[]");
-        }
-        return new ActionOutcome(true,
-            "[stat]Decrafted [white]" + item.name + "[stat] -> +" + totalReturned + " stored.[]");
+        return new ActionOutcome(true, "");
     }
 
     public boolean canAffordOrbitalTrade(Player player, OrbitalTradeDef trade) {

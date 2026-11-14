@@ -152,7 +152,7 @@ public class CoolPlugin extends Plugin {
             sessionManager = new PlayerSessionManager(playerDatabase);
             techTree = new TechTreeService(alphyDir, playerDatabase, sessionManager);
             buildSystem = new BuildSystem(techTree);
-            techTree.setStorage(new BuildResourceStorage(buildSystem));
+            techTree.setStorage(new BuildResourceStorage(buildSystem, playerDatabase, sessionManager));
             techTree.setWorldStreamListener(buildSystem::onPlayerWorldSynced);
             playerUnitSystem = new PlayerUnitSystem(buildSystem, techTree, sessionManager);
             launchPadSystem = new LaunchPadSystem(playerDatabase, sessionManager);

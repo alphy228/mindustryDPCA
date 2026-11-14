@@ -1,6 +1,12 @@
 package coolplugin.gameplay;
 
 import arc.Events;
+import arc.graphics.Color;
+import arc.util.Strings;
+import mindustry.game.MapObjectives.ShapeMarker;
+import mindustry.game.MapObjectives.TextMarker;
+import mindustry.logic.LMarkerControl;
+import mindustry.graphics.Layer;
 import arc.math.Mathf;
 import arc.struct.IntMap;
 import arc.struct.IntSet;
@@ -23,7 +29,6 @@ import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.LaunchPayload;
 import mindustry.gen.Player;
-import mindustry.gen.WorldLabel;
 import mindustry.net.Administration.ActionType;
 import mindustry.type.Item;
 import mindustry.type.ItemStack;
@@ -37,7 +42,7 @@ import static mindustry.Vars.*;
  * Player-owned Launch Pad manager (`launch-pad` 3x3 only; v8 `advanced-launch-pad` removed):
  * <ul>
  *   <li>Tracks individual player ownership per placed Launch Pad (not shared across teammates).</li>
- *   <li>Renders a persistent in-world {@link WorldLabel} marker on each Launch Pad showing its owner.</li>
+ *   <li>Renders a persistent flat octagonal nameplate on each Launch Pad using world-coordinate markers.</li>
  *   <li>Intercepts launched {@link LaunchPayload} pods and deposits their item stacks into the owner's
  *       per-faction persistent SQLite orbital storage (`account_orbital_storage`, capped at {@link Integer#MAX_VALUE}),
  *       persisting across rejoins, map changes, and gameovers.</li>
@@ -51,7 +56,9 @@ public class LaunchPadSystem {
         public final String factionId;
         public String ownerName;
         public final String colorHex;
-        public @Nullable WorldLabel marker;
+        public @Nullable TextMarker marker;
+        public final Seq<Integer> markerIds = new Seq<>();
+        private String markerText = "";
 
         public PadOwnership(long accountId, String factionId, String ownerName, String colorHex) {
             this.accountId = accountId;
@@ -243,53 +250,89 @@ public class LaunchPadSystem {
         ensureMarker(padBuild, ownership);
     }
 
+    private int allocatePadMarker() {
+        // Separate from shop circles (4000+) and item processors (10000+).
+        for (int id = 6000; id < 10000; id++) {
+            if (!usedPadMarkers.contains(id) && !state.markers.has(id)) {
+                usedPadMarkers.add(id);
+                return id;
+            }
+        }
+        return -1;
+    }
+
+    private final IntSet usedPadMarkers = new IntSet();
+
     private void ensureMarker(LaunchPadBuild padBuild, PadOwnership ownership) {
-        if (ownership.marker != null && ownership.marker.isAdded()) {
-            ownership.marker.text = formatMarkerText(ownership);
+        if (state == null || state.markers == null) return;
+        String text = formatMarkerText(ownership);
+        boolean intact = ownership.marker != null && text.equals(ownership.markerText);
+        for (int id : ownership.markerIds) intact &= state.markers.has(id);
+        if (intact) return;
+        removeOwnershipMarkers(ownership);
+        int base = allocatePadMarker();
+        int accent = allocatePadMarker();
+        int name = allocatePadMarker();
+        if (base < 0 || accent < 0 || name < 0) {
+            if (base >= 0) usedPadMarkers.remove(base);
+            if (accent >= 0) usedPadMarkers.remove(accent);
+            if (name >= 0) usedPadMarkers.remove(name);
             return;
         }
-        WorldLabel label = WorldLabel.create();
-        label.parent = padBuild;
-        label.set(0f, padBuild.block.size * 4f + 3f);
-        label.fontSize = 0.75f;
-        label.flags = (byte) (WorldLabel.flagBackground | WorldLabel.flagOutline);
-        label.text = formatMarkerText(ownership);
-        label.add();
+        ownership.markerIds.add(base, accent, name);
+        // Flat, eight-sided inset plate: no gradients, glow, pulses, or floating UI bubble.
+        ShapeMarker plate = new ShapeMarker(padBuild.x, padBuild.y, 9f, 22.5f);
+        plate.sides = 8;
+        plate.fill = true;
+        plate.outline = false;
+        plate.color = Color.valueOf("252b32");
+        plate.control(LMarkerControl.drawLayer, Layer.blockOver + 0.1f, Double.NaN, Double.NaN);
+        Call.createMarker(base, plate);
+        ShapeMarker rim = new ShapeMarker(padBuild.x, padBuild.y, 8f, 22.5f);
+        rim.sides = 8;
+        rim.stroke = 0.65f;
+        rim.outline = false;
+        rim.color = Color.valueOf(ownership.colorHex);
+        rim.control(LMarkerControl.drawLayer, Layer.blockOver + 0.2f, Double.NaN, Double.NaN);
+        Call.createMarker(accent, rim);
+        String plainName = Strings.stripColors(ownership.ownerName == null ? "Unknown" : ownership.ownerName)
+            .replace('\n', ' ').replace('\r', ' ');
+        float fontSize = Math.min(0.48f, 4.8f / Math.max(8, plainName.length() + 2));
+        TextMarker label = new TextMarker(text, padBuild.x, padBuild.y, fontSize, (byte)0);
+        label.control(LMarkerControl.drawLayer, Layer.blockOver + 0.3f, Double.NaN, Double.NaN);
+        Call.createMarker(name, label);
         ownership.marker = label;
+        ownership.markerText = text;
     }
 
     private static String formatMarkerText(PadOwnership ownership) {
-        String icon = (Blocks.launchPad != null && Blocks.launchPad.hasEmoji()) ? (Blocks.launchPad.emoji() + " ") : "";
-        return icon + "[#" + ownership.colorHex + "]Owner: [white]" + ownership.ownerName + "[]";
+        String name = Strings.stripColors(ownership.ownerName == null ? "Unknown" : ownership.ownerName)
+            .replace('\n', ' ').replace('\r', ' ').replace("[", "[[");
+        return "[#" + ownership.colorHex + "]" + name + "'s[]\n[white]launch pad[]";
+    }
+
+    private void removeOwnershipMarkers(PadOwnership ownership) {
+        for (int id : ownership.markerIds) {
+            if (state != null && state.markers != null && state.markers.has(id)) Call.removeMarker(id);
+            usedPadMarkers.remove(id);
+        }
+        ownership.markerIds.clear();
+        ownership.marker = null;
     }
 
     private void removePadOwner(int tilePos) {
         PadOwnership old = padOwners.remove(tilePos);
-        if (old != null && old.marker != null) {
-            hideLabelSafely(old.marker);
-            old.marker = null;
-        }
+        if (old != null) removeOwnershipMarkers(old);
     }
 
     private void clearAllMarkers() {
         for (IntMap.Entry<PadOwnership> entry : padOwners.entries()) {
-            if (entry.value != null && entry.value.marker != null) {
-                hideLabelSafely(entry.value.marker);
-                entry.value.marker = null;
-            }
+            if (entry.value != null) removeOwnershipMarkers(entry.value);
         }
+        usedPadMarkers.clear();
         padOwners.clear();
         pendingBuildOwners.clear();
         processedPayloadIds.clear();
-    }
-
-    private static void hideLabelSafely(@Nullable WorldLabel label) {
-        if (label == null) return;
-        try {
-            label.hide();
-        } catch (Throwable ignored) {
-            label.remove();
-        }
     }
 
     private void update() {
@@ -307,22 +350,11 @@ public class LaunchPadSystem {
                 PadOwnership owner = getOwnership(sourcePad);
                 if (owner == null || payload.stacks == null || payload.stacks.isEmpty()) continue;
 
-                StringBuilder summary = new StringBuilder();
                 for (ItemStack stack : payload.stacks) {
                     if (stack == null || stack.item == null || stack.amount <= 0) continue;
                     database.addOrbitalItem(owner.accountId, owner.factionId, stack.item.name, stack.amount);
-                    if (summary.length() > 0) summary.append(", ");
-                    summary.append('+').append(stack.amount).append(' ').append(stack.item.name);
                 }
 
-                if (summary.length() > 0) {
-                    Call.label(
-                        "[#" + owner.colorHex + "]Orbit (" + owner.ownerName + "): [white]" + summary + "[]",
-                        2.4f,
-                        sourcePad.x,
-                        sourcePad.y + sourcePad.block.size * 4f + 11f
-                    );
-                }
             }
         }
 

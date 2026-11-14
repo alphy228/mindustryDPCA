@@ -32,7 +32,7 @@ public final class ColouringSystem {
     private int menu=-1;
     private long tokens;
     private static final class Session {
-        Player player; Building station; Unit unit; String selected=""; long token;
+        Player player; Building station; Unit unit; String selected=""; String previewTexture=""; long token;
     }
     public ColouringSystem(Fi data,PlayerItemSystem items,PlayerUnitSystem units){this.data=data;this.items=items;this.units=units;instance=this;}
     public static boolean isStation(Building b){return b!=null && (b.block.name.equals("dp-colouring-station")||b.block.name.equals("dp-colouring-station-2"));}
@@ -47,7 +47,8 @@ public final class ColouringSystem {
             Seq<Player> affected=new Seq<>();
             for(Session s:sessions.values())if(s.station.tile==e.tile)affected.add(s.player);
             for(Player player:affected){
-                sessions.remove(player.uuid());
+                Session closed=sessions.remove(player.uuid());
+                if(closed!=null)removePreview(player,closed.previewTexture);
                 if(player.con!=null&&player.con.isConnected())Call.hideMenuBuilder(player.con,menu);
             }
         });
@@ -66,6 +67,7 @@ public final class ColouringSystem {
         }
         for(String uuid:stale){Session s=sessions.remove(uuid);if(s!=null){
             lock(s.station,false);
+            removePreview(s.player,s.previewTexture);
             if(s.player.con!=null&&s.player.con.isConnected())Call.hideMenuBuilder(s.player.con,menu);
         }}
         for(Building b:Groups.build){
@@ -119,24 +121,38 @@ public final class ColouringSystem {
         s.token=++tokens; // reject late results from a replaced menu
         UiSpriteSync.ensureSent(s.player);
         UnitType preview=selectedType(s.unit.type,s.selected);
-        if(preview!=null)streamPreview(s.player,preview);
-        Call.menuBuilder(s.player.con,menu,s.token,null,true,true,false,buildMenu(s.player,s.unit.type,tier(s.station),s.selected));
+        String oldTexture=s.previewTexture;
+        // Never replace a texture still referenced by a previous dialog. Texture
+        // decoding is asynchronous on clients, and replacement disposes its GL texture.
+        s.previewTexture=previewKey(preview==null?s.unit.type:preview)+"-view-"+s.token;
+        if(preview!=null)streamPreview(s.player,preview,s.previewTexture);
+        Call.menuBuilder(s.player.con,menu,s.token,null,false,true,false,
+            buildMenu(s.player,s.unit.type,tier(s.station),s.selected,s.previewTexture));
+        removePreview(s.player,oldTexture);
+    }
+    private void removePreview(Player player,String key){
+        if(!key.isEmpty()&&Vars.netServer!=null&&player.con!=null&&player.con.isConnected())
+            Vars.netServer.removeTexture(player.con,key);
     }
     private UnitType selectedType(UnitType original,String palette){
         var p=ColouringAssets.palette(palette);
-        return p==null?original:Vars.content.unit(ColouringAssets.variant(original.name,p));
+        UnitType selected=p==null?original:Vars.content.unit(ColouringAssets.variant(original.name,p));
+        return selected==null?original:selected;
     }
     private Fi previewFile(UnitType type){
         String name=type.name.startsWith("dp-paint-")?type.name.substring(3):"base-"+type.name;
         return data.child("colouring-cache/previews/"+name+".png");
     }
-    private void streamPreview(Player player,UnitType type){
+    private void streamPreview(Player player,UnitType type,String key){
         Fi png=previewFile(type);
         if(!png.exists()||Vars.netServer==null)return;
-        try{Vars.netServer.sendTexture(player.con,previewKey(type),png.readBytes());}
+        try{Vars.netServer.sendTexture(player.con,key,png.readBytes());}
         catch(Exception e){arc.util.Log.warn("[Colouring] Preview stream failed for @: @",type.name,e.toString());}
     }
     public TableBuilder buildMenu(Player player,UnitType unit,int stationTier,String selected){
+        return buildMenu(player,unit,stationTier,selected,null);
+    }
+    private TableBuilder buildMenu(Player player,UnitType unit,int stationTier,String selected,String textureKey){
         TableBuilder root=table().width(760f).margin(10f);
         root.add(label(stationTier==2?"Colouring Station II":"Colouring Station").style("outlineLabel")).row();
         TableBuilder body=table();
@@ -144,7 +160,7 @@ public final class ColouringSystem {
         String base=ColouringAssets.baseName(unit.name);
         TableBuilder left=table().width(330f);
         // Always draw the stream, even if no cans exist or selection equals current unit.
-        left.add(image("net-"+previewKey(preview==null?unit:preview)).placeholder("dp-colour-preview-"+(preview==null?unit:preview).name)
+        left.add(image("net-"+(textureKey==null?previewKey(preview==null?unit:preview):textureKey)).placeholder("dp-colour-preview-"+(preview==null?unit:preview).name)
             .scaling(Scaling.fit).size(280f).padBottom(12f)).row();
         left.add(label(unit.localizedName)).row();
         var chosen=ColouringAssets.palette(selected);
@@ -228,6 +244,7 @@ public final class ColouringSystem {
     public boolean release(Player player){
         if(player==null)return false;Session s=sessions.remove(player.uuid());if(s==null)return false;
         if(player.con!=null && player.con.isConnected())Call.hideMenuBuilder(player.con,menu);
+        removePreview(player,s.previewTexture);
         Building b=s.station;lock(b,false);
         if(!b.isValid()||payload(b)==null||payload(b).unit!=s.unit)return true;
         UnitPayload up=payload(b);Payload taken=b.takePayload();

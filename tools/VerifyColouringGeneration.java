@@ -245,6 +245,13 @@ public class VerifyColouringGeneration {
         var sessionsField=coolplugin.gameplay.ColouringSystem.class.getDeclaredField("sessions");sessionsField.setAccessible(true);
         var sessionsMap=(arc.struct.ObjectMap<?,?>)sessionsField.get(system);
         Object paintSession=sessionsMap.values().next();
+        var previewTextureField=paintSession.getClass().getDeclaredField("previewTexture");previewTextureField.setAccessible(true);
+        String firstPreviewKey=(String)previewTextureField.get(paintSession);
+        var showMethod=coolplugin.gameplay.ColouringSystem.class.getDeclaredMethod("show",paintSession.getClass());showMethod.setAccessible(true);
+        showMethod.invoke(system,paintSession);
+        check(!firstPreviewKey.isEmpty()&&!firstPreviewKey.equals(previewTextureField.get(paintSession)),
+            "Every colouring dialog gets a distinct streamed texture key, avoiding replacement/disposal races");
+
         var selectedField=paintSession.getClass().getDeclaredField("selected");selectedField.setAccessible(true);selectedField.set(paintSession,palette.id());
         var tokenField=paintSession.getClass().getDeclaredField("token");tokenField.setAccessible(true);
         var menuResult=new mindustry.ui.builder.MenuResult();menuResult.token=tokenField.getLong(paintSession);menuResult.result="apply";

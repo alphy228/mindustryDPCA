@@ -95,7 +95,6 @@ public final class NeoplasmDirector {
             nextWave+=config.waveInterval;
             Vars.state.wave=waveNumber;
             Events.fire(new WaveEvent());
-            Call.sendMessage("[accent]Wave "+waveNumber+"[] [lightgray]— Neoplasm incoming.[]");
         }
         // Integrate spawn progress rather than fixing a deadline at the previous
         // health value: damage, healing and player-count changes affect the rate now.

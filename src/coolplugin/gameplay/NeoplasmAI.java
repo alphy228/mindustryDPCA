@@ -10,9 +10,17 @@ import mindustry.world.Tile;
 /** Native weapons, player-priority pursuit, native dynamic-goal ground pathfinding. */
 public final class NeoplasmAI extends AIController {
     private final NeoplasmDirector director;
-    private final Vec2 destination=new Vec2(),waypoint=new Vec2();
+    private final Vec2 destination=new Vec2(),waypoint=new Vec2(),flightBefore=new Vec2(),steerBefore=new Vec2();
     public NeoplasmAI(NeoplasmDirector director){this.director=director;}
     @Override public boolean isLogicControllable(){return false;}
+    @Override public void updateVisuals(){
+        // Native wobble changes actual coordinates, not just the sprite. Do not let it
+        // walk a nearly stopped aircraft sideways into a wall after safe steering.
+        if(unit.isFlying()&&!FlyingTerrainGuard.flightPassable(unit,unit.x,unit.y)){
+            unit.lookAt(unit.prefRotation());return;
+        }
+        super.updateVisuals();
+    }
     @Override public Teamc findMainTarget(float x,float y,float range,boolean air,boolean ground){
         Teamc player=director.nearestPlayer(x,y,air,ground);
         if(player!=null&&!checkTarget(player,x,y,range))return player;
@@ -37,13 +45,20 @@ public final class NeoplasmAI extends AIController {
         if(chase==null)chase=target;
         if(chase==null)return;
         if(unit.isFlying()){
-            Vec2 detour=FlyingTerrainGuard.waypoint(unit,chase.x(),chase.y());
-            if(detour!=null){moveTo(detour,0f,8f);unit.lookAt(chase);return;}
+            if(!FlyingTerrainGuard.flightClear(unit,chase.x(),chase.y())){
+                Vec2 detour=FlyingTerrainGuard.waypoint(unit,chase.x(),chase.y());
+                if(detour==null){unit.approach(Vec2.ZERO);return;}
+                steerFlight(detour,chase);return;
+            }
+            flightBefore.set(unit.vel);float oldRotation=unit.rotation;
             if(unit.type.circleTarget){
                 Teamc saved=target;target=chase;circleAttack(unit.type.circleTargetRadius);target=saved;
-            }else{
-                moveTo(chase,0f,8f);unit.lookAt(chase);
-            }
+            }else moveTo(chase,0f,8f);
+            // A clear line to the target does not make the native circle/dive trajectory safe.
+            if(!flightMomentumClear()){
+                unit.vel.set(flightBefore);unit.rotation=oldRotation;
+                waypoint.set(chase);steerFlight(waypoint,chase);
+            }else if(unit.type.omniMovement)unit.lookAt(chase);
             return;
         }
         destination.set(chase);
@@ -68,4 +83,23 @@ public final class NeoplasmAI extends AIController {
         }else moveTo(destination,0f,8f);
         if(unit.type.omniMovement)unit.lookAt(chase);else faceMovement();
     }
+    private void steerFlight(Vec2 point,Teamc chase){
+        steerBefore.set(unit.vel);
+        moveTo(point,0f,8f);
+        // Do not rotate banked/non-omnidirectional flyers back toward a target behind a wall.
+        if(unit.type.omniMovement)unit.lookAt(chase);
+        if(!flightMomentumClear()){
+            // Discard unsafe thrust before braking; otherwise thrust can cancel the brake
+            // each tick and preserve an inward drift all the way through the wall.
+            unit.vel.set(steerBefore);unit.approach(Vec2.ZERO);
+        }
+    }
+    private boolean flightMomentumClear(){
+        float speed=unit.vel.len();if(speed==0f)return true;
+        if(FlyingTerrainGuard.forbidden(unit.x+unit.vel.x,unit.y+unit.vel.y))return false;
+        float acceleration=Math.max(.001f,unit.type.accel*unit.speed());
+        float distance=speed*speed/(2f*acceleration)+speed*2f;
+        return FlyingTerrainGuard.flightClear(unit,unit.x+unit.vel.x/speed*distance,unit.y+unit.vel.y/speed*distance);
+    }
+
 }

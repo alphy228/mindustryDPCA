@@ -913,6 +913,7 @@ public class VerifyColouringGeneration {
         verifyMapProtection();
         verifyEscalation(plugin,workConfig,new Fi(repoPath));
         verifyMixedResearch(plugin,workConfig);
+        verifyAirWallRouting(plugin,workConfig,new Fi(repoPath));
         System.out.println("GENERATED CONFIG="+workConfig);
     }
 
@@ -1357,6 +1358,61 @@ public class VerifyColouringGeneration {
         deployed.add(dead.uuid());lifecycle.spawnFor(dead,coolplugin.gameplay.FactionDef.SHARDED,UnitTypes.dagger);
         check(lifecycle.eliminated(dead.uuid())&&!owned.containsKey(dead.uuid()),"Previously deployed dead players cannot respawn after fifty minutes");
         dead.remove();ticks.setFloat(lifecycle,0);
+    }
+
+    private static void verifyAirWallRouting(CoolPlugin plugin,Fi config,Fi repo)throws Exception{
+        Vars.world.loadGenerator(80,80,tiles->{for(int y=0;y<80;y++)for(int x=0;x<80;x++)tiles.set(x,y,new Tile(x,y,Blocks.stone,Blocks.air,Blocks.air));});
+        Vars.state.set(GameState.State.playing);Vars.state.gameOver=false;Vars.state.rules.unitCap=99999;
+        for(int yy=18;yy<=43;yy++)for(int xx=24;xx<=30;xx++){Tile tile=Vars.world.tile(xx,yy);tile.setBlock(Blocks.stoneWall);tile.data=4;}
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();
+        Unit hero=UnitTypes.dagger.spawn(Team.sharded,40*8,30*8);
+        var probe=new SurvivalProbe(plugin.getBuildSystem());probe.live(hero,1,1);
+        var director=new coolplugin.gameplay.NeoplasmDirector(config.child("air-routing-waves.json"),probe);director.reset();director.update(0);
+        float oldDelta=Time.delta;Time.delta=1;
+        for(UnitType type:new UnitType[]{UnitTypes.flare,UnitTypes.antumbra,UnitTypes.disrupt}){
+            Unit flyer=type.spawn(Team.neoplastic,19*8,30*8);var ai=new coolplugin.gameplay.NeoplasmAI(director);flyer.controller(ai);
+            boolean darkEntered=false;float peak=0;boolean reached=false;
+            for(int frame=0;frame<1800;frame++){
+                Time.time++;ai.updateUnit();peak=Math.max(peak,flyer.vel.len());
+                flyer.set(flyer.x+flyer.vel.x,flyer.y+flyer.vel.y);flyer.vel.scl(Math.max(0,1-type.drag));
+                darkEntered|=coolplugin.gameplay.FlyingTerrainGuard.forbidden(flyer.x,flyer.y);
+                if(flyer.x>32*8){reached=true;break;}
+            }
+            System.out.println("AIR ROUTE "+type.name+" pos="+flyer.x+","+flyer.y+" reached="+reached+" entered="+darkEntered+" peak="+peak);
+            check(reached&&!darkEntered,type.name+" native steering detours around a dark wall without relying on pushback");
+            check(peak<=flyer.speed()*1.05f,type.name+" detour steering does not boost above native movement speed");
+            flyer.remove();
+        }
+        hero.set(34*8,30*8);probe.live(hero,1,1);director.update(0);
+        Unit circler=UnitTypes.flare.spawn(Team.neoplastic,44*8,30*8);circler.controller(new coolplugin.gameplay.NeoplasmAI(director));
+        boolean circleSafe=true;float circleTravel=0;
+        for(int frame=0;frame<1200;frame++){
+            Time.time++;circler.controller().updateUnit();
+            circleTravel+=circler.vel.len();circler.set(circler.x+circler.vel.x,circler.y+circler.vel.y);circler.vel.scl(1-circler.type.drag);
+            circleSafe&=!coolplugin.gameplay.FlyingTerrainGuard.forbidden(circler.x,circler.y);
+        }
+        System.out.println("CIRCLE safe="+circleSafe+" travel="+circleTravel+" pos="+circler.x+","+circler.y);
+        check(circleSafe&&circleTravel>100,"Native circle/dive movement avoids walls even with an unobstructed target line");
+        circler.remove();hero.set(40*8,30*8);probe.live(hero,1,1);director.update(0);
+        Unit overflight=UnitTypes.flare.spawn(Team.neoplastic,10*8,10*8);
+        Vars.world.tile(12,10).setBlock(Blocks.copperWall,Team.sharded);
+        check(coolplugin.gameplay.FlyingTerrainGuard.flightClear(overflight,14*8,10*8),
+            "Ordinary visible walls remain flyable; air routing excludes fully dark terrain rather than all solid blocks");overflight.remove();
+        // Exhaust this tick's A* allowance: no-route must not mean direct flight through the wall.
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();Time.time++;
+        Unit a=UnitTypes.flare.spawn(Team.neoplastic,19*8,29*8),b=UnitTypes.flare.spawn(Team.neoplastic,19*8,31*8);
+        coolplugin.gameplay.FlyingTerrainGuard.waypoint(a,hero.x,hero.y);coolplugin.gameplay.FlyingTerrainGuard.waypoint(b,hero.x,hero.y);
+        Unit waiting=UnitTypes.flare.spawn(Team.neoplastic,19*8,30*8);waiting.controller(new coolplugin.gameplay.NeoplasmAI(director));waiting.controller().updateUnit();
+        check(waiting.vel.isZero(.0001f),"An air unit waits/brakes instead of flying straight through a wall when A* budget is exhausted");
+        a.remove();b.remove();waiting.remove();
+        // Full-height partition: there is no valid route to the other side.
+        for(int yy=0;yy<80;yy++)for(int xx=24;xx<=30;xx++){Tile tile=Vars.world.tile(xx,yy);tile.setBlock(Blocks.stoneWall);tile.data=4;}
+        coolplugin.gameplay.FlyingTerrainGuard.invalidate();Time.time++;
+        Unit trapped=UnitTypes.flare.spawn(Team.neoplastic,19*8,30*8);trapped.controller(new coolplugin.gameplay.NeoplasmAI(director));
+        trapped.controller().updateUnit();check(trapped.vel.isZero(.0001f),"An unreachable air target does not fall back to wall-blind pursuit");trapped.remove();
+        check(!repo.child("src/coolplugin/gameplay/NeoplasmDirector.java").readString().contains("Call.sendMessage("),
+            "Scheduled wave director emits no chat announcements");
+        hero.remove();Time.delta=oldDelta;
     }
 
     private static void verifyMixedResearch(CoolPlugin plugin,Fi config)throws Exception{

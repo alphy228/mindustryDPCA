@@ -136,38 +136,73 @@ public final class FlyingTerrainGuard {
         return true;
     }
     private static final class Route{int goal;float until;Seq<Tile> path=new Seq<>();}
-    private static boolean clear(float x,float y,float tx,float ty){
-        int count=Math.max(1,(int)(Mathf.dst(x,y,tx,ty)/(Vars.tilesize/2f)));
-        for(int i=1;i<=count;i++)if(forbidden(Mathf.lerp(x,tx,(float)i/count),Mathf.lerp(y,ty,(float)i/count)))return false;
+    /** A small body margin keeps steering and corner smoothing outside the pushback zone. */
+    public static boolean flightPassable(Unit unit,float x,float y){
+        float r=Math.max(Vars.tilesize*.55f,unit.hitSize*.35f);
+        if(forbidden(x,y))return false;
+        for(int i=0;i<8;i++){
+            double angle=i*Math.PI/4;
+            if(forbidden(x+(float)Math.cos(angle)*r,y+(float)Math.sin(angle)*r))return false;
+        }
         return true;
     }
-    /** Cached black-terrain-excluding A*, with a global two-search-per-tick budget. Null preserves native motion. */
+    public static boolean flightClear(Unit unit,float tx,float ty){return flightClear(unit,unit.x,unit.y,tx,ty);}
+    private static boolean flightClear(Unit unit,float x,float y,float tx,float ty){
+        int count=Math.max(1,(int)Math.ceil(Mathf.dst(x,y,tx,ty)/(Vars.tilesize/4f)));
+        boolean escaping=!flightPassable(unit,x,y);
+        for(int i=1;i<=count;i++){
+            float px=Mathf.lerp(x,tx,(float)i/count),py=Mathf.lerp(y,ty,(float)i/count);
+            if(escaping?forbidden(px,py):!flightPassable(unit,px,py))return false;
+        }
+        return true;
+    }
+    private static Vec2 flightGoal(Unit unit,float x,float y){
+        if(flightPassable(unit,x,y))return new Vec2(x,y);
+        Vec2 exit=open(x,y);if(exit==null)return null;
+        int cx=Math.round(exit.x/Vars.tilesize),cy=Math.round(exit.y/Vars.tilesize);
+        int limit=(int)Math.ceil(Math.max(Vars.tilesize*.55f,unit.hitSize*.35f)/Vars.tilesize)+3;
+        Vec2 best=null;float distance=Float.MAX_VALUE;
+        for(int radius=0;radius<=limit;radius++){
+            for(int dx=-radius;dx<=radius;dx++)for(int dy=-radius;dy<=radius;dy++){
+                if(Math.max(Math.abs(dx),Math.abs(dy))!=radius)continue;
+                float px=(cx+dx)*Vars.tilesize,py=(cy+dy)*Vars.tilesize;
+                if(flightPassable(unit,px,py)&&Mathf.dst2(px,py,x,y)<distance){distance=Mathf.dst2(px,py,x,y);best=new Vec2(px,py);}
+            }
+            if(best!=null)return best;
+        }
+        return null;
+    }
+    /** Null may mean no route/budget available, NOT permission to fly through terrain. */
     public static Vec2 waypoint(Unit unit,float x,float y){
-        field();if(forbidden(unit.x,unit.y))return open(unit.x,unit.y);
-        if(clear(unit.x,unit.y,x,y)){routes.remove(unit.id);return null;}
+        field();if(!flightPassable(unit,unit.x,unit.y))return flightGoal(unit,unit.x,unit.y);
+        if(flightClear(unit,x,y)){routes.remove(unit.id);return null;}
+        Vec2 end=flightGoal(unit,x,y);if(end==null)return null;
+        Tile from=Vars.world.tileWorld(unit.x,unit.y),to=Vars.world.tileWorld(end.x,end.y);
+        if(from==null||to==null)return null;
         Route route=routes.get(unit.id);
-        if(route!=null&&route.until>Time.time&&route.path.isEmpty())return null;
-        if(route!=null&&route.until>Time.time&&!route.path.isEmpty()){
+        if(route!=null&&route.goal!=to.pos()){
+            Tile old=Vars.world.tile(route.goal);
+            if(old==null||old.dst(to)>Vars.tilesize*4)route=null;
+        }
+        if(route!=null&&route.until>Time.time){
+            if(route.path.isEmpty())return null;
             Vec2 smooth=smoothWaypoint(unit,route.path);if(smooth!=null)return smooth;
         }
-
-        Tile from=Vars.world.tileWorld(unit.x,unit.y);Vec2 end=open(x,y);if(from==null||end==null)return null;
-        Tile to=Vars.world.tileWorld(end.x,end.y);if(to==null)return null;
         if(routeTick!=Time.time){routeTick=Time.time;searches=0;}
         if(searches++>=2)return null;
         route=new Route();route.goal=to.pos();route.until=Time.time+45f;
-        route.path.addAll(Astar.pathfind(from,to,t->1f,t->!forbidden(t.worldx(),t.worldy())));
+        route.path.addAll(Astar.pathfind(from,to,t->1f,t->flightPassable(unit,t.worldx(),t.worldy())));
         routes.put(unit.id,route);
         return smoothWaypoint(unit,route.path);
     }
-    /** Skip intermediate tile centres while keeping the whole steering segment non-black. */
     private static Vec2 smoothWaypoint(Unit unit,Seq<Tile> path){
-        for(int i=path.size-1;i>=0;i--)if(unit.within(path.get(i),Vars.tilesize*.9f)){
+        for(int i=path.size-1;i>=0;i--)if(unit.within(path.get(i),Vars.tilesize*.25f)){
             path.removeRange(0,i);break;
         }
+        float lookahead=Math.max(3f*Vars.tilesize,unit.speed()*12f);
         for(int i=path.size-1;i>=0;i--){Tile tile=path.get(i);
-            if(unit.dst2(tile)>Math.max(3f*Vars.tilesize,unit.speed()*12f)*Math.max(3f*Vars.tilesize,unit.speed()*12f))continue;
-            if(clear(unit.x,unit.y,tile.worldx(),tile.worldy()))return new Vec2(tile.worldx(),tile.worldy());
+            if(unit.dst2(tile)>lookahead*lookahead)continue;
+            if(flightClear(unit,tile.worldx(),tile.worldy()))return new Vec2(tile.worldx(),tile.worldy());
         }
         return null;
     }

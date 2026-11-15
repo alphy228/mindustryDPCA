@@ -259,7 +259,7 @@ public class ItemShopMenu {
                 s.selectedShopItemId = "";
             } else {
                 ShopItemDef candidate = itemSystem.getCatalog().findItem(itemId);
-                if (candidate != null && isItemVisibleInShop(candidate, itemSystem.getEquipment(player))) {
+                if (candidate != null && itemSystem.isItemResearched(player,candidate) && isItemVisibleInShop(candidate, itemSystem.getEquipment(player))) {
                     s.selectedShopItemId = itemId;
                 }
             }
@@ -435,7 +435,7 @@ public class ItemShopMenu {
         String detailItemId = s.selectedInvSlot >= 0 && s.selectedInvSlot < eq.equipped.size
             ? eq.equipped.get(s.selectedInvSlot) : s.selectedShopItemId;
         ShopItemDef selectedItem = detailItemId.isEmpty() ? null : cat.findItem(detailItemId);
-        if (selectedItem != null && !isItemVisibleInShop(selectedItem, eq)) {
+        if (selectedItem != null && ((s.selectedInvSlot<0&&!itemSystem.isItemResearched(player,selectedItem)) || !isItemVisibleInShop(selectedItem, eq))) {
             selectedItem = null;
             s.selectedShopItemId = "";
         }
@@ -446,7 +446,7 @@ public class ItemShopMenu {
         for (int i = 0; i < categories.length; i++) {
             ShopCategory category = categories[i];
             TableBuilder colPane = buildCategoryIconPane(
-                s.station,
+                player,s.station,
                 category,
                 cat,
                 eq,
@@ -528,7 +528,7 @@ public class ItemShopMenu {
     }
 
     private TableBuilder buildCategoryIconPane(
-        StationTier station,
+        Player player,StationTier station,
         ShopCategory category,
         Catalog cat,
         EquipmentData eq,
@@ -540,8 +540,8 @@ public class ItemShopMenu {
         TableBuilder list = table().align("topLeft").margin(2f);
 
         if (station == StationTier.BAZAAR) {
-            Seq<ShopItemDef> tier1 = filterItems(cat.itemsForTierAndCategory(StationTier.WORKBENCH, category), eq, searchQuery, cat);
-            Seq<ShopItemDef> tier2 = filterItems(cat.itemsForTierAndCategory(StationTier.BAZAAR, category), eq, searchQuery, cat);
+            Seq<ShopItemDef> tier1 = filterItems(player,cat.itemsForTierAndCategory(StationTier.WORKBENCH, category), eq, searchQuery, cat);
+            Seq<ShopItemDef> tier2 = filterItems(player,cat.itemsForTierAndCategory(StationTier.BAZAAR, category), eq, searchQuery, cat);
 
             if (!tier1.isEmpty()) {
                 list.add(tierDivider("I", "eab678").padRight(16f)).row();
@@ -552,7 +552,7 @@ public class ItemShopMenu {
                 list.add(buildTwoColIconGrid(tier2, eq, mapRes, selectedShopItemId).padRight(16f)).row();
             }
         } else {
-            Seq<ShopItemDef> items = filterItems(cat.itemsForTierAndCategory(station, category), eq, searchQuery, cat);
+            Seq<ShopItemDef> items = filterItems(player,cat.itemsForTierAndCategory(station, category), eq, searchQuery, cat);
             if (!items.isEmpty()) {
                 list.add(buildTwoColIconGrid(items, eq, mapRes, selectedShopItemId).padRight(16f)).row();
             }
@@ -721,19 +721,19 @@ public class ItemShopMenu {
     private void clearUnownedSalvageSelection(Player player, Session s) {
         if (s.selectedShopItemId == null || s.selectedShopItemId.isEmpty()) return;
         ShopItemDef selected = itemSystem.getCatalog().findItem(s.selectedShopItemId);
-        if (selected == null || !isItemVisibleInShop(selected, itemSystem.getEquipment(player))) {
+        if (selected == null || !itemSystem.isItemResearched(player,selected) || !isItemVisibleInShop(selected, itemSystem.getEquipment(player))) {
             s.selectedShopItemId = "";
         }
     }
 
     private Seq<ShopItemDef> filterItems(
-        Seq<ShopItemDef> items,
+        Player player,Seq<ShopItemDef> items,
         EquipmentData eq,
         String searchQuery,
         Catalog cat
     ) {
         boolean hasSearch = searchQuery != null && !searchQuery.isBlank();
-        return items.select(i -> isItemVisibleInShop(i, eq) && (!hasSearch || i.matchesSearch(searchQuery, cat)));
+        return items.select(i -> itemSystem.isItemResearched(player,i) && isItemVisibleInShop(i, eq) && (!hasSearch || i.matchesSearch(searchQuery, cat)));
     }
 
     private static TableBuilder tierDivider(String title, String hex) {

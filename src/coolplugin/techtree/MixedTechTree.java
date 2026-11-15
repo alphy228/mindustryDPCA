@@ -25,7 +25,7 @@ public final class MixedTechTree {
     private MixedTechTree(){}
     public static boolean usable(Block b){
         return b!=null&&b.placeablePlayer&&b.buildVisibility==BuildVisibility.shown&&b.requirements.length>0&&
-            !(b instanceof CoreBlock)&&b!=Blocks.advancedLaunchPad;
+            !(b instanceof CoreBlock)&&b!=Blocks.advancedLaunchPad&&!ResearchPolicy.isErekirContent(b);
     }
     private static void flatten(TechNodeDef node,ObjectMap<String,TechNodeDef> out){
         out.put(node.id,node);for(var child:node.children)flatten(child,out);
@@ -69,10 +69,6 @@ public final class MixedTechTree {
             if(!old.containsKey(name))node.costs=ItemStack.with(Items.copper,200,Items.lead,150);
             nodes.put(node.id,node);
         }
-        for(Item item:Vars.content.items())if(!item.hidden&&!item.name.startsWith("dp-shop-")){
-            TechNodeDef node=take(old,item.name,"item",item);if(!old.containsKey(item.name)&&node.costs.length==0)node.costs=ItemStack.with(item,50);
-            nodes.put(node.id,node);
-        }
         // Preserve existing item/plugin nodes exactly, including custom unlock conditions.
         for(var node:old.values())if("item".equals(node.contentType))nodes.put(node.id,node);
         for(ShopItemDef item:catalog.items){
@@ -105,6 +101,7 @@ public final class MixedTechTree {
             case "combustion-generator","mechanical-pump"->TechNodeDef.DIR_LEFT;
             default->TechNodeDef.DIR_RIGHT;
         };
+        ResearchPolicy.apply(root);
         return root;
     }
     /** Add content registered after plugin initialization without moving existing nodes. */
@@ -113,10 +110,6 @@ public final class MixedTechTree {
         Seq<TechNodeDef> added=new Seq<>();
         for(Block block:Vars.content.blocks())if(usable(block)&&!nodes.containsKey(block.name)){
             TechNodeDef node=make(block.name,"block",block.name,block);nodes.put(node.id,node);added.add(node);
-        }
-        for(Item item:Vars.content.items())if(!item.hidden&&!item.name.startsWith("dp-shop-")&&!nodes.containsKey(item.name)){
-            TechNodeDef node=make(item.name,"item",item.name,item);if(node.costs.length==0)node.costs=ItemStack.with(item,50);
-            nodes.put(node.id,node);added.add(node);
         }
         for(var node:added){TechNodeDef parent=nodes.get(parentFor(node,nodes,catalog),root);if(parent==node)parent=root;node.parent=parent;parent.children.add(node);node.direction=TechNodeDef.DIR_UP;}
         return !added.isEmpty();

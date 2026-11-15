@@ -116,6 +116,7 @@ public final class TechTreeConfigIO {
 
         JsonValue costsVal = val.get("costs");
         node.costs = costsVal != null ? parseCosts(costsVal) : ItemStack.empty;
+        if("advanced".equals(val.getString("researchType","standard")))node.researchType=TechNodeDef.ResearchType.advanced;
 
         JsonValue condsVal = val.get("conditions");
         if (condsVal != null) {
@@ -227,7 +228,7 @@ public final class TechTreeConfigIO {
         StringBuilder sb = new StringBuilder(8192);
         sb.append("# Server Tech Tree (config/alphystuff/techtree.hjson)\n");
         sb.append("# Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: \"...\", description: \"...\" }]\n");
-        sb.append("# Custom plugin-unlocked database nodes: { id: \"titanium\", type: \"item\", content: \"titanium\", pluginUnlocked: true }\n");
+        sb.append("# Advanced funding: researchType: advanced (orbital resources only). Resource and vanilla Erekir nodes are excluded.\n");
         sb.append("# Mixed buildings/items/T1 branches. Buildings require research; map bans still apply.\n\n");
 
         sb.append("mixedVersion: 1\n\n");
@@ -262,6 +263,7 @@ public final class TechTreeConfigIO {
             if (!"block".equals(node.contentType)) {
                 sb.append(", type: \"").append(escape(node.contentType)).append("\"");
             }
+            if(node.isAdvanced())sb.append(", researchType: \"advanced\"");
             if (node.pluginUnlocked) {
                 sb.append(", pluginUnlocked: true");
                 if (node.costs != null && node.costs.length > 0) {
@@ -301,6 +303,7 @@ public final class TechTreeConfigIO {
         if (node.alwaysUnlocked) {
             sb.append(inner).append("alwaysUnlocked: true\n");
         }
+        if(node.isAdvanced())sb.append(inner).append("researchType: advanced\n");
         if (node.pluginUnlocked) {
             sb.append(inner).append("pluginUnlocked: true\n");
         }

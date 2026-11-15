@@ -154,6 +154,7 @@ public class TechTreeService {
         migrateShopItemResearch();
         boolean changed=TechTreeConfigIO.rebindContentRecursive(root);
         changed|=MixedTechTree.expand(root,coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson")));
+        changed|=ResearchPolicy.apply(root);
         if(changed){rebuildIndexes();TechTreeConfigIO.save(treeFile,root,whitelistOrder);}
     }
 
@@ -226,6 +227,7 @@ public class TechTreeService {
                 bazaar.children.add(node);changed=true;
             }
         }
+        changed|=ResearchPolicy.apply(root);
         if(changed)rebuildIndexes();
         for(TechNodeDef node:nodesById.values())if("shop-item".equals(node.contentType)){
             var item=catalog.findItem(node.contentName);
@@ -331,6 +333,7 @@ public class TechTreeService {
         setWhitelistInternal(cfg.whitelist);
         rebuildIndexes();
         migrateShopItemResearch();
+        ResearchPolicy.apply(root);rebuildIndexes();
         TechTreeConfigIO.save(treeFile,root,whitelistOrder);
         progressStore.reseedAll(root);
         applyServerHideBannedBlocksAndCaptureMapBans();
@@ -341,6 +344,7 @@ public class TechTreeService {
             coolplugin.gameplay.ShopConfigIO.loadOrCreate(treeFile.parent().child("shop.hjson")));
         rebuildIndexes();
         migrateShopItemResearch();
+        ResearchPolicy.apply(root);rebuildIndexes();
         TechTreeConfigIO.save(treeFile, root, whitelistOrder);
         if (resetPlayerProgress) {
             progressStore.resetAllPlayers(root);
@@ -815,6 +819,9 @@ public class TechTreeService {
         return true;
     }
 
+    public int availableAmount(Player player,TechNodeDef node,Item item){
+        return node.isAdvanced()?storage.getOrbitalAmount(player,item):storage.getAmount(player,item);
+    }
     public boolean canSpendOrUnlockNow(Player player, TechNodeDef node) {
         if (player == null || node == null || node.pluginUnlocked || isUnlocked(player, node)) return false;
         if (!areAncestorsUnlocked(player, node)) return false;
@@ -828,7 +835,7 @@ public class TechTreeService {
             int remaining = req.amount - paid;
             if (remaining > 0) {
                 allPaidAlready = false;
-                if (storage.getAmount(player, req.item) > 0) {
+                if (availableAmount(player,node,req.item) > 0) {
                     return true;
                 }
             }
@@ -846,7 +853,7 @@ public class TechTreeService {
         for (ItemStack req : node.costs) {
             int paid = progressStore.getPaidAmount(player.uuid(), node.id, req.item.name);
             int remaining = Math.max(req.amount - paid, 0);
-            if (storage.getAmount(player, req.item) < remaining) {
+            if (availableAmount(player,node,req.item) < remaining) {
                 return false;
             }
         }
@@ -897,7 +904,7 @@ public class TechTreeService {
             int need = Math.max(req.amount - paid, 0);
             if (need <= 0) continue;
 
-            int taken = storage.remove(player, req.item, need);
+            int taken = node.isAdvanced()?storage.removeOrbital(player,req.item,need):storage.remove(player, req.item, need);
             if (taken > 0) {
                 progressStore.addPaidAmount(player.uuid(), player.plainName(), node.id, req.item.name, taken, root);
                 spentAny = true;

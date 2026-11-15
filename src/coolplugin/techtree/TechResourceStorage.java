@@ -14,6 +14,9 @@ public interface TechResourceStorage {
 
     /** Returns how much of {@code item} {@code player} currently has available to spend. */
     int getAmount(Player player, Item item);
+    default int getOnHandAmount(Player player,Item item){return getAmount(player,item);}
+    default int getOrbitalAmount(Player player,Item item){return 0;}
+    default int removeOrbital(Player player,Item item,int amount){return 0;}
 
     /**
      * Removes up to {@code amount} of {@code item} from {@code player}'s available bank.

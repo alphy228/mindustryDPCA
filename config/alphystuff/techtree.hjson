@@ -1,6 +1,6 @@
 # Server Tech Tree (config/alphystuff/techtree.hjson)
 # Optional per-node fields: direction (up|down|left|right), conditions: [{ type: flag, flag: "...", description: "..." }]
-# Custom plugin-unlocked database nodes: { id: "titanium", type: "item", content: "titanium", pluginUnlocked: true }
+# Advanced funding: researchType: advanced (orbital resources only). Resource and vanilla Erekir nodes are excluded.
 # Mixed buildings/items/T1 branches. Buildings require research; map bans still apply.
 
 mixedVersion: 1
@@ -13,99 +13,6 @@ root: {
   alwaysUnlocked: true
   costs: {}
   children: [
-    {
-      id: breach
-      direction: right
-      costs: { graphite: 180, silicon: 180, beryllium: 180 }
-      children: [
-        {
-          id: beryllium-wall
-          direction: up
-          costs: { beryllium: 180 }
-          children: [
-            { id: "beryllium-wall-large", costs: { beryllium: 630 } }
-            {
-              id: tungsten-wall
-              costs: { tungsten: 180 }
-              children: [
-                {
-                  id: carbide-wall
-                  costs: { thorium: 180, carbide: 60 }
-                  children: [
-                    { id: "carbide-wall-large", costs: { thorium: 630, carbide: 210 } }
-                  ]
-                }
-                {
-                  id: reinforced-surge-wall
-                  costs: { surge-alloy: 14, tungsten: 90 }
-                  children: [
-                    {
-                      id: reinforced-surge-wall-large
-                      costs: { surge-alloy: 28, tungsten: 180 }
-                      children: [
-                        { id: "shielded-wall", costs: { phase-fabric: 120, surge-alloy: 210, beryllium: 270 } }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: tungsten-wall-large
-                  costs: { tungsten: 630 }
-                  children: [
-                    { id: "blast-door", costs: { silicon: 630, tungsten: 630 } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: diffuse
-          direction: up
-          costs: { graphite: 6480, silicon: 6480, beryllium: 4680, tungsten: 1350 }
-          children: [
-            {
-              id: disperse
-              costs: { thorium: 1350, silicon: 6480, beryllium: 11700, oxide: 750 }
-              children: [
-                {
-                  id: scathe
-                  costs: { graphite: 13500, silicon: 15300, tungsten: 17100, oxide: 1650, carbide: 2160 }
-                  children: [
-                    { id: "malign", costs: { graphite: 17100, silicon: 17100, phase-fabric: 1440, beryllium: 37800, carbide: 2160 } }
-                  ]
-                }
-              ]
-            }
-            {
-              id: sublimate
-              costs: { tungsten: 360, silicon: 360, oxide: 40, beryllium: 720 }
-              children: [
-                {
-                  id: afflict
-                  costs: { graphite: 270, silicon: 180, surge-alloy: 70, oxide: 25 }
-                  children: [
-                    {
-                      id: titan
-                      costs: { thorium: 13500, silicon: 9900, tungsten: 8280 }
-                      children: [
-                        {
-                          id: lustre
-                          costs: { graphite: 6480, silicon: 8280, oxide: 750, carbide: 900 }
-                          children: [
-                            { id: "smite", costs: { silicon: 29700, phase-fabric: 2200, surge-alloy: 10500, oxide: 3600, carbide: 5700 } }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
     {
       id: conveyor
       direction: up
@@ -394,9 +301,10 @@ root: {
                         }
                         {
                           id: mass-driver
+                          researchType: advanced
                           costs: { lead: 4300, titanium: 4300, thorium: 1500, silicon: 2400 }
                           children: [
-                            { id: "phase-conveyor", costs: { lead: 300, graphite: 300, silicon: 200, phase-fabric: 100 } }
+                            { id: "phase-conveyor", researchType: "advanced", costs: { lead: 300, graphite: 300, silicon: 200, phase-fabric: 100 } }
                           ]
                         }
                         {
@@ -408,9 +316,10 @@ root: {
                         }
                         {
                           id: plastanium-conveyor
+                          researchType: advanced
                           costs: { graphite: 80, silicon: 80, plastanium: 80 }
                           children: [
-                            { id: "armored-conveyor", costs: { metaglass: 80, thorium: 80, plastanium: 80 } }
+                            { id: "armored-conveyor", researchType: "advanced", costs: { metaglass: 80, thorium: 80, plastanium: 80 } }
                           ]
                         }
                       ]
@@ -422,7 +331,7 @@ root: {
                   costs: { titanium: 3300 }
                   children: [
                     { id: "unloader", costs: { titanium: 700, silicon: 900 } }
-                    { id: "vault", costs: { titanium: 9200, thorium: 4300 } }
+                    { id: "vault", researchType: "advanced", costs: { titanium: 9200, thorium: 4300 } }
                   ]
                 }
                 { id: "distributor", costs: { copper: 100, lead: 100 } }
@@ -447,115 +356,6 @@ root: {
       ]
     }
     {
-      id: duct
-      direction: right
-      costs: { beryllium: 4 }
-      children: [
-        {
-          id: duct-router
-          direction: up
-          costs: { beryllium: 27 }
-          children: [
-            {
-              id: duct-bridge
-              costs: { beryllium: 90 }
-              children: [
-                {
-                  id: armored-duct
-                  costs: { beryllium: 270, tungsten: 90 }
-                  children: [
-                    {
-                      id: surge-conveyor
-                      costs: { surge-alloy: 21, tungsten: 72 }
-                      children: [
-                        { id: "surge-router", costs: { surge-alloy: 70, tungsten: 72 } }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: unit-cargo-loader
-                  costs: { silicon: 2250, surge-alloy: 14, oxide: 15 }
-                  children: [
-                    { id: "unit-cargo-unload-point", costs: { silicon: 2700, oxide: 10 } }
-                  ]
-                }
-              ]
-            }
-            {
-              id: overflow-duct
-              costs: { graphite: 270, beryllium: 270 }
-              children: [
-                {
-                  id: reinforced-container
-                  costs: { graphite: 1080, tungsten: 810 }
-                  children: [
-                    { id: "duct-unloader", costs: { graphite: 540, silicon: 540, tungsten: 270 } }
-                    { id: "reinforced-vault", costs: { thorium: 1980, beryllium: 2970, tungsten: 3870 } }
-                  ]
-                }
-                { id: "underflow-duct", costs: { graphite: 270, beryllium: 270 } }
-              ]
-            }
-            {
-              id: reinforced-message
-              costs: { graphite: 270, beryllium: 90 }
-              children: [
-                {
-                  id: canvas
-                  costs: { silicon: 270, beryllium: 270 }
-                  children: [
-                    { id: "large-canvas", costs: { silicon: 360, surge-alloy: 70, beryllium: 360 } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: reinforced-payload-conveyor
-          direction: up
-          costs: { tungsten: 1080 }
-          children: [
-            {
-              id: payload-mass-driver
-              costs: { graphite: 540, silicon: 1350, tungsten: 1080 }
-              children: [
-                {
-                  id: constructor
-                  costs: { silicon: 1350, beryllium: 2160, tungsten: 1080 }
-                  children: [
-                    {
-                      id: small-deconstructor
-                      costs: { graphite: 1350, silicon: 1980, beryllium: 1980, oxide: 350 }
-                      children: [
-                        { id: "deconstructor", costs: { silicon: 8280, beryllium: 8280, oxide: 1650, carbide: 450 } }
-                        { id: "large-constructor", costs: { thorium: 2340, silicon: 4680, tungsten: 6480, oxide: 1650 } }
-                      ]
-                    }
-                  ]
-                }
-                {
-                  id: payload-loader
-                  costs: { graphite: 2340, silicon: 5040, tungsten: 2700 }
-                  children: [
-                    {
-                      id: payload-unloader
-                      costs: { graphite: 4320, silicon: 7200, tungsten: 5760 }
-                      children: [
-                        { id: "large-payload-mass-driver", costs: { graphite: 1710, silicon: 4680, phase-fabric: 60, tungsten: 3690, oxide: 450 } }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-            { id: "reinforced-payload-router", costs: { tungsten: 1620 } }
-          ]
-        }
-      ]
-    }
-    {
       id: duo
       direction: up
       costs: { copper: 50 }
@@ -574,9 +374,10 @@ root: {
                   children: [
                     {
                       id: meltdown
+                      researchType: advanced
                       costs: { copper: 52000, lead: 13000, graphite: 11000, silicon: 12000, surge-alloy: 12000 }
                       children: [
-                        { id: "foreshadow", costs: { copper: 42000, metaglass: 24000, silicon: 24000, plastanium: 7200, surge-alloy: 11000 } }
+                        { id: "foreshadow", researchType: "advanced", costs: { copper: 42000, metaglass: 24000, silicon: 24000, plastanium: 7200, surge-alloy: 11000 } }
                       ]
                     }
                     { id: "shock-mine", costs: { lead: 700, silicon: 300 } }
@@ -590,10 +391,10 @@ root: {
                       id: parallax
                       costs: { graphite: 1500, titanium: 3700, silicon: 5600 }
                       children: [
-                        { id: "segment", costs: { titanium: 1200, thorium: 2600, silicon: 4500, phase-fabric: 1200 } }
+                        { id: "segment", researchType: "advanced", costs: { titanium: 1200, thorium: 2600, silicon: 4500, phase-fabric: 1200 } }
                       ]
                     }
-                    { id: "tsunami", costs: { lead: 15000, metaglass: 3300, titanium: 9200, thorium: 3300 } }
+                    { id: "tsunami", researchType: "advanced", costs: { lead: 15000, metaglass: 3300, titanium: 9200, thorium: 3300 } }
                   ]
                 }
               ]
@@ -640,30 +441,34 @@ root: {
                     }
                     {
                       id: plastanium-wall
+                      researchType: advanced
                       costs: { metaglass: 100, plastanium: 100 }
                       children: [
-                        { id: "plastanium-wall-large", costs: { metaglass: 200, plastanium: 600 } }
+                        { id: "plastanium-wall-large", researchType: "advanced", costs: { metaglass: 200, plastanium: 600 } }
                       ]
                     }
                     {
                       id: thorium-wall
+                      researchType: advanced
                       costs: { thorium: 200 }
                       children: [
                         {
                           id: surge-wall
+                          researchType: advanced
                           costs: { surge-alloy: 200 }
                           children: [
                             {
                               id: phase-wall
+                              researchType: advanced
                               costs: { phase-fabric: 200 }
                               children: [
-                                { id: "phase-wall-large", costs: { phase-fabric: 700 } }
+                                { id: "phase-wall-large", researchType: "advanced", costs: { phase-fabric: 700 } }
                               ]
                             }
-                            { id: "surge-wall-large", costs: { surge-alloy: 700 } }
+                            { id: "surge-wall-large", researchType: "advanced", costs: { surge-alloy: 700 } }
                           ]
                         }
-                        { id: "thorium-wall-large", costs: { thorium: 700 } }
+                        { id: "thorium-wall-large", researchType: "advanced", costs: { thorium: 700 } }
                       ]
                     }
                     { id: "titanium-wall-large", costs: { titanium: 700 } }
@@ -689,18 +494,20 @@ root: {
                       id: ripple
                       costs: { copper: 5200, graphite: 4600, titanium: 1900 }
                       children: [
-                        { id: "fuse", costs: { copper: 8200, graphite: 8200, thorium: 3300 } }
+                        { id: "fuse", researchType: "advanced", costs: { copper: 8200, graphite: 8200, thorium: 3300 } }
                       ]
                     }
                     {
                       id: swarmer
+                      researchType: advanced
                       costs: { graphite: 1000, titanium: 1000, silicon: 900, plastanium: 1400 }
                       children: [
                         {
                           id: cyclone
+                          researchType: advanced
                           costs: { copper: 7200, titanium: 4300, plastanium: 2600 }
                           children: [
-                            { id: "spectre", costs: { copper: 38000, graphite: 11000, thorium: 9200, plastanium: 6200, surge-alloy: 9200 } }
+                            { id: "spectre", researchType: "advanced", costs: { copper: 38000, graphite: 11000, thorium: 9200, plastanium: 6200, surge-alloy: 9200 } }
                           ]
                         }
                       ]
@@ -725,13 +532,15 @@ root: {
           children: [
             {
               id: multiplicative-reconstructor
+              researchType: advanced
               costs: { lead: 26000, titanium: 13000, thorium: 26000, silicon: 17000 }
               children: [
                 {
                   id: exponential-reconstructor
+                  researchType: advanced
                   costs: { lead: 92000, titanium: 92000, thorium: 31000, silicon: 42000, plastanium: 17000, phase-fabric: 24000 }
                   children: [
-                    { id: "tetrative-reconstructor", costs: { lead: 199000, thorium: 42000, silicon: 144000, plastanium: 24000, phase-fabric: 24000, surge-alloy: 33000 } }
+                    { id: "tetrative-reconstructor", researchType: "advanced", costs: { lead: 199000, thorium: 42000, silicon: 144000, plastanium: 24000, phase-fabric: 24000, surge-alloy: 33000 } }
                   ]
                 }
               ]
@@ -761,9 +570,6 @@ root: {
       direction: up
       costs: { copper: 10 }
       children: [
-        { id: "blast-compound", type: "item", costs: { blast-compound: 50 } }
-        { id: "carbide", type: "item", costs: { carbide: 50 } }
-        { id: "coal", type: "item", costs: { coal: 50 } }
         {
           id: combustion-generator
           costs: { copper: 700, lead: 400 }
@@ -793,9 +599,10 @@ root: {
                           children: [
                             {
                               id: overdrive-projector
+                              researchType: advanced
                               costs: { lead: 3300, titanium: 2400, silicon: 2400, plastanium: 900 }
                               children: [
-                                { id: "overdrive-dome", costs: { lead: 7200, titanium: 4500, silicon: 4500, plastanium: 2600, surge-alloy: 4100 } }
+                                { id: "overdrive-dome", researchType: "advanced", costs: { lead: 7200, titanium: 4500, silicon: 4500, plastanium: 2600, surge-alloy: 4100 } }
                               ]
                             }
                           ]
@@ -804,7 +611,7 @@ root: {
                           id: repair-point
                           costs: { copper: 900, lead: 900, silicon: 600 }
                           children: [
-                            { id: "repair-turret", costs: { thorium: 2600, silicon: 3000, plastanium: 1900 } }
+                            { id: "repair-turret", researchType: "advanced", costs: { thorium: 2600, silicon: 3000, plastanium: 1900 } }
                           ]
                         }
                       ]
@@ -817,9 +624,10 @@ root: {
                   children: [
                     {
                       id: diode
+                      researchType: advanced
                       costs: { metaglass: 300, silicon: 300, plastanium: 100 }
                       children: [
-                        { id: "surge-tower", costs: { lead: 300, titanium: 200, silicon: 400, surge-alloy: 400 } }
+                        { id: "surge-tower", researchType: "advanced", costs: { lead: 300, titanium: 200, silicon: 400, surge-alloy: 400 } }
                       ]
                     }
                   ]
@@ -828,7 +636,7 @@ root: {
                   id: solar-panel
                   costs: { lead: 300, silicon: 200 }
                   children: [
-                    { id: "solar-panel-large", costs: { lead: 1900, silicon: 2200, phase-fabric: 400 } }
+                    { id: "solar-panel-large", researchType: "advanced", costs: { lead: 1900, silicon: 2200, phase-fabric: 400 } }
                   ]
                 }
                 {
@@ -845,10 +653,11 @@ root: {
                           children: [
                             {
                               id: thorium-reactor
+                              researchType: advanced
                               costs: { lead: 11000, metaglass: 1500, graphite: 5200, thorium: 5200, silicon: 7200 }
                               children: [
-                                { id: "impact-reactor", costs: { lead: 19000, metaglass: 9200, graphite: 15000, thorium: 3300, silicon: 11000, surge-alloy: 9200 } }
-                                { id: "rtg-generator", costs: { lead: 3300, thorium: 1500, silicon: 2400, plastanium: 2400, phase-fabric: 700 } }
+                                { id: "impact-reactor", researchType: "advanced", costs: { lead: 19000, metaglass: 9200, graphite: 15000, thorium: 3300, silicon: 11000, surge-alloy: 9200 } }
+                                { id: "rtg-generator", researchType: "advanced", costs: { lead: 3300, thorium: 1500, silicon: 2400, plastanium: 2400, phase-fabric: 700 } }
                               ]
                             }
                           ]
@@ -861,12 +670,10 @@ root: {
             }
           ]
         }
-        { id: "copper", type: "item", costs: { copper: 50 } }
         {
           id: graphite-press
           costs: { copper: 2400, lead: 900 }
           children: [
-            { id: "graphite", type: "item", costs: { graphite: 50 } }
             {
               id: pneumatic-drill
               costs: { copper: 500, graphite: 300 }
@@ -874,22 +681,20 @@ root: {
                 { id: "cultivator", costs: { copper: 700, lead: 700, silicon: 300 } }
                 {
                   id: laser-drill
+                  researchType: advanced
                   costs: { copper: 1000, graphite: 900, titanium: 600, silicon: 900 }
                   children: [
-                    { id: "beryllium", type: "item", costs: { beryllium: 50 } }
-                    { id: "blast-drill", costs: { copper: 2100, titanium: 1500, thorium: 2400, silicon: 1900 } }
-                    { id: "thorium", type: "item", costs: { thorium: 50 } }
-                    { id: "tungsten", type: "item", costs: { tungsten: 50 } }
+                    { id: "blast-drill", researchType: "advanced", costs: { copper: 2100, titanium: 1500, thorium: 2400, silicon: 1900 } }
                     {
                       id: water-extractor
+                      researchType: advanced
                       costs: { copper: 900, lead: 900, metaglass: 900, graphite: 900 }
                       children: [
-                        { id: "oil-extractor", costs: { copper: 5200, lead: 3900, graphite: 6200, thorium: 3900, silicon: 2400 } }
+                        { id: "oil-extractor", researchType: "advanced", costs: { copper: 5200, lead: 3900, graphite: 6200, thorium: 3900, silicon: 2400 } }
                       ]
                     }
                   ]
                 }
-                { id: "titanium", type: "item", costs: { titanium: 50 } }
               ]
             }
             {
@@ -905,9 +710,10 @@ root: {
               children: [
                 {
                   id: dp-bazaar
+                  researchType: advanced
                   costs: { copper: 120, lead: 1200, graphite: 250, titanium: 70, silicon: 320 }
                   children: [
-                    { id: "dp-oxidise-unit", type: "unit", costs: { copper: 200, lead: 150 } }
+                    { id: "dp-oxidise-unit", type: "unit", researchType: "advanced", costs: { copper: 200, lead: 150 } }
                     {
                       id: shop-bz-01
                       type: shop-item
@@ -915,6 +721,7 @@ root: {
                       displayName: "Titanium Crate"
                       description: "400 titanium rods locked inside a floating cargo pod."
                       icon: net-shop-bz-01
+                      researchType: advanced
                       costs: { titanium: 400 }
                     }
                     {
@@ -924,6 +731,7 @@ root: {
                       displayName: "Silicon Wafer Pack"
                       description: "350 high-purity silicon wafers sealed for transit."
                       icon: net-shop-bz-02
+                      researchType: advanced
                       costs: { silicon: 350 }
                     }
                     {
@@ -933,6 +741,7 @@ root: {
                       displayName: "Thorium Cell"
                       description: "300 thorium rods encased in a shielded floating canister."
                       icon: net-shop-bz-03
+                      researchType: advanced
                       costs: { thorium: 300 }
                     }
                     {
@@ -942,6 +751,7 @@ root: {
                       displayName: "Orbital Blackbox"
                       description: "Orbital ship salvage; non-craftable, decrafts into advanced alloys."
                       icon: net-shop-bz-04
+                      researchType: advanced
                       costs: { silicon: 220, titanium: 180, plastanium: 90 }
                     }
                     {
@@ -951,6 +761,7 @@ root: {
                       displayName: "Plastanium Repeater"
                       description: "Twin rotary subweapon pods unloading rapid plastanium flechettes."
                       icon: net-shop-bz-05
+                      researchType: advanced
                       costs: { plastanium: 110, silicon: 140, titanium: 90 }
                     }
                     {
@@ -960,6 +771,7 @@ root: {
                       displayName: "Surge Sabre"
                       description: "Twin Fang Array reforged with high-voltage surge wing blades."
                       icon: net-shop-bz-06
+                      researchType: advanced
                       costs: { surge-alloy: 80, silicon: 140 }
                     }
                     {
@@ -969,6 +781,7 @@ root: {
                       displayName: "Blast Cannon Pod"
                       description: "Dorsal artillery subweapon firing high-explosive blast shells."
                       icon: net-shop-bz-07
+                      researchType: advanced
                       costs: { blast-compound: 90, titanium: 120, graphite: 100 }
                     }
                     {
@@ -978,6 +791,7 @@ root: {
                       displayName: "Phase Lance"
                       description: "Wing-mounted phase lance subweapons firing armor-piercing bolts."
                       icon: net-shop-bz-08
+                      researchType: advanced
                       costs: { phase-fabric: 95, thorium: 130, silicon: 150 }
                     }
                     {
@@ -987,6 +801,7 @@ root: {
                       displayName: "Titanium Aegis"
                       description: "Bastion Carapace reinforced with heavy titanium flank kite plates."
                       icon: net-shop-bz-09
+                      researchType: advanced
                       costs: { titanium: 150, silicon: 100 }
                     }
                     {
@@ -996,6 +811,7 @@ root: {
                       displayName: "Thorium Reactor Core"
                       description: "Miniature thorium core radiating a hexagonal reactor halo."
                       icon: net-shop-bz-10
+                      researchType: advanced
                       costs: { thorium: 160, silicon: 130, metaglass: 80 }
                     }
                     {
@@ -1005,6 +821,7 @@ root: {
                       displayName: "Plastanium Mesh"
                       description: "Impact-absorbing honeycomb shoulder armor shells."
                       icon: net-shop-bz-11
+                      researchType: advanced
                       costs: { plastanium: 130, titanium: 120, graphite: 90 }
                     }
                     {
@@ -1014,6 +831,7 @@ root: {
                       displayName: "Regen Halo"
                       description: "Projector ring bathing the unit center in a steady repair halo."
                       icon: net-shop-bz-12
+                      researchType: advanced
                       costs: { plastanium: 100, phase-fabric: 65, silicon: 140 }
                     }
                     {
@@ -1023,6 +841,7 @@ root: {
                       displayName: "Phase Blink Drive"
                       description: "Glass Thruster upgraded into twin phase-folded rear nacelles."
                       icon: net-shop-bz-13
+                      researchType: advanced
                       costs: { phase-fabric: 90, silicon: 130 }
                     }
                     {
@@ -1032,6 +851,7 @@ root: {
                       displayName: "Nano Fabricator"
                       description: "Autonomous nanobot halos energizing every weapon mount."
                       icon: net-shop-bz-14
+                      researchType: advanced
                       costs: { plastanium: 110, silicon: 180, titanium: 100 }
                     }
                     {
@@ -1041,6 +861,7 @@ root: {
                       displayName: "Astral Compass"
                       description: "Engine-core overdrive halos boosting flight speed and building."
                       icon: net-shop-bz-15
+                      researchType: advanced
                       costs: { surge-alloy: 75, phase-fabric: 60, silicon: 150 }
                     }
                     {
@@ -1050,6 +871,7 @@ root: {
                       displayName: "Test: Anthicus weapon"
                       description: "Researchable test mount using the native anthicus weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-anthicus-ui
+                      researchType: advanced
                       costs: { copper: 500, silicon: 225 }
                     }
                     {
@@ -1059,6 +881,7 @@ root: {
                       displayName: "Test: Locus weapon"
                       description: "Researchable test mount using the native locus weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-locus-ui
+                      researchType: advanced
                       costs: { copper: 350, silicon: 150 }
                     }
                     {
@@ -1068,6 +891,7 @@ root: {
                       displayName: "Test: Precept weapon"
                       description: "Researchable test mount using the native precept weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-precept-ui
+                      researchType: advanced
                       costs: { copper: 200, silicon: 75 }
                     }
                     {
@@ -1077,6 +901,7 @@ root: {
                       displayName: "Test: Quasar weapon"
                       description: "Researchable test mount using the native quasar weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-quasar-ui
+                      researchType: advanced
                       costs: { copper: 250, silicon: 100 }
                     }
                     {
@@ -1086,6 +911,7 @@ root: {
                       displayName: "Test: Dual Reign weapon"
                       description: "Researchable test mount using the native reign weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-reign-ui
+                      researchType: advanced
                       costs: { copper: 150, silicon: 50 }
                     }
                     {
@@ -1095,6 +921,7 @@ root: {
                       displayName: "Test: Scepter weapon"
                       description: "Researchable test mount using the native scepter weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-scepter-ui
+                      researchType: advanced
                       costs: { copper: 300, silicon: 125 }
                     }
                     {
@@ -1104,6 +931,7 @@ root: {
                       displayName: "Test: Spiroct weapon"
                       description: "Researchable test mount using the native spiroct weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-spiroct-ui
+                      researchType: advanced
                       costs: { copper: 450, silicon: 200 }
                     }
                     {
@@ -1113,6 +941,7 @@ root: {
                       displayName: "Test: Vanquish weapon"
                       description: "Researchable test mount using the native vanquish weapon. Native-sized weapon with an explicit inventory size."
                       icon: unit-vanquish-ui
+                      researchType: advanced
                       costs: { copper: 400, silicon: 175 }
                     }
                   ]
@@ -1121,7 +950,6 @@ root: {
                   id: kiln
                   costs: { copper: 1900, lead: 900, graphite: 900 }
                   children: [
-                    { id: "metaglass", type: "item", costs: { metaglass: 50 } }
                     {
                       id: pulverizer
                       costs: { copper: 900, lead: 700 }
@@ -1139,16 +967,10 @@ root: {
                                   id: separator
                                   costs: { copper: 900, titanium: 700 }
                                   children: [
-                                    { id: "disassembler", costs: { titanium: 3300, thorium: 2600, silicon: 5200, plastanium: 1200 } }
+                                    { id: "disassembler", researchType: "advanced", costs: { titanium: 3300, thorium: 2600, silicon: 5200, plastanium: 1200 } }
                                   ]
                                 }
-                                {
-                                  id: surge-smelter
-                                  costs: { lead: 2600, thorium: 2200, silicon: 2600 }
-                                  children: [
-                                    { id: "surge-alloy", type: "item", costs: { surge-alloy: 50 } }
-                                  ]
-                                }
+                                { id: "surge-smelter", researchType: "advanced", costs: { lead: 2600, thorium: 2200, silicon: 2600 } }
                               ]
                             }
                           ]
@@ -1167,9 +989,10 @@ root: {
                       children: [
                         {
                           id: logic-processor
+                          researchType: advanced
                           costs: { lead: 12000, graphite: 1900, thorium: 1500, silicon: 2600 }
                           children: [
-                            { id: "hyper-processor", costs: { lead: 17000, thorium: 2400, silicon: 5200, surge-alloy: 1500 } }
+                            { id: "hyper-processor", researchType: "advanced", costs: { lead: 17000, thorium: 2400, silicon: 5200, surge-alloy: 1500 } }
                           ]
                         }
                         {
@@ -1180,15 +1003,15 @@ root: {
                               id: logic-display
                               costs: { lead: 3300, metaglass: 1500, silicon: 1500 }
                               children: [
-                                { id: "large-logic-display", costs: { lead: 7200, metaglass: 3300, silicon: 5200, phase-fabric: 2400 } }
-                                { id: "tile-logic-display", costs: { lead: 200, metaglass: 200, silicon: 200, phase-fabric: 100 } }
+                                { id: "large-logic-display", researchType: "advanced", costs: { lead: 7200, metaglass: 3300, silicon: 5200, phase-fabric: 2400 } }
+                                { id: "tile-logic-display", researchType: "advanced", costs: { lead: 200, metaglass: 200, silicon: 200, phase-fabric: 100 } }
                               ]
                             }
                             {
                               id: memory-cell
                               costs: { copper: 900, graphite: 900, silicon: 900 }
                               children: [
-                                { id: "memory-bank", costs: { copper: 900, graphite: 2600, silicon: 2600, phase-fabric: 900 } }
+                                { id: "memory-bank", researchType: "advanced", costs: { copper: 900, graphite: 2600, silicon: 2600, phase-fabric: 900 } }
                               ]
                             }
                           ]
@@ -1197,7 +1020,6 @@ root: {
                     }
                   ]
                 }
-                { id: "silicon", type: "item", costs: { silicon: 50 } }
                 {
                   id: spore-press
                   costs: { lead: 1000, silicon: 900 }
@@ -1210,21 +1032,24 @@ root: {
                           id: multi-press
                           costs: { lead: 3300, graphite: 1500, titanium: 3300, silicon: 700 }
                           children: [
-                            { id: "silicon-crucible", costs: { metaglass: 2600, titanium: 4100, silicon: 1900, plastanium: 1000 } }
+                            { id: "silicon-crucible", researchType: "advanced", costs: { metaglass: 2600, titanium: 4100, silicon: 1900, plastanium: 1000 } }
                           ]
                         }
                       ]
                     }
                     {
                       id: plastanium-compressor
+                      researchType: advanced
                       costs: { lead: 3900, graphite: 1900, titanium: 2600, silicon: 2600 }
                       children: [
                         {
                           id: phase-weaver
+                          researchType: advanced
                           costs: { lead: 4100, thorium: 2400, silicon: 4500 }
                           children: [
                             {
                               id: dp-cursed-altar
+                              researchType: advanced
                               costs: { copper: 9999999, lead: 9999999, metaglass: 9999999, graphite: 9999999, sand: 9999999, coal: 9999999, titanium: 9999999, thorium: 9999999, scrap: 9999999, silicon: 9999999, plastanium: 9999999, phase-fabric: 9999999, surge-alloy: 9999999, spore-pod: 9999999, blast-compound: 9999999, pyratite: 9999999, beryllium: 9999999, tungsten: 9999999, oxide: 9999999, carbide: 9999999 }
                               children: [
                                 {
@@ -1234,6 +1059,7 @@ root: {
                                   displayName: "Philosopher's Husk"
                                   description: "Condensed forbidden matter radiating a crimson core halo."
                                   icon: net-shop-ca-01
+                                  researchType: advanced
                                   costs: { surge-alloy: 500, phase-fabric: 500, thorium: 1000 }
                                 }
                                 {
@@ -1243,6 +1069,7 @@ root: {
                                   displayName: "Void Reliquary"
                                   description: "Abyssal coffer floating silently at fixed standoff behind its bearer."
                                   icon: net-shop-ca-02
+                                  researchType: advanced
                                   costs: { plastanium: 800, silicon: 1200, titanium: 1000 }
                                 }
                                 {
@@ -1252,6 +1079,7 @@ root: {
                                   displayName: "Blood Ingot"
                                   description: "Floating scarlet alloy bar empowering weapons at hull cost."
                                   icon: net-shop-ca-03
+                                  researchType: advanced
                                   costs: { blast-compound: 700, pyratite: 700, copper: 2000 }
                                 }
                                 {
@@ -1261,6 +1089,7 @@ root: {
                                   displayName: "Bloodthirst Scythe"
                                   description: "Twin reaper wing blades granting massive damage at health cost."
                                   icon: net-shop-ca-04
+                                  researchType: advanced
                                   costs: { surge-alloy: 450, blast-compound: 600 }
                                 }
                                 {
@@ -1270,6 +1099,7 @@ root: {
                                   displayName: "Abyssal Gatling"
                                   description: "Twin demonic rotary subweapons unleashing incendiary barrages."
                                   icon: net-shop-ca-05
+                                  researchType: advanced
                                   costs: { pyratite: 650, surge-alloy: 400, silicon: 900 }
                                 }
                                 {
@@ -1279,6 +1109,7 @@ root: {
                                   displayName: "Ruinblade"
                                   description: "Corrupted Surge Sabres mounted symmetrically across the hull."
                                   icon: net-shop-ca-06
+                                  researchType: advanced
                                   costs: { surge-alloy: 600, thorium: 800 }
                                 }
                                 {
@@ -1288,6 +1119,7 @@ root: {
                                   displayName: "Eye of Malice"
                                   description: "Crimson sigil halos wreathed around every weapon mount."
                                   icon: net-shop-ca-07
+                                  researchType: advanced
                                   costs: { phase-fabric: 550, silicon: 1000, spore-pod: 600 }
                                 }
                                 {
@@ -1297,6 +1129,7 @@ root: {
                                   displayName: "Leviathan Husk"
                                   description: "Colossal obsidian flank carapaces doubling hull health and armor."
                                   icon: net-shop-ca-08
+                                  researchType: advanced
                                   costs: { thorium: 1200, plastanium: 800, titanium: 1200 }
                                 }
                                 {
@@ -1306,6 +1139,7 @@ root: {
                                   displayName: "Undying Heart"
                                   description: "Crimson core halo regenerating tremendous health."
                                   icon: net-shop-ca-09
+                                  researchType: advanced
                                   costs: { phase-fabric: 650, plastanium: 700, spore-pod: 800 }
                                 }
                                 {
@@ -1315,6 +1149,7 @@ root: {
                                   displayName: "Dread Bulwark"
                                   description: "Titanium Aegis fused with cursed spikes for extreme flank armor."
                                   icon: net-shop-ca-10
+                                  researchType: advanced
                                   costs: { surge-alloy: 550, thorium: 900 }
                                 }
                                 {
@@ -1324,6 +1159,7 @@ root: {
                                   displayName: "Martyr's Crown"
                                   description: "Iron-ember halo crown sustaining the bearer through heavy fire."
                                   icon: net-shop-ca-11
+                                  researchType: advanced
                                   costs: { pyratite: 700, thorium: 800, metaglass: 900 }
                                 }
                                 {
@@ -1333,6 +1169,7 @@ root: {
                                   displayName: "Wraith Stride"
                                   description: "Phase Blink Drive twisted into spectral crimson tail wings."
                                   icon: net-shop-ca-12
+                                  researchType: advanced
                                   costs: { phase-fabric: 700, surge-alloy: 350 }
                                 }
                                 {
@@ -1342,6 +1179,7 @@ root: {
                                   displayName: "Architect's Curse"
                                   description: "Forbidden golden shoulder claws erecting structures at blinding speed."
                                   icon: net-shop-ca-13
+                                  researchType: advanced
                                   costs: { silicon: 1500, surge-alloy: 500, plastanium: 600 }
                                 }
                                 {
@@ -1351,6 +1189,7 @@ root: {
                                   displayName: "Chrono Hourglass"
                                   description: "Floating crimson sandglass bending movement and reload time."
                                   icon: net-shop-ca-14
+                                  researchType: advanced
                                   costs: { phase-fabric: 800, silicon: 1100 }
                                 }
                                 {
@@ -1360,14 +1199,13 @@ root: {
                                   displayName: "Apotheosis Halo"
                                   description: "Ultimate grand crown halo converging offense, bastion, and flight."
                                   icon: net-shop-ca-15
+                                  researchType: advanced
                                   costs: { surge-alloy: 1000, phase-fabric: 1000 }
                                 }
                               ]
                             }
-                            { id: "phase-fabric", type: "item", costs: { phase-fabric: 50 } }
                           ]
                         }
-                        { id: "plastanium", type: "item", costs: { plastanium: 50 } }
                       ]
                     }
                   ]
@@ -1376,7 +1214,6 @@ root: {
             }
           ]
         }
-        { id: "lead", type: "item", costs: { lead: 50 } }
         {
           id: mechanical-pump
           costs: { copper: 400, metaglass: 300 }
@@ -1405,13 +1242,13 @@ root: {
                           id: pulse-conduit
                           costs: { metaglass: 80, titanium: 100 }
                           children: [
-                            { id: "phase-conduit", costs: { metaglass: 600, titanium: 300, silicon: 200, phase-fabric: 100 } }
-                            { id: "plated-conduit", costs: { metaglass: 80, thorium: 100, plastanium: 80 } }
+                            { id: "phase-conduit", researchType: "advanced", costs: { metaglass: 600, titanium: 300, silicon: 200, phase-fabric: 100 } }
+                            { id: "plated-conduit", researchType: "advanced", costs: { metaglass: 80, thorium: 100, plastanium: 80 } }
                             {
                               id: rotary-pump
                               costs: { copper: 2200, metaglass: 1500, titanium: 1000, silicon: 600 }
                               children: [
-                                { id: "impulse-pump", costs: { copper: 2600, metaglass: 3000, titanium: 1200, thorium: 1000, silicon: 900 } }
+                                { id: "impulse-pump", researchType: "advanced", costs: { copper: 2600, metaglass: 3000, titanium: 1200, thorium: 1000, silicon: 900 } }
                               ]
                             }
                           ]
@@ -1422,240 +1259,6 @@ root: {
                 }
               ]
             }
-          ]
-        }
-        { id: "oxide", type: "item", costs: { oxide: 50 } }
-        { id: "pyratite", type: "item", costs: { pyratite: 50 } }
-        { id: "sand", type: "item", costs: { sand: 50 } }
-        { id: "scrap", type: "item", costs: { scrap: 50 } }
-        { id: "spore-pod", type: "item", costs: { spore-pod: 50 } }
-      ]
-    }
-    {
-      id: plasma-bore
-      direction: right
-      costs: { beryllium: 9 }
-      children: [
-        {
-          id: impact-drill
-          direction: up
-          costs: { graphite: 810, silicon: 990, beryllium: 1350 }
-          children: [
-            {
-              id: large-plasma-bore
-              costs: { silicon: 1350, oxide: 100, beryllium: 2700, tungsten: 1080 }
-              children: [
-                { id: "eruption-drill", costs: { thorium: 4680, silicon: 9900, tungsten: 8280, oxide: 300 } }
-                { id: "large-cliff-crusher", costs: { silicon: 2340, surge-alloy: 280, beryllium: 2970, tungsten: 1350 } }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-    {
-      id: tank-fabricator
-      direction: right
-      costs: { beryllium: 180, graphite: 72, silicon: 72 }
-      children: [
-        {
-          id: ship-fabricator
-          direction: up
-          costs: { silicon: 4140, beryllium: 3240 }
-          children: [
-            {
-              id: mech-fabricator
-              costs: { silicon: 4140, beryllium: 5400, tungsten: 180 }
-              children: [
-                {
-                  id: tank-refabricator
-                  costs: { silicon: 2250, beryllium: 4860, tungsten: 1710 }
-                  children: [
-                    {
-                      id: mech-refabricator
-                      costs: { silicon: 3510, beryllium: 6210, tungsten: 4140 }
-                      children: [
-                        {
-                          id: ship-refabricator
-                          costs: { beryllium: 450, tungsten: 180, silicon: 270, oxide: 40 }
-                          children: [
-                            { id: "prime-refabricator", costs: { thorium: 1620, silicon: 13500, tungsten: 6480, oxide: 3600 } }
-                            {
-                              id: tank-assembler
-                              costs: { thorium: 7110, silicon: 9000, oxide: 1050, carbide: 300 }
-                              children: [
-                                { id: "basic-assembler-module", costs: { thorium: 12600, phase-fabric: 2200, oxide: 3450, carbide: 2520 } }
-                                { id: "mech-assembler", costs: { thorium: 21600, silicon: 37800, tungsten: 19800, oxide: 3600, carbide: 2160 } }
-                                { id: "ship-assembler", costs: { thorium: 13500, silicon: 34200, tungsten: 19800, oxide: 3600, carbide: 990 } }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: unit-repair-tower
-          direction: up
-          costs: { graphite: 2700, silicon: 2700, tungsten: 2340 }
-        }
-      ]
-    }
-    {
-      id: turbine-condenser
-      direction: right
-      costs: { beryllium: 13 }
-      children: [
-        {
-          id: beam-node
-          direction: up
-          costs: { beryllium: 4 }
-          children: [
-            {
-              id: beam-tower
-              costs: { silicon: 270, beryllium: 810, oxide: 150 }
-              children: [
-                { id: "beam-link", costs: { silicon: 8280, phase-fabric: 480, surge-alloy: 1680, beryllium: 8280, oxide: 2600, carbide: 720 } }
-              ]
-            }
-            {
-              id: regen-projector
-              costs: { silicon: 2340, beryllium: 2340, tungsten: 1710, oxide: 600 }
-              children: [
-                {
-                  id: build-tower
-                  costs: { thorium: 1710, silicon: 4680, oxide: 600 }
-                  children: [
-                    { id: "shockwave-tower", costs: { silicon: 4680, surge-alloy: 1050, tungsten: 2970, oxide: 450 } }
-                  ]
-                }
-              ]
-            }
-            {
-              id: vent-condenser
-              costs: { graphite: 540, beryllium: 1710 }
-              children: [
-                {
-                  id: chemical-combustion-chamber
-                  costs: { graphite: 1800, tungsten: 900, oxide: 5, silicon: 1350 }
-                  children: [
-                    {
-                      id: pyrolysis-generator
-                      costs: { graphite: 1170, silicon: 1170, oxide: 350, carbide: 210 }
-                      children: [
-                        {
-                          id: flux-reactor
-                          costs: { graphite: 7920, silicon: 16200, surge-alloy: 2870, oxide: 1300, carbide: 570 }
-                          children: [
-                            { id: "neoplasia-reactor", costs: { silicon: 17100, phase-fabric: 1040, surge-alloy: 5040, tungsten: 27900, oxide: 2600, carbide: 3300 } }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: cliff-crusher
-          direction: up
-          costs: { beryllium: 90, graphite: 36 }
-          children: [
-            {
-              id: silicon-arc-furnace
-              costs: { beryllium: 135, graphite: 45 }
-              children: [
-                {
-                  id: electrolyzer
-                  costs: { graphite: 1350, silicon: 1710, beryllium: 4860, tungsten: 2790 }
-                  children: [
-                    {
-                      id: oxidation-chamber
-                      costs: { graphite: 2610, silicon: 3330, beryllium: 4050, tungsten: 4050 }
-                      children: [
-                        {
-                          id: heat-redirector
-                          costs: { graphite: 2790, tungsten: 2790 }
-                          children: [
-                            {
-                              id: electric-heater
-                              costs: { beryllium: 3330, tungsten: 3330, oxide: 1850 }
-                              children: [
-                                {
-                                  id: atmospheric-concentrator
-                                  costs: { silicon: 1800, oxide: 450, beryllium: 2160 }
-                                  children: [
-                                    { id: "cyanogen-synthesizer", costs: { silicon: 3690, beryllium: 4320, oxide: 600, carbide: 780 } }
-                                  ]
-                                }
-                                {
-                                  id: carbide-crucible
-                                  costs: { thorium: 4680, tungsten: 3330, oxide: 950 }
-                                  children: [
-                                    {
-                                      id: phase-synthesizer
-                                      costs: { thorium: 2970, silicon: 2970, tungsten: 6480, carbide: 900 }
-                                      children: [
-                                        { id: "phase-heater", costs: { beryllium: 810, oxide: 450, carbide: 270 } }
-                                      ]
-                                    }
-                                  ]
-                                }
-                                {
-                                  id: heat-router
-                                  costs: { graphite: 2790, tungsten: 4140 }
-                                  children: [
-                                    { id: "small-heat-redirector", costs: { graphite: 2610, surge-alloy: 140 } }
-                                  ]
-                                }
-                                { id: "slag-heater", costs: { tungsten: 1080, oxide: 450, beryllium: 2160 } }
-                              ]
-                            }
-                          ]
-                        }
-                        { id: "surge-crucible", costs: { graphite: 2340, silicon: 2970, tungsten: 2340, oxide: 1300 } }
-                      ]
-                    }
-                    { id: "slag-incinerator", costs: { tungsten: 360 } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-        {
-          id: reinforced-conduit
-          direction: up
-          costs: { beryllium: 270 }
-          children: [
-            {
-              id: reinforced-liquid-junction
-              costs: { graphite: 90, beryllium: 180 }
-              children: [
-                { id: "reinforced-bridge-conduit", costs: { graphite: 180, beryllium: 540 } }
-                {
-                  id: reinforced-liquid-router
-                  costs: { graphite: 630, beryllium: 360 }
-                  children: [
-                    {
-                      id: reinforced-liquid-container
-                      costs: { beryllium: 1710, tungsten: 1080 }
-                      children: [
-                        { id: "reinforced-liquid-tank", costs: { beryllium: 1350, tungsten: 1080 } }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-            { id: "reinforced-pump", costs: { silicon: 540, beryllium: 1080, tungsten: 810 } }
           ]
         }
       ]

@@ -370,7 +370,7 @@ public class PlayerUnitSystem {
                 if (gameTicks < at) {
                     int left = (int) Math.ceil((at - gameTicks) / 60.0);
                     player.sendMessage(
-                        "[scarlet]/respawn unlocks in " + left + " second" + (left == 1 ? "" : "s") + ".[]"
+                        "You will respawn in " + left + " seconds"
                     );
                     return;
                 }
@@ -1027,7 +1027,7 @@ public class PlayerUnitSystem {
         Player player = playerByUuid(uuid);
         if (player != null) {
             player.sendMessage(
-                "[scarlet]You died![] [accent]/respawn[] unlocks in " + (int) respawnUnlockSeconds + " seconds."
+                "You will respawn in 40 seconds"
             );
             player.clearUnit();
         }

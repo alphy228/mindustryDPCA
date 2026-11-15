@@ -39,6 +39,9 @@ public class TechNodeDef {
     public boolean pluginUnlocked = false;
     /** True if this node is a non-gameplay grouping node. */
     public boolean virtual = false;
+    public enum ResearchType { standard, advanced }
+    public ResearchType researchType=ResearchType.standard;
+    public boolean isAdvanced(){return researchType==ResearchType.advanced;}
 
     /** Resolved Mindustry database entry ({@code Item}, {@code Liquid}, {@code Block}, {@code UnitType}, {@code SectorPreset}, etc.). */
     public transient @Nullable UnlockableContent content;
@@ -78,6 +81,7 @@ public class TechNodeDef {
      * server DataPatch / mod entries use the HJSON {@code localizedName}.
      */
     public String uiNameText() {
+        if(isAdvanced())return resolvedName()+" (Advanced)";
         if (displayName != null && !displayName.isEmpty()) return displayName;
         if (content != null) {
             if (isCustomOrModContent(content)) {

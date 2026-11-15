@@ -209,24 +209,19 @@ public class TechTreeMenu {
         }
     }
 
-    private TableBuilder buildHeaderContents(Player player) {
-        TableBuilder resBar = table().wrap(true).align("center");
-        TechResourceStorage storage = service.getStorage();
-
-        boolean anyShown = false;
-        for (Item item : storage.displayItems(player, service.getReferencedItems())) {
-            int amt = storage.getAmount(player, item);
-            if (amt <= 0) continue; // Do not show resources whose amount is 0
-
-            anyShown = true;
-            resBar.add(image("item-" + item.name + "-ui").scaling(Scaling.fit).size(20f).padRight(3f).padTop(2f).padBottom(2f));
-            resBar.add(label(formatAmount(amt)).padRight(10f).padTop(2f).padBottom(2f));
+    private TableBuilder buildHeaderContents(Player player){
+        TableBuilder header=table().growX();TechResourceStorage storage=service.getStorage();
+        for(int bank=0;bank<2;bank++){
+            TableBuilder row=table().wrap(true).align("center");row.add(label(bank==0?"On hand":"In orbit").padRight(12f));
+            boolean shown=false;
+            for(Item item:storage.displayItems(player,service.getReferencedItems())){
+                int amount=bank==0?storage.getOnHandAmount(player,item):storage.getOrbitalAmount(player,item);if(amount<=0)continue;
+                shown=true;row.add(image("item-"+item.name+"-ui").scaling(Scaling.fit).size(20f).padRight(3f));
+                row.add(label(formatAmount(amount)).padRight(10f));
+            }
+            if(!shown)row.add(label("0"));header.add(row).growX().row();
         }
-
-        if (anyShown) {
-            return table().background("pane").margin(6f).padBottom(4f).add(resBar);
-        }
-        return table();
+        return header.background("pane").margin(6f).padBottom(4f);
     }
 
     /**
@@ -342,7 +337,7 @@ public class TechTreeMenu {
         boolean unlocked = service.isUnlocked(player, node);
         boolean selected = node.id.equals(session.selectedNodeId);
         boolean parentUnlocked = service.areAncestorsUnlocked(player, node);
-        boolean canSpend = !unlocked && service.canSpendOrUnlockNow(player, node);
+        boolean canSpend = !unlocked && service.canCompleteUnlockNow(player, node);
 
         var btn = buttonTable()
             .style(unlocked ? "nodei" : "defaulti")
@@ -354,11 +349,11 @@ public class TechTreeMenu {
         if (fallback != null) {
             icon.placeholder(fallback);
         }
-        if (selected) {
-            btn.color(COL_SELECTED_TINT);
-        } else if (!unlocked && !(parentUnlocked && canSpend)) {
+        if (!unlocked && !(parentUnlocked && canSpend)) {
             btn.color("ff6464cc");
             icon.color(COL_DIM_ICON);
+        } else if(selected){
+            btn.color(COL_SELECTED_TINT);
         } else if (!unlocked) {
             icon.color("d8d8d8ff");
         }
@@ -405,7 +400,7 @@ public class TechTreeMenu {
             for (ItemStack req : node.costs) {
                 int paid = service.getProgressStore().getPaidAmount(player.uuid(), node.id, req.item.name);
                 int remaining = Math.max(req.amount - paid, 0);
-                int have = storage.getAmount(player, req.item);
+                int have = service.availableAmount(player,node,req.item);
 
                 String col = (remaining == 0 || have >= remaining)
                     ? "[white]"

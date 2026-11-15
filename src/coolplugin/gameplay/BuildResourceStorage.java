@@ -30,7 +30,7 @@ public class BuildResourceStorage implements TechResourceStorage {
         this.sessions = sessions;
     }
 
-    private int orbitalAmount(Player player, Item item) {
+    @Override public int getOrbitalAmount(Player player, Item item) {
         if (player == null || item == null || database == null || sessions == null) return 0;
         var account = sessions.getOrInitSession(player);
         return database.getOrbitalItemAmount(account.id, sessions.getActiveFactionId(player.uuid()), item.name);
@@ -44,14 +44,20 @@ public class BuildResourceStorage implements TechResourceStorage {
     @Override
     public int getAmount(Player player, Item item) {
         if (player == null || item == null) return 0;
-        return (int)Math.min(Integer.MAX_VALUE, (long)orbitalAmount(player, item)
+        return (int)Math.min(Integer.MAX_VALUE, (long)getOrbitalAmount(player, item)
             + buildSystem.getAvailableAmount(player, item));
     }
 
+    @Override public int getOnHandAmount(Player player,Item item){return player==null?0:buildSystem.getAvailableAmount(player,item);}
+    @Override public int removeOrbital(Player player,Item item,int amount){
+        int take=Math.min(Math.max(0,amount),getOrbitalAmount(player,item));if(take<=0)return 0;
+        var account=sessions.getOrInitSession(player);
+        return database.takeOrbitalItem(account.id,sessions.getActiveFactionId(player.uuid()),item.name,take)?take:0;
+    }
     @Override
     public int remove(Player player, Item item, int maxAmount) {
         if (player == null || item == null || maxAmount <= 0) return 0;
-        int orbital = Math.min(maxAmount, orbitalAmount(player, item));
+        int orbital = Math.min(maxAmount, getOrbitalAmount(player, item));
         if (orbital > 0) {
             var account = sessions.getOrInitSession(player);
             if (!database.takeOrbitalItem(account.id, sessions.getActiveFactionId(player.uuid()), item.name, orbital)) {

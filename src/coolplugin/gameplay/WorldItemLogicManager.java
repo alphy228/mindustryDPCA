@@ -415,6 +415,25 @@ public final class WorldItemLogicManager {
         return -localForward/(1f+Math.abs(localForward))*0.1f;
     }
 
+    /** Body-relative depth for decorative mounts: rear still above forward, always above the hull. */
+    public static float nonWeaponMountLayerOffset(float localForward) {
+        return 0.01f + mountLayerOffset(localForward) * 0.02f;
+    }
+
+    private static void emitMountLayer(StringBuilder sb, CompiledVisualEntry entry, boolean weapon) {
+        if (Float.isFinite(entry.def.mountLayerOffset) || !weapon) {
+            float offset = Float.isFinite(entry.def.mountLayerOffset)
+                ? entry.def.mountLayerOffset : 0.01f;
+            // baseLayer includes the historical +0.15 weapon lift. Remove it here.
+            float depth = mountLayerOffset(entry.localForwardWorld) * 0.02f;
+            sb.append("op add mountLayer baseLayer ").append(Float.toString(offset - 0.15f + depth)).append("\n");
+        } else {
+            // Keep existing weapon depth and bullet-plane clamp unless explicitly overridden.
+            sb.append("op min mountBase baseLayer 99\n");
+            sb.append("op add mountLayer mountBase ").append(Float.toString(mountLayerOffset(entry.localForwardWorld))).append("\n");
+        }
+    }
+
     public @Nullable LogicBuild getProcessorForOwner(String ownerKey) {
         ProcessorSlot slot = slotsByOwner.get(ownerKey);
         return slot == null ? null : getExistingProcessor(slot);
@@ -1014,8 +1033,7 @@ public final class WorldItemLogicManager {
 
             switch (ce.kind) {
                 case MOUNT -> {
-                    sb.append("op min mountBase baseLayer 99\n");
-                    sb.append("op add mountLayer mountBase ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
+                    emitMountLayer(sb, ce, false);
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     float rotDelta = ce.angleOffsetDeg - 90f;
                     sb.append("op add mrot urot ").append(f(rotDelta)).append("\n");
@@ -1025,8 +1043,7 @@ public final class WorldItemLogicManager {
                 }
                 case SUBWEAPON -> {
                     sb.append("subBegin").append(e).append(":\n");
-                    sb.append("op min mountBase baseLayer 99\n");
-                    sb.append("op add mountLayer mountBase ").append(Float.toString(mountLayerOffset(ce.localForwardWorld))).append("\n");
+                    emitMountLayer(sb, ce, true);
                     emitRigidTransform(sb, fwdT, sideT, "mx", "my");
                     sb.append("set aimX sx\nset aimY sy\n");
                     if(ce.def.subweaponAutoTarget){

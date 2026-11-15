@@ -128,6 +128,8 @@ public final class ShopConfigIO {
                 item.attachMode = AttachMode.parse(v.getString("attachMode", "FOLLOW"));
 
                 item.mountSubtype = MountSubtype.parse(v.getString("mountSubtype", null), item.attachMode);
+                item.mountLayerOffset = v.getFloat("mountLayerOffset", Float.NaN);
+                if (!Float.isFinite(item.mountLayerOffset)) item.mountLayerOffset = Float.NaN;
                 item.mountForwardOffset = v.getFloat("mountForwardOffset", 0f);
                 item.mountSideOffset = v.getFloat("mountSideOffset", 0f);
                 item.mountAngleOffset = v.has("mountAngleOffset") ? v.getFloat("mountAngleOffset", 0f) : Float.NaN;
@@ -231,6 +233,7 @@ public final class ShopConfigIO {
         sb.append("# Item Shop Catalog (Placeholder Items + VFX/Status Examples + Bazaar Orbital Ship Trades)\n");
         sb.append("# Categories: resource | attack | defense | utility\n");
         sb.append("# attachMode: MOUNT | HALO | FOLLOW | SUBWEAPON | VFX (ORBIT removed)\n");
+        sb.append("# mountLayerOffset: optional body-relative draw offset for MOUNT/SUBWEAPON; default MOUNT +0.01, weapons unchanged.\n");
         sb.append("# mountSubtype: SIDE_SHIELD | WING_BLADE | SHOULDER_PAD | REAR_THRUSTER | SIDE_POD | WING_POD | NOSE_PROW | SPINE_CORE | TAIL_BOOSTER | DORSAL_TURRET\n");
         sb.append("# haloAnchor: CENTER | WEAPONS | ENGINES  (haloEffect accepts any mindustry.content.Fx field name)\n");
         sb.append("# Equipped items grant bonuses; carry fullness slows by up to 75%. Capacities and minimum equip costs depend on the unit.\n\n");
@@ -255,6 +258,7 @@ public final class ShopConfigIO {
 
             if (it.attachMode == AttachMode.MOUNT || it.attachMode == AttachMode.SUBWEAPON) {
                 sb.append("    mountSubtype: ").append(it.mountSubtype.name()).append("\n");
+                if (Float.isFinite(it.mountLayerOffset)) sb.append("    mountLayerOffset: ").append(fmt(it.mountLayerOffset)).append("\n");
                 if (it.mountForwardOffset != 0f) sb.append("    mountForwardOffset: ").append(fmt(it.mountForwardOffset)).append("\n");
                 if (it.mountSideOffset != 0f) sb.append("    mountSideOffset: ").append(fmt(it.mountSideOffset)).append("\n");
                 if (!Float.isNaN(it.mountAngleOffset)) sb.append("    mountAngleOffset: ").append(fmt(it.mountAngleOffset)).append("\n");

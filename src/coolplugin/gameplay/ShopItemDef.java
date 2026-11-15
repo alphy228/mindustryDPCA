@@ -238,6 +238,8 @@ public final class ShopItemDef {
     public float mountForwardOffset = 0f;
     public float mountSideOffset = 0f;
     public float mountAngleOffset = Float.NaN;
+    /** Optional draw offset relative to the host body; NaN selects the kind-specific default. */
+    public float mountLayerOffset = Float.NaN;
 
     // Halo placement & steady geometric ShapeMarker / optional Fx parameters
     public HaloAnchor haloAnchor = HaloAnchor.CENTER;

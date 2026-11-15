@@ -88,6 +88,7 @@ public class TechTreeMenu {
             .hideExisting(true)
             .fillScreen(true)
             .show(player);
+        pushCanvasRows(player, session);
     }
 
     public void refreshOpenSession(Player player) {
@@ -156,6 +157,7 @@ public class TechTreeMenu {
         }
         if (updateCanvas) {
             Call.menuBuilderUpdate(player.con, menuId, ID_TREE_CANVAS, buildTreeCanvasContents(player, session));
+            pushCanvasRows(player, session);
         }
     }
 
@@ -238,8 +240,23 @@ public class TechTreeMenu {
             node -> service.isUnlocked(player, node)
         );
 
+        // Never put the whole expanded tree in one packet: ArcNetProvider's
+        // uncompressed packet buffer is only 32768 bytes.
+        float width = canvas.cols / 2 * (NODE_SIZE + COL_GAP)
+            + (canvas.cols % 2 == 0 ? 0f : NODE_SIZE);
         TableBuilder grid = table().align("topLeft").margin(CANVAS_MARGIN);
+        for (int r = 0; r < canvas.rows; r++) {
+            grid.add(table().id("tech-row-" + r).width(width)
+                .height(r % 2 == 0 ? NODE_SIZE : ROW_GAP)).row();
+        }
+        grid.add(space().height(CANVAS_BOTTOM_EXTRA)).row();
+        StackBuilder layers = stack().add(grid);
+        layers.add(table().id("tech-popup").align("topLeft"));
+        return table().add(layers);
+    }
 
+    private TableBuilder buildCanvasRow(Player player, PlayerMenuSession session, GridCanvas canvas, int r) {
+        TableBuilder grid = table().align("topLeft");
         // Row 0: zero-height column-width definitions so empty runs can be collapsed with colspan()
         for (int c = 0; c < canvas.cols; c++) {
             float colW = (c % 2 == 0) ? NODE_SIZE : COL_GAP;
@@ -247,7 +264,6 @@ public class TechTreeMenu {
         }
         grid.row();
 
-        for (int r = 0; r < canvas.rows; r++) {
             boolean isNodeRow = (r % 2 == 0);
             float rowH = isNodeRow ? NODE_SIZE : ROW_GAP;
 
@@ -298,12 +314,28 @@ public class TechTreeMenu {
                 }
                 c++;
             }
-            grid.row();
+
+        grid.row();
+        return table().add(grid);
+    }
+
+    private void pushCanvasRows(Player player, PlayerMenuSession session) {
+        GridCanvas canvas = TechTreeLayoutEngine.buildCanvas(service.getRoot(),
+            node -> service.isVisible(player, node), node -> service.isUnlocked(player, node));
+        for (int r = 0; r < canvas.rows; r++) {
+            TableBuilder row = buildCanvasRow(player, session, canvas, r);
+            int bytes = serializeSize(row);
+            if (bytes < 0 || bytes > 24000) {
+                arc.util.Log.err("[TechTree] Refusing oversized UI row @ (@ bytes)", r, bytes);
+                continue;
+            }
+            Call.menuBuilderUpdate(player.con, menuId, "tech-row-" + r, row);
         }
-        grid.add(space().height(CANVAS_BOTTOM_EXTRA).colspan(canvas.cols)).row();
+        Call.menuBuilderUpdate(player.con, menuId, "tech-popup", buildCanvasPopup(player, session));
+    }
 
-        StackBuilder layers = stack().add(grid);
-
+    private TableBuilder buildCanvasPopup(Player player, PlayerMenuSession session) {
+        TableBuilder popup = table().align("topLeft");
         // If a node is clicked, render its submenu directly below that node
         if (!session.selectedNodeId.isEmpty()) {
             TechNodeDef selected = service.findNode(session.selectedNodeId);
@@ -321,11 +353,11 @@ public class TechTreeMenu {
                     .padTop(popupTopY)
                     .padBottom(12f);
 
-                layers.add(table().align("topLeft").add(submenu));
+                popup.add(submenu);
             }
         }
 
-        return table().add(layers);
+        return popup;
     }
 
     /**

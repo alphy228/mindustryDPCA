@@ -645,13 +645,28 @@ public final class WorldItemLogicManager {
         for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
             LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
             if(build.executor.optionalVar("terrainPlane")==null)continue; // child shards deliberately omit the guard
-            String[] names={"terrainNx","terrainNy","terrainPlane","terrainSpeed","terrainPushUntil"};
-            double[] values={nx,ny,plane,Math.max(.1f,speed)*60d/tilesize,state.tick+20d};
+            int originX=mindustry.core.World.toTile(unit.x)-3,originY=mindustry.core.World.toTile(unit.y)-3;
+            long mask=0L;
+            for(int row=0;row<7;row++)for(int col=0;col<7;col++)
+                if(FlyingTerrainGuard.forbidden((originX+col)*tilesize,(originY+row)*tilesize))mask|=1L<<(row*7+col);
+            // 49 bits fit exactly in a logic double. A plane alone extends infinitely around
+            // corners/openings; the finite mask releases control on locally non-dark tiles.
+            String[] names={"terrainNx","terrainNy","terrainPlane","terrainSpeed","terrainOriginX","terrainOriginY","terrainMask","terrainPushUntil"};
+            double[] values={nx,ny,plane,Math.max(.1f,speed)*60d/tilesize,originX,originY,(double)mask,state.tick+12d};
             for(int i=0;i<names.length;i++){
                 var variable=build.executor.optionalVar(names[i]);if(variable==null)continue;
+                if(variable.num()==values[i])continue;
                 variable.setnum(values[i]);Call.syncVariable(build,variable.id,values[i]);
             }
             break;
+        }
+    }
+
+    public void clearTerrain(Unit unit){
+        for(ProcessorSlot slot:allSlots)if(slot.ownerKey!=null&&slot.boundUnitId==unit.id){
+            LogicBuild build=getExistingProcessor(slot);if(build==null)continue;
+            var expiry=build.executor.optionalVar("terrainPushUntil");
+            if(expiry!=null&&expiry.num()>0){expiry.setnum(0);Call.syncVariable(build,expiry.id,0d);}
         }
     }
 

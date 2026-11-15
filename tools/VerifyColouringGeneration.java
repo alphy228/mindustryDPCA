@@ -1200,12 +1200,12 @@ public class VerifyColouringGeneration {
         float slow=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,8),fast=coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5,8);
         check(Math.abs(fast/slow-5)<.001f&&coolplugin.gameplay.FlyingTerrainGuard.pushStrength(1,32)>slow,
             "Pushback scales linearly with effective speed and strengthens smoothly with penetration");
-        check(coolplugin.gameplay.FlyingTerrainGuard.resistance(12)<.05f&&coolplugin.gameplay.FlyingTerrainGuard.resistance(25.6f)>.99f
+        check(coolplugin.gameplay.FlyingTerrainGuard.resistance(8)>.30f&&coolplugin.gameplay.FlyingTerrainGuard.resistance(25.6f)>.99f
             &&coolplugin.gameplay.FlyingTerrainGuard.hardDepth==28f,
-            "Resistance stays light until 1.75 tiles and ramps near the exact 3.5-tile hard fallback");
+            "Linear resistance rises immediately near the edge and keeps the exact 3.5-tile hard fallback");
         boolean linearRamp=true;
         for(int sample=0;sample<=8;sample++){
-            float t=sample/8f,depth=14f+11.6f*t;
+            float t=sample/8f,depth=25.6f*t;
             linearRamp&=Math.abs(coolplugin.gameplay.FlyingTerrainGuard.resistance(depth)-(.04f+.96f*t))<.00001f;
             linearRamp&=Math.abs(coolplugin.gameplay.FlyingTerrainGuard.pushStrength(5f,depth)-5f*(.08f+.10f*t))<.00001f;
         }
@@ -1276,6 +1276,11 @@ public class VerifyColouringGeneration {
         Vars.logicVars.get("@clientUnit",true).setconst(flyer);
         for(int i=0;i<120;i++)processors.first().executor.runOnce();
         check(flyer.within(160,160,1),"Compiled world logic retains the emergency 3.5-tile safety correction");
+        var probeBlocks=new Seq<Block>();var probeData=new Seq<Byte>();
+        for(int yy=19;yy<=21;yy++)for(int xx=20;xx<=22;xx++){
+            Tile tile=Vars.world.tile(xx,yy);probeBlocks.add(tile.block());probeData.add(tile.data);
+            tile.setBlock(Blocks.stoneWall);tile.data=4;
+        }
         flyer.set(160,160);flyer.vel.set(0,1.25f);Vars.state.tick+=2;
         // Plane at x=156, pointing left: the local unit is half a tile into darkness.
         logic.bindTerrain(flyer,-1,0,-156f/8f,flyer.speed());
@@ -1301,6 +1306,28 @@ public class VerifyColouringGeneration {
         Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
         for(int i=0;i<600;i++)processors.first().executor.runOnce();
         check(flyer.vel.x==0&&flyer.vel.y==1.5f,"A stale wall binding releases the unit immediately once local position is outside the wall plane");
+        // Still behind the same infinite plane, but beside the end of the real wall.
+        flyer.set(160,184);flyer.vel.set(0,1.5f);Vars.state.tick++;
+        Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+        for(int i=0;i<600;i++)processors.first().executor.runOnce();
+        check(flyer.vel.x==0&&flyer.vel.y==1.5f,
+            "Finite darkness mask releases stale push beside an opening even when still behind the old wall plane");
+        flyer.set(160,160);flyer.vel.set(0,1.5f);
+        logic.bindTerrain(flyer,-1,0,-156f/8f,flyer.speed());
+        processors.first().executor.optionalVar("terrainMask").setnum(1L<<48);
+        processors.first().executor.optionalVar("terrainOriginX").setnum(14);
+        processors.first().executor.optionalVar("terrainOriginY").setnum(14);
+        Vars.state.tick++;Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+        for(int i=0;i<600;i++)processors.first().executor.runOnce();
+        check(flyer.vel.x<0,"Darkness-mask bit 48 survives sync as an exact double and executes the native logic shift");
+        flyer.vel.set(0,1.5f);processors.first().executor.optionalVar("terrainOriginX").setnum(25);
+        Vars.state.tick++;Vars.logicVars.update();Vars.logicVars.get("@client",true).numval=1;Vars.logicVars.get("@clientUnit",true).setconst(flyer);
+        for(int i=0;i<600;i++)processors.first().executor.runOnce();
+        check(flyer.vel.x==0&&flyer.vel.y==1.5f,"Moving outside a stale geometry patch cannot force a rail-like correction");
+        int probeIndex=0;for(int yy=19;yy<=21;yy++)for(int xx=20;xx<=22;xx++){
+            Tile tile=Vars.world.tile(xx,yy);tile.setBlock(probeBlocks.get(probeIndex));tile.data=probeData.get(probeIndex++);
+        }
+
         Vars.logicVars.get("@client",true).numval=0;
         var context=rhino.Context.enter();
         try{

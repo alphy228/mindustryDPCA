@@ -86,7 +86,7 @@ public final class FlyingTerrainGuard {
     }
     /** Gentle outward speed target scales with effective unit speed, not an accumulating impulse. */
     public static float pushStrength(float speed,float depth){
-        float t=Mathf.clamp((depth-1.75f*Vars.tilesize)/(1.45f*Vars.tilesize));
+        float t=Mathf.clamp(depth/(3.2f*Vars.tilesize));
         return Math.max(.1f,speed)*(.08f+.10f*t);
     }
     /** Bounded relaxation toward a small outward speed: repeated frames cannot accumulate a launch. */
@@ -97,15 +97,18 @@ public final class FlyingTerrainGuard {
         float blend=1f-(float)Math.pow(1f-Mathf.clamp(resistance),Mathf.clamp(delta,0f,3f));
         return Math.max(0f,(target-outwardSpeed)*blend);
     }
-    /** Light resistance until 1.75 tiles; full response only near the 3.5-tile safety boundary. */
+    /** Linear response from the dark edge, reaching full response at 3.2 tiles. */
     public static float resistance(float depth){
-        float t=Mathf.clamp((depth-1.75f*Vars.tilesize)/(1.45f*Vars.tilesize));
+        float t=Mathf.clamp(depth/(3.2f*Vars.tilesize));
         return .04f+.96f*t;
     }
     public boolean correct(Player player){return player!=null&&correct(player.unit());}
     public boolean correct(Unit unit){
         if(unit==null||!unit.isAdded()||unit.dead||!unit.isFlying())return false;
-        if(!forbidden(unit.x,unit.y))return false;
+        if(!forbidden(unit.x,unit.y)){
+            if(visuals!=null&&unit.isPlayer())visuals.clearTerrain(unit);
+            return false;
+        }
         Vec2 exit=open(unit.x,unit.y);if(exit==null)return false;
         Vec2 toward=new Vec2(exit).sub(unit);
         // Measure from the near edge of the non-black tile, not its centre.
@@ -171,9 +174,12 @@ public final class FlyingTerrainGuard {
     public static String mlog(){return """
 jump terrainDone equal @client 0
 jump terrainDone notEqual u @clientUnit
+jump terrainDone notEqual u hostUnit
 jump terrainDone equal u null
 sensor terrainDead u @dead
 jump terrainDone notEqual terrainDead 0
+sensor terrainFlying u @flying
+jump terrainDone equal terrainFlying 0
 jump terrainPush lessThanEq terrainUntil 0
 jump terrainPush lessThan terrainUntil @tick
 setprop @x u terrainX
@@ -192,13 +198,27 @@ op max terrainDt terrainDt 0
 set terrainLastTick @tick
 sensor terrainPx u @x
 sensor terrainPy u @y
+op add terrainTx terrainPx 0.5
+op floor terrainTx terrainTx 0
+op sub terrainTx terrainTx terrainOriginX
+jump terrainDone lessThan terrainTx 0
+jump terrainDone greaterThanEq terrainTx 7
+op add terrainTy terrainPy 0.5
+op floor terrainTy terrainTy 0
+op sub terrainTy terrainTy terrainOriginY
+jump terrainDone lessThan terrainTy 0
+jump terrainDone greaterThanEq terrainTy 7
+op mul terrainBit terrainTy 7
+op add terrainBit terrainBit terrainTx
+op shr terrainBit terrainMask terrainBit
+op and terrainBit terrainBit 1
+jump terrainDone equal terrainBit 0
 op mul terrainPx terrainPx terrainNx
 op mul terrainPy terrainPy terrainNy
 op add terrainProjection terrainPx terrainPy
 op sub terrainDepth terrainPlane terrainProjection
 jump terrainDone lessThanEq terrainDepth 0
-op sub terrainT terrainDepth 1.75
-op div terrainT terrainT 1.45
+op div terrainT terrainDepth 3.2
 op max terrainT terrainT 0
 op min terrainT terrainT 1
 op mul terrainResistance terrainT 0.96
